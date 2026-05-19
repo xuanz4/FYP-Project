@@ -1,0 +1,21 @@
+﻿<aside class="sidebar">
+  <div class="brand">
+    <div class="brand-mark">TC</div>
+    <div>
+      <strong>LedgerSentinel</strong>
+      <span>Risk Operations</span>
+    </div>
+  </div>
+  <nav>
+    <a class="<%= activePage === 'dashboard' ? 'active' : '' %>" href="/">Dashboard</a>
+    <a class="<%= activePage === 'charts' ? 'active' : '' %>" href="/charts">Charts</a>
+    <a class="<%= activePage === 'alerts' ? 'active' : '' %>" href="/alerts">Alerts</a>
+    <a class="<%= activePage === 'audit' ? 'active' : '' %>" href="/audit">Audit Log</a>
+    <a class="<%= activePage === 'cases' ? 'active' : '' %>" href="/cases">Cases</a>
+    <a class="<%= activePage === 'rules' ? 'active' : '' %>" href="/rules">Rules</a>
+  </nav>
+  <div class="connection">
+    <span id="connectionDot"></span>
+    <p id="connectionText">Connecting</p>
+  </div>
+</aside>
