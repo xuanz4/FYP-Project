@@ -1,0 +1,273 @@
+DROP DATABASE IF EXISTS fyp_transaction_monitoring;
+CREATE DATABASE fyp_transaction_monitoring;
+USE fyp_transaction_monitoring;
+
+CREATE TABLE companies (
+    company_id VARCHAR(20) PRIMARY KEY,
+    company_name VARCHAR(100) NOT NULL,
+    merchant_type VARCHAR(100) NOT NULL,
+    accent VARCHAR(30) NOT NULL
+);
+
+CREATE TABLE customers (
+    customer_id VARCHAR(30) PRIMARY KEY,
+    customer_name VARCHAR(100) NOT NULL,
+    segment VARCHAR(80) NOT NULL,
+    kyc_status VARCHAR(80) NOT NULL
+);
+
+CREATE TABLE compliance_rules (
+    rule_id VARCHAR(30) PRIMARY KEY,
+    company_id VARCHAR(20) NOT NULL,
+    rule_name VARCHAR(150) NOT NULL,
+    risk_level ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL,
+    reason VARCHAR(255) NOT NULL,
+    weight INT NOT NULL,
+    amount_threshold DECIMAL(10,2) NULL,
+    count_threshold INT NULL,
+    rule_type VARCHAR(80) NOT NULL,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    FOREIGN KEY (company_id) REFERENCES companies(company_id)
+);
+
+CREATE TABLE transactions (
+    transaction_id VARCHAR(40) PRIMARY KEY,
+    company_id VARCHAR(20) NOT NULL,
+    customer_id VARCHAR(30) NOT NULL,
+    amount DECIMAL(10,2) NOT NULL,
+    currency CHAR(3) NOT NULL DEFAULT 'SGD',
+    country VARCHAR(80) NOT NULL,
+    merchant_category VARCHAR(80) NOT NULL,
+    recent_company_transactions INT NOT NULL DEFAULT 0,
+    card_spend_24h DECIMAL(10,2) NOT NULL DEFAULT 0,
+    near_threshold_count INT NOT NULL DEFAULT 0,
+    low_value_burst_count INT NOT NULL DEFAULT 0,
+    is_new_customer TINYINT(1) NOT NULL DEFAULT 0,
+    usual_spend_below_100 TINYINT(1) NOT NULL DEFAULT 0,
+    channel VARCHAR(50) NOT NULL,
+    direction ENUM('Inbound', 'Outbound') NOT NULL,
+    status ENUM('Screening', 'Cleared', 'Flagged') NOT NULL DEFAULT 'Screening',
+    risk_score INT NOT NULL DEFAULT 0,
+    risk_band ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL DEFAULT 'Low',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (company_id) REFERENCES companies(company_id),
+    FOREIGN KEY (customer_id) REFERENCES customers(customer_id)
+);
+
+CREATE TABLE transaction_matched_rules (
+    matched_rule_id INT AUTO_INCREMENT PRIMARY KEY,
+    transaction_id VARCHAR(40) NOT NULL,
+    rule_id VARCHAR(30) NOT NULL,
+    rule_weight INT NOT NULL,
+    matched_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE,
+    FOREIGN KEY (rule_id) REFERENCES compliance_rules(rule_id),
+    UNIQUE KEY uniq_transaction_rule (transaction_id, rule_id)
+);
+
+CREATE TABLE alerts (
+    alert_id VARCHAR(40) PRIMARY KEY,
+    transaction_id VARCHAR(40) NOT NULL,
+    company_id VARCHAR(20) NOT NULL,
+    customer_id VARCHAR(30) NOT NULL,
+    severity ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL,
+    risk_score INT NOT NULL,
+    alert_status ENUM('Open', 'Investigating', 'Escalated', 'Closed', 'False Positive') NOT NULL DEFAULT 'Open',
+    analyst VARCHAR(100) NOT NULL DEFAULT 'Unassigned',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE,
+    FOREIGN KEY (company_id) REFERENCES companies(company_id),
+    FOREIGN KEY (customer_id) REFERENCES customers(customer_id)
+);
+
+CREATE TABLE compliance_cases (
+    case_id VARCHAR(40) PRIMARY KEY,
+    alert_id VARCHAR(40) NOT NULL,
+    company_id VARCHAR(20) NOT NULL,
+    customer_id VARCHAR(30) NOT NULL,
+    summary VARCHAR(255) NOT NULL,
+    priority ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL,
+    case_status ENUM('Triage', 'Investigating', 'Escalated', 'Resolved', 'Closed') NOT NULL DEFAULT 'Triage',
+    due_at DATETIME NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (alert_id) REFERENCES alerts(alert_id) ON DELETE CASCADE,
+    FOREIGN KEY (company_id) REFERENCES companies(company_id),
+    FOREIGN KEY (customer_id) REFERENCES customers(customer_id)
+);
+
+CREATE TABLE audit_logs (
+    audit_id VARCHAR(40) PRIMARY KEY,
+    action VARCHAR(120) NOT NULL,
+    actor VARCHAR(100) NOT NULL DEFAULT 'System',
+    entity_type VARCHAR(80) NOT NULL,
+    entity_id VARCHAR(40),
+    company_id VARCHAR(20),
+    message VARCHAR(255),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (company_id) REFERENCES companies(company_id)
+);
+
+INSERT INTO companies (company_id, company_name, merchant_type, accent)
+VALUES
+    ('companyA', 'Company A', 'Fashion Merchant', 'blue'),
+    ('companyB', 'Company B', 'Footwear And Leather Goods', 'green'),
+    ('companyC', 'Company C', 'Skincare And Makeup Merchant', 'purple');
+
+INSERT INTO customers (customer_id, customer_name, segment, kyc_status)
+VALUES
+    ('CUS-1001', 'Ava Lim', 'Retail', 'Verified'),
+    ('CUS-1002', 'Noah Tan', 'SME', 'Verified'),
+    ('CUS-1003', 'Maya Wong', 'Private Client', 'Enhanced Due Diligence'),
+    ('CUS-1004', 'Ethan Koh', 'Retail', 'Pending Review'),
+    ('CUS-1005', 'Sophia Chen', 'Corporate', 'Verified');
+
+INSERT INTO compliance_rules
+    (rule_id, company_id, rule_name, risk_level, reason, weight, amount_threshold, count_threshold, rule_type)
+VALUES
+    ('COM-A-001', 'companyA', 'Single transaction above S$700', 'Medium', 'Above expected clothing basket', 30, 700.00, NULL, 'amount'),
+    ('COM-A-002', 'companyA', 'Single transaction above S$1,200', 'High', 'Unusual for ordinary fashion purchase', 55, 1200.00, NULL, 'amount'),
+    ('COM-A-003', 'companyA', '4+ Company A transactions within 30 min', 'Medium', 'Possible split payment or repeated attempts', 30, NULL, 4, 'recent_company_transactions'),
+    ('COM-A-004', 'companyA', 'Same card spends above S$1,500 within 24h', 'High', 'Unusual cumulative fashion spend', 55, 1500.00, NULL, 'card_spend_24h'),
+    ('COM-A-005', 'companyA', 'Several amounts just below S$700', 'Medium', 'Possible threshold avoidance', 30, 700.00, 3, 'near_threshold'),
+    ('COM-A-006', 'companyA', 'New customer first purchase above S$800', 'Medium', 'New card/account plus high-value spend', 35, 800.00, NULL, 'new_customer_amount'),
+    ('COM-B-001', 'companyB', 'Single transaction above S$1,000', 'Medium', 'Likely multiple pairs or leather goods', 30, 1000.00, NULL, 'amount'),
+    ('COM-B-002', 'companyB', 'Single transaction above S$2,000', 'High', 'Far above normal footwear basket', 60, 2000.00, NULL, 'amount'),
+    ('COM-B-003', 'companyB', '3+ Company B purchases within 30 min', 'Medium', 'Repeated attempts, split purchase, or card testing', 35, NULL, 3, 'recent_company_transactions'),
+    ('COM-B-004', 'companyB', 'Same card spends above S$1,500 within 24h', 'High', 'Unusual same-day cumulative spending', 55, 1500.00, NULL, 'card_spend_24h'),
+    ('COM-B-005', 'companyB', 'Many amounts just below S$1,000', 'Medium', 'Possible threshold avoidance', 30, 1000.00, 3, 'near_threshold'),
+    ('COM-B-006', 'companyB', 'Customer usually below S$100, suddenly above S$800', 'Medium', 'Possible account takeover or stolen card use', 35, 800.00, NULL, 'usual_spend_jump'),
+    ('COM-C-001', 'companyC', 'Single transaction above S$700', 'Medium', 'Higher than normal skincare/makeup basket', 30, 700.00, NULL, 'amount'),
+    ('COM-C-002', 'companyC', 'Single transaction above S$1,000', 'High', 'Unusual unless buying many premium items', 55, 1000.00, NULL, 'amount'),
+    ('COM-C-003', 'companyC', '4+ Company C purchases within 30 min', 'Medium', 'Possible split purchase or repeated attempts', 30, NULL, 4, 'recent_company_transactions'),
+    ('COM-C-004', 'companyC', 'Same card spends above S$1,500 within 24h', 'High', 'Unusual same-day cumulative spend', 55, 1500.00, NULL, 'card_spend_24h'),
+    ('COM-C-005', 'companyC', '5+ low-value transactions below S$20 in 10 min', 'High', 'Possible card testing', 55, 20.00, 5, 'low_value_burst'),
+    ('COM-C-006', 'companyC', 'New customer first purchase above S$800', 'Medium', 'New card/account plus high-value spend', 35, 800.00, NULL, 'new_customer_amount');
+
+INSERT INTO transactions
+    (transaction_id, company_id, customer_id, amount, currency, country, merchant_category,
+     recent_company_transactions, card_spend_24h, near_threshold_count, low_value_burst_count,
+     is_new_customer, usual_spend_below_100, channel, direction, status, risk_score, risk_band)
+VALUES
+    ('TXN-DEMO-001', 'companyA', 'CUS-1001', 95.00, 'SGD', 'Singapore', 'Fashion', 1, 180.00, 0, 0, 0, 0, 'Card Present', 'Inbound', 'Cleared', 0, 'Low'),
+    ('TXN-DEMO-002', 'companyB', 'CUS-1003', 2150.00, 'SGD', 'Singapore', 'Leather Goods', 1, 2300.00, 0, 0, 0, 0, 'E-Commerce', 'Outbound', 'Flagged', 100, 'Critical'),
+    ('TXN-DEMO-003', 'companyC', 'CUS-1004', 880.00, 'SGD', 'Malaysia', 'Skincare', 4, 950.00, 1, 0, 1, 0, 'Wallet', 'Outbound', 'Flagged', 65, 'High');
+
+INSERT INTO transaction_matched_rules (transaction_id, rule_id, rule_weight)
+VALUES
+    ('TXN-DEMO-002', 'COM-B-001', 30),
+    ('TXN-DEMO-002', 'COM-B-002', 60),
+    ('TXN-DEMO-002', 'COM-B-004', 55),
+    ('TXN-DEMO-003', 'COM-C-001', 30),
+    ('TXN-DEMO-003', 'COM-C-003', 30),
+    ('TXN-DEMO-003', 'COM-C-006', 35);
+
+INSERT INTO alerts
+    (alert_id, transaction_id, company_id, customer_id, severity, risk_score, alert_status, analyst)
+VALUES
+    ('ALT-DEMO-001', 'TXN-DEMO-002', 'companyB', 'CUS-1003', 'Critical', 100, 'Open', 'Unassigned'),
+    ('ALT-DEMO-002', 'TXN-DEMO-003', 'companyC', 'CUS-1004', 'High', 65, 'Investigating', 'Analyst');
+
+INSERT INTO compliance_cases
+    (case_id, alert_id, company_id, customer_id, summary, priority, case_status, due_at)
+VALUES
+    ('CASE-DEMO-001', 'ALT-DEMO-001', 'companyB', 'CUS-1003', 'SGD 2,150 outbound transaction flagged', 'Critical', 'Triage', DATE_ADD(NOW(), INTERVAL 2 DAY)),
+    ('CASE-DEMO-002', 'ALT-DEMO-002', 'companyC', 'CUS-1004', 'SGD 880 outbound transaction flagged', 'High', 'Investigating', DATE_ADD(NOW(), INTERVAL 2 DAY));
+
+INSERT INTO audit_logs
+    (audit_id, action, actor, entity_type, entity_id, company_id, message)
+VALUES
+    ('AUD-DEMO-001', 'Alert Created', 'System', 'Alert', 'ALT-DEMO-001', 'companyB', 'Critical alert opened for Company B transaction'),
+    ('AUD-DEMO-002', 'Case Created', 'System', 'Case', 'CASE-DEMO-001', 'companyB', 'Case generated from alert ALT-DEMO-001'),
+    ('AUD-DEMO-003', 'Alert Status Changed', 'Analyst', 'Alert', 'ALT-DEMO-002', 'companyC', 'ALT-DEMO-002 moved from Open to Investigating');
+
+CREATE INDEX idx_transactions_company ON transactions(company_id);
+CREATE INDEX idx_transactions_customer ON transactions(customer_id);
+CREATE INDEX idx_transactions_status ON transactions(status);
+CREATE INDEX idx_transactions_risk_band ON transactions(risk_band);
+CREATE INDEX idx_transactions_created_at ON transactions(created_at);
+CREATE INDEX idx_alerts_status ON alerts(alert_status);
+CREATE INDEX idx_alerts_severity ON alerts(severity);
+CREATE INDEX idx_cases_status ON compliance_cases(case_status);
+CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
+
+DELIMITER $$
+
+CREATE TRIGGER update_transaction_risk_after_rule_insert
+AFTER INSERT ON transaction_matched_rules
+FOR EACH ROW
+BEGIN
+    UPDATE transactions
+    SET risk_score = LEAST(100, (
+            SELECT COALESCE(SUM(rule_weight), 0)
+            FROM transaction_matched_rules
+            WHERE transaction_id = NEW.transaction_id
+        )),
+        risk_band = CASE
+            WHEN LEAST(100, (
+                SELECT COALESCE(SUM(rule_weight), 0)
+                FROM transaction_matched_rules
+                WHERE transaction_id = NEW.transaction_id
+            )) >= 80 THEN 'Critical'
+            WHEN LEAST(100, (
+                SELECT COALESCE(SUM(rule_weight), 0)
+                FROM transaction_matched_rules
+                WHERE transaction_id = NEW.transaction_id
+            )) >= 55 THEN 'High'
+            WHEN LEAST(100, (
+                SELECT COALESCE(SUM(rule_weight), 0)
+                FROM transaction_matched_rules
+                WHERE transaction_id = NEW.transaction_id
+            )) >= 25 THEN 'Medium'
+            ELSE 'Low'
+        END,
+        status = 'Flagged'
+    WHERE transaction_id = NEW.transaction_id;
+END$$
+
+CREATE PROCEDURE open_alert_for_transaction(IN p_transaction_id VARCHAR(40))
+BEGIN
+    DECLARE v_company_id VARCHAR(20);
+    DECLARE v_customer_id VARCHAR(30);
+    DECLARE v_risk_score INT;
+    DECLARE v_risk_band VARCHAR(20);
+
+    SELECT company_id, customer_id, risk_score, risk_band
+    INTO v_company_id, v_customer_id, v_risk_score, v_risk_band
+    FROM transactions
+    WHERE transaction_id = p_transaction_id;
+
+    INSERT INTO alerts
+        (alert_id, transaction_id, company_id, customer_id, severity, risk_score)
+    VALUES
+        (CONCAT('ALT-', UNIX_TIMESTAMP(), '-', FLOOR(RAND() * 10000)),
+         p_transaction_id, v_company_id, v_customer_id, v_risk_band, v_risk_score);
+END$$
+
+CREATE PROCEDURE create_case_for_alert(IN p_alert_id VARCHAR(40))
+BEGIN
+    DECLARE v_company_id VARCHAR(20);
+    DECLARE v_customer_id VARCHAR(30);
+    DECLARE v_severity VARCHAR(20);
+    DECLARE v_transaction_id VARCHAR(40);
+    DECLARE v_amount DECIMAL(10,2);
+    DECLARE v_direction VARCHAR(20);
+
+    SELECT a.company_id, a.customer_id, a.severity, a.transaction_id, t.amount, t.direction
+    INTO v_company_id, v_customer_id, v_severity, v_transaction_id, v_amount, v_direction
+    FROM alerts a
+    JOIN transactions t ON a.transaction_id = t.transaction_id
+    WHERE a.alert_id = p_alert_id;
+
+    INSERT INTO compliance_cases
+        (case_id, alert_id, company_id, customer_id, summary, priority, due_at)
+    VALUES
+        (CONCAT('CASE-', UNIX_TIMESTAMP(), '-', FLOOR(RAND() * 10000)),
+         p_alert_id,
+         v_company_id,
+         v_customer_id,
+         CONCAT('SGD ', v_amount, ' ', LOWER(v_direction), ' transaction flagged'),
+         v_severity,
+         DATE_ADD(NOW(), INTERVAL 2 DAY));
+END$$
+
+DELIMITER ;

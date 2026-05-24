@@ -6,6 +6,7 @@ const {
   riskBands,
   serializeCompanyRuleSets,
 } = require('./src/complianceEngine');
+const database = require('./src/database');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -38,6 +39,13 @@ const customers = [
   { id: 'CUS-1005', name: 'Sophia Chen', segment: 'Corporate', kyc: 'Verified' },
 ];
 const normalCustomerPool = [customers[0], customers[0], customers[1], customers[1], customers[2], customers[4], customers[4]];
+
+function queueDbWrite(action) {
+  if (!database.isEnabled()) return;
+  action().catch((error) => {
+    console.error(`Database write failed: ${error.message}`);
+  });
+}
 
 function id(prefix) {
   return `${prefix}-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
@@ -73,6 +81,7 @@ function logAudit(action, details = {}) {
   };
 
   pushLimited(auditLogs, entry, 200);
+  queueDbWrite(() => database.saveAuditLog(entry));
   broadcast('audit', entry);
   return entry;
 }
@@ -148,6 +157,7 @@ function createTransaction(overrides = {}) {
       companyId: transaction.companyId,
       companyName: transaction.companyName,
       customerName: transaction.customerName,
+      customerId: transaction.customerId,
       summary: `${transaction.currency} ${transaction.amount.toLocaleString()} ${transaction.direction.toLowerCase()} transaction flagged`,
       priority: transaction.riskBand,
       status: 'Triage',
@@ -158,8 +168,6 @@ function createTransaction(overrides = {}) {
     logAudit('Alert Created', {
       entityType: 'Alert',
       entityId: alert.id,
-      companyId: alert.companyId,
-      companyName: alert.companyName,
       companyId: transaction.companyId,
       companyName: transaction.companyName,
       message: `${alert.severity} alert opened for ${transaction.companyName} transaction by ${transaction.customerName}`,
@@ -171,8 +179,15 @@ function createTransaction(overrides = {}) {
       companyName: transaction.companyName,
       message: `Case generated from alert ${alert.id}`,
     });
+    queueDbWrite(async () => {
+      await database.saveTransaction(transaction);
+      await database.saveAlert(alert);
+      await database.saveCase(complianceCase);
+    });
     broadcast('alert', alert);
     broadcast('case', complianceCase);
+  } else {
+    queueDbWrite(() => database.saveTransaction(transaction));
   }
 
   broadcast('transaction', transaction);
@@ -323,12 +338,11 @@ app.patch('/api/alerts/:id', (req, res) => {
       entityId: alert.id,
       companyId: alert.companyId,
       companyName: alert.companyName,
-      companyId: transaction.companyId,
-      companyName: transaction.companyName,
       message: `${alert.id} moved from ${previousStatus} to ${alert.status}`,
     });
   }
 
+  queueDbWrite(() => database.updateAlert(alert));
   broadcast('alertUpdate', alert);
   broadcast('metrics', getMetrics());
   broadcast('charts', getCharts());
@@ -351,17 +365,47 @@ function getSnapshot() {
   };
 }
 
-for (let index = 0; index < 24; index += 1) {
-  createTransaction();
+async function loadDatabaseData() {
+  const connected = await database.initDatabase();
+  if (!connected) return false;
+
+  await Promise.all(companies.map((company) => database.upsertCompany(company)));
+  const snapshot = await database.loadSnapshot();
+
+  transactions.splice(0, transactions.length, ...snapshot.transactions);
+  alerts.splice(0, alerts.length, ...snapshot.alerts);
+  cases.splice(0, cases.length, ...snapshot.cases);
+  auditLogs.splice(0, auditLogs.length, ...snapshot.auditLogs);
+
+  return true;
 }
 
-setInterval(() => {
-  createTransaction();
-}, 4000);
+async function startServer() {
+  await loadDatabaseData();
+
+  if (!transactions.length) {
+    for (let index = 0; index < 24; index += 1) {
+      createTransaction();
+    }
+  }
+
+  const server = app.listen(PORT, () => {
+    console.log(`Compliance monitoring system running on http://localhost:${PORT}`);
+    setInterval(() => {
+      createTransaction();
+    }, 4000);
+  });
+
+  server.on('error', (error) => {
+    console.error(`Server failed to listen on port ${PORT}: ${error.message}`);
+    process.exit(1);
+  });
+}
 
 if (require.main === module) {
-  app.listen(PORT, () => {
-    console.log(`Compliance monitoring system running on http://localhost:${PORT}`);
+  startServer().catch((error) => {
+    console.error(`Failed to start server: ${error.message}`);
+    process.exit(1);
   });
 }
 
