@@ -145,11 +145,10 @@ function createTransaction(overrides = {}) {
   transaction.customerRiskLevel = normalizeRiskLevel(transaction.customerRiskLevel);
   transaction.merchantRiskLevel = normalizeRiskLevel(transaction.merchantRiskLevel || company.merchantRiskLevel);
 
-  const result = evaluateTransaction(transaction, company.rules);
   const screening = screenPayment(transaction);
-  const matchedRules = [...result.matchedRules];
+  const screeningRules = [];
   if (screening.matches.length) {
-    matchedRules.push({
+    screeningRules.push({
       id: 'SCR-001',
       name: 'Payment or customer screening match',
       risk: screening.matches.some((match) => match.type === 'Sanctions') ? 'High' : 'Medium',
@@ -157,12 +156,22 @@ function createTransaction(overrides = {}) {
       weight: screening.matches.some((match) => match.type === 'Sanctions') ? 65 : 40,
     });
   }
+  const result = evaluateTransaction(transaction, company.rules, screeningRules);
+  const matchedRules = [...result.triggeredRules];
 
   transaction.screeningStatus = screening.status;
   transaction.screeningMatches = screening.matches;
+  transaction.mccRiskScore = result.mccRiskScore;
   transaction.profileRiskScore = result.profileRiskScore;
-  transaction.riskScore = Math.min(100, result.riskScore + matchedRules.filter((rule) => rule.id.startsWith('SCR-')).reduce((score, rule) => score + rule.weight, 0));
-  transaction.riskBand = riskBands(transaction.riskScore);
+  transaction.transactionDetectionScore = result.transactionDetectionScore;
+  transaction.transactionHour = result.transactionHour;
+  transaction.operatingHoursTriggered = result.operatingHoursTriggered;
+  transaction.finalRiskScore = result.finalRiskScore;
+  transaction.riskLevel = result.riskLevel;
+  transaction.recommendedAction = result.recommendedAction;
+  transaction.triggeredRules = result.triggeredRules;
+  transaction.riskScore = result.finalRiskScore;
+  transaction.riskBand = result.riskLevel;
   transaction.status = matchedRules.length ? 'Flagged' : 'Cleared';
   transaction.matchedRules = matchedRules;
 
@@ -183,6 +192,12 @@ function createTransaction(overrides = {}) {
       duplicateAlert.groupedCount = duplicateAlert.transactionIds.length;
       duplicateAlert.riskScore = Math.max(duplicateAlert.riskScore, transaction.riskScore);
       duplicateAlert.severity = riskBands(duplicateAlert.riskScore);
+      duplicateAlert.finalRiskScore = Math.max(duplicateAlert.finalRiskScore || 0, transaction.finalRiskScore);
+      duplicateAlert.riskLevel = riskBands(duplicateAlert.finalRiskScore);
+      duplicateAlert.recommendedAction = transaction.recommendedAction;
+      duplicateAlert.mccRiskScore = transaction.mccRiskScore;
+      duplicateAlert.profileRiskScore = transaction.profileRiskScore;
+      duplicateAlert.transactionDetectionScore = transaction.transactionDetectionScore;
       duplicateAlert.updatedAt = transaction.createdAt;
       logAudit('Alert Grouped', {
         entityType: 'Alert',
@@ -206,9 +221,15 @@ function createTransaction(overrides = {}) {
         companyName: transaction.companyName,
         customerId: transaction.customerId,
         customerName: transaction.customerName,
-        severity: transaction.riskBand,
-        riskScore: transaction.riskScore,
-        rules: matchedRules,
+      severity: transaction.riskBand,
+      riskScore: transaction.riskScore,
+      mccRiskScore: transaction.mccRiskScore,
+      profileRiskScore: transaction.profileRiskScore,
+      transactionDetectionScore: transaction.transactionDetectionScore,
+      finalRiskScore: transaction.finalRiskScore,
+      riskLevel: transaction.riskLevel,
+      recommendedAction: transaction.recommendedAction,
+      rules: matchedRules,
         primaryRuleId: primaryRule.id,
         status: 'New',
         analyst: 'Unassigned',

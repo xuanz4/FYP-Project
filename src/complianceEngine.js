@@ -42,6 +42,11 @@ const riskLevelPoints = {
   HIGH: 30,
 };
 
+const defaultOperatingHours = {
+  openHour: 7,
+  closeHour: 23,
+};
+
 function normalizeRiskLevel(level) {
   const normalized = String(level || 'LOW').trim().toUpperCase();
   return Object.hasOwn(riskLevelPoints, normalized) ? normalized : 'LOW';
@@ -53,6 +58,54 @@ function riskLevelToPoints(level) {
 
 function calculateProfileRiskScore(transaction = {}) {
   return riskLevelToPoints(transaction.customerRiskLevel) + riskLevelToPoints(transaction.merchantRiskLevel);
+}
+
+function riskLevel(score) {
+  if (score >= 70) return 'Critical';
+  if (score >= 50) return 'High';
+  if (score >= 30) return 'Medium';
+  return 'Low';
+}
+
+function recommendedAction(score) {
+  if (score >= 70) return 'Manual Review or Hold Settlement';
+  if (score >= 50) return 'Request OTP';
+  if (score >= 30) return 'Monitor';
+  return 'Allow';
+}
+
+function getTransactionHour(transaction = {}) {
+  if (Number.isInteger(transaction.transactionHour)) return transaction.transactionHour;
+
+  const timestamp = transaction.createdAt || transaction.timestamp;
+  const date = timestamp ? new Date(timestamp) : null;
+  if (!date || Number.isNaN(date.getTime())) return null;
+  return date.getHours();
+}
+
+function isOutsideOperatingHours(transactionHour, operatingHours = defaultOperatingHours) {
+  if (!Number.isInteger(transactionHour)) return false;
+  return transactionHour < operatingHours.openHour || transactionHour >= operatingHours.closeHour;
+}
+
+function buildOperatingHoursRule(transaction = {}, operatingHours = defaultOperatingHours) {
+  const transactionHour = getTransactionHour(transaction);
+  const operatingHoursTriggered = isOutsideOperatingHours(transactionHour, operatingHours);
+
+  return {
+    transactionHour,
+    operatingHoursTriggered,
+    rules: operatingHoursTriggered
+      ? [{
+        id: 'TIME-001',
+        name: 'Transaction Outside Operating Hours',
+        risk: 'Medium',
+        reason: 'Transaction occurred outside normal merchant operating hours.',
+        weight: 10,
+        source: 'operating_hours',
+      }]
+      : [],
+  };
 }
 
 function buildProfileRiskRules(transaction = {}) {
@@ -198,11 +251,13 @@ const companyRuleSets = {
   },
 };
 
-function evaluateTransaction(transaction, rules = defaultRules) {
-  const industryRiskScore = Number(transaction.industryRiskScore) || 0;
+function evaluateTransaction(transaction, rules = defaultRules, additionalDetectionRules = []) {
+  const mccRiskScore = Number(transaction.industryRiskScore) || Number(transaction.mccRiskScore) || 0;
   const profileRiskScore = calculateProfileRiskScore(transaction);
   const profileRiskRules = buildProfileRiskRules(transaction);
-  const matchedRules = rules
+  // Apply the default merchant operating-hours rule here so future merchant-specific windows can be swapped in centrally.
+  const operatingHoursCheck = buildOperatingHoursRule(transaction);
+  const transactionRules = rules
     .filter((rule) => rule.test(transaction))
     .map((rule) => ({
       id: rule.id,
@@ -211,24 +266,28 @@ function evaluateTransaction(transaction, rules = defaultRules) {
       reason: rule.reason,
       weight: rule.weight,
     }));
-
-  const riskScore = Math.min(
-    100,
-    industryRiskScore + profileRiskScore + matchedRules.reduce((score, rule) => score + rule.weight, 0),
-  );
+  const detectionRules = [...transactionRules, ...operatingHoursCheck.rules, ...additionalDetectionRules];
+  const transactionDetectionScore = detectionRules.reduce((score, rule) => score + (Number(rule.weight) || 0), 0);
+  const finalRiskScore = mccRiskScore + profileRiskScore + transactionDetectionScore;
+  const triggeredRules = [...profileRiskRules, ...detectionRules];
 
   return {
-    riskScore,
+    mccRiskScore,
     profileRiskScore,
-    matchedRules: [...profileRiskRules, ...matchedRules],
+    transactionDetectionScore,
+    transactionHour: operatingHoursCheck.transactionHour,
+    operatingHoursTriggered: operatingHoursCheck.operatingHoursTriggered,
+    finalRiskScore,
+    riskLevel: riskLevel(finalRiskScore),
+    recommendedAction: recommendedAction(finalRiskScore),
+    triggeredRules,
+    riskScore: finalRiskScore,
+    matchedRules: triggeredRules,
   };
 }
 
 function riskBands(score) {
-  if (score >= 80) return 'Critical';
-  if (score >= 55) return 'High';
-  if (score >= 25) return 'Medium';
-  return 'Low';
+  return riskLevel(score);
 }
 
 function serializeCompanyRuleSets(ruleSets = companyRuleSets) {
@@ -255,9 +314,14 @@ function serializeCompanyRuleSets(ruleSets = companyRuleSets) {
 module.exports = {
   defaultRules,
   companyRuleSets,
+  defaultOperatingHours,
   calculateProfileRiskScore,
   evaluateTransaction,
+  getTransactionHour,
+  isOutsideOperatingHours,
   normalizeRiskLevel,
+  recommendedAction,
+  riskLevel,
   riskBands,
   riskLevelPoints,
   riskLevelToPoints,
