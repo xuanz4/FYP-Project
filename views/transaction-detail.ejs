@@ -55,6 +55,9 @@
                                         <%= transaction.companyName || 'Company' %> &middot; <%= transaction.customerId
                                                 %>
                                     </p>
+                                    <p>
+                                        MCC <%= transaction.mccCode || 'N/A' %> &middot; <%= transaction.industry || 'Industry N/A' %>
+                                    </p>
                                 </div>
                                 <span class="badge risk-<%= transaction.riskBand.toLowerCase() %>">
                                     <%= transaction.riskBand %>
@@ -93,8 +96,11 @@
                                 <article><span>Screening</span><strong>
                                         <%= transaction.screeningStatus || 'Pending' %>
                                     </strong></article>
-                                <article><span>Currency</span><strong>
-                                        <%= transaction.currency %>
+                                <article><span>Industry Risk</span><strong>
+                                        <%= transaction.industryRiskScore || 0 %>
+                                    </strong></article>
+                                <article><span>Profile Risk</span><strong>
+                                        <%= transaction.profileRiskScore || 0 %>
                                     </strong></article>
                             </div>
                         </article>
@@ -158,6 +164,24 @@
                                     </dd>
                                 </div>
                                 <div>
+                                    <dt>MCC Code</dt>
+                                    <dd>
+                                        <%= transaction.mccCode || 'N/A' %>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>Industry</dt>
+                                    <dd>
+                                        <%= transaction.industry || 'N/A' %>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>Industry Risk Score</dt>
+                                    <dd>
+                                        <%= transaction.industryRiskScore || 0 %>
+                                    </dd>
+                                </div>
+                                <div>
                                     <dt>Channel</dt>
                                     <dd>
                                         <%= transaction.channel %>
@@ -191,6 +215,24 @@
                                     <dt>KYC Status</dt>
                                     <dd>
                                         <%= transaction.kycStatus %>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>Customer Risk Level</dt>
+                                    <dd>
+                                        <%= transaction.customerRiskLevel || 'LOW' %>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>Merchant Risk Level</dt>
+                                    <dd>
+                                        <%= transaction.merchantRiskLevel || 'LOW' %>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>Profile Risk Score</dt>
+                                    <dd>
+                                        <%= transaction.profileRiskScore || 0 %>
                                     </dd>
                                 </div>
                                 <div>
@@ -341,6 +383,11 @@
                                     <span>Merchant Category</span>
                                     <input id="transactionActionCategory" name="merchantCategory" type="text" readonly
                                         value="<%= transaction.merchantCategory %>">
+                                </label>
+                                <label>
+                                    <span>MCC / Industry</span>
+                                    <input name="industry" type="text" readonly
+                                        value="<%= transaction.mccCode || 'N/A' %> / <%= transaction.industry || 'N/A' %>">
                                 </label>
                                 <label>
                                     <span>Analyst Notes</span>

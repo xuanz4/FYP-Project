@@ -1,5 +1,12 @@
 const assert = require('assert');
-const { evaluateTransaction, riskBands } = require('../src/complianceEngine');
+const {
+  calculateProfileRiskScore,
+  evaluateTransaction,
+  riskBands,
+  riskLevelToPoints,
+  companyRuleSets,
+  serializeCompanyRuleSets,
+} = require('../src/complianceEngine');
 const { buildAnalytics } = require('../src/analyticsEngine');
 const { buildCustomerRiskProfiles } = require('../src/customerRiskEngine');
 const { screenPayment } = require('../src/screeningEngine');
@@ -22,6 +29,17 @@ const lowRiskTransaction = {
 
 const highRiskResult = evaluateTransaction(highRiskTransaction);
 const lowRiskResult = evaluateTransaction(lowRiskTransaction);
+const industryRiskResult = evaluateTransaction({ ...lowRiskTransaction, industryRiskScore: 12 });
+const profileRiskResult = evaluateTransaction({
+  ...lowRiskTransaction,
+  customerRiskLevel: 'HIGH',
+  merchantRiskLevel: 'MEDIUM',
+});
+const highProfileRiskResult = evaluateTransaction({
+  ...lowRiskTransaction,
+  customerRiskLevel: 'HIGH',
+  merchantRiskLevel: 'HIGH',
+});
 
 assert.strictEqual(highRiskResult.riskScore, 100);
 assert.strictEqual(riskBands(highRiskResult.riskScore), 'Critical');
@@ -30,6 +48,21 @@ assert.strictEqual(highRiskResult.matchedRules.length, 5);
 assert.strictEqual(lowRiskResult.riskScore, 0);
 assert.strictEqual(riskBands(lowRiskResult.riskScore), 'Low');
 assert.strictEqual(lowRiskResult.matchedRules.length, 0);
+
+assert.strictEqual(industryRiskResult.riskScore, 12);
+assert.strictEqual(industryRiskResult.matchedRules.length, 0);
+assert.strictEqual(companyRuleSets.companyA.mccCode, '5651');
+assert.strictEqual(serializeCompanyRuleSets()[0].industryRiskScore, 8);
+
+assert.strictEqual(riskLevelToPoints('LOW'), 0);
+assert.strictEqual(riskLevelToPoints('MEDIUM'), 15);
+assert.strictEqual(riskLevelToPoints('HIGH'), 30);
+assert.strictEqual(calculateProfileRiskScore({ customerRiskLevel: 'HIGH', merchantRiskLevel: 'MEDIUM' }), 45);
+assert.strictEqual(profileRiskResult.profileRiskScore, 45);
+assert.strictEqual(profileRiskResult.riskScore, 45);
+assert.strictEqual(highProfileRiskResult.profileRiskScore, 60);
+assert.ok(highProfileRiskResult.matchedRules.some((rule) => rule.id === 'PROFILE-CUSTOMER-HIGH'));
+assert.ok(highProfileRiskResult.matchedRules.some((rule) => rule.id === 'PROFILE-MERCHANT-HIGH'));
 
 const analytics = buildAnalytics(
   [
@@ -81,6 +114,8 @@ const customerProfiles = buildCustomerRiskProfiles(
       customerName: 'Maya Wong',
       segment: 'Private Client',
       kycStatus: 'Enhanced Due Diligence',
+      customerRiskLevel: 'HIGH',
+      merchantRiskLevel: 'MEDIUM',
       country: 'Singapore',
       companyId: 'companyA',
       companyName: 'Company A',

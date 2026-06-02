@@ -6,6 +6,10 @@ CREATE TABLE companies (
     company_id VARCHAR(20) PRIMARY KEY,
     company_name VARCHAR(100) NOT NULL,
     merchant_type VARCHAR(100) NOT NULL,
+    mcc_code VARCHAR(4) NOT NULL,
+    industry VARCHAR(100) NOT NULL,
+    industry_risk_score INT NOT NULL DEFAULT 0,
+    merchant_risk_level ENUM('LOW', 'MEDIUM', 'HIGH') NOT NULL DEFAULT 'LOW',
     accent VARCHAR(30) NOT NULL
 );
 
@@ -13,7 +17,8 @@ CREATE TABLE customers (
     customer_id VARCHAR(30) PRIMARY KEY,
     customer_name VARCHAR(100) NOT NULL,
     segment VARCHAR(80) NOT NULL,
-    kyc_status VARCHAR(80) NOT NULL
+    kyc_status VARCHAR(80) NOT NULL,
+    customer_risk_level ENUM('LOW', 'MEDIUM', 'HIGH') NOT NULL DEFAULT 'LOW'
 );
 
 CREATE TABLE compliance_rules (
@@ -143,19 +148,19 @@ CREATE TABLE audit_logs (
     FOREIGN KEY (company_id) REFERENCES companies(company_id)
 );
 
-INSERT INTO companies (company_id, company_name, merchant_type, accent)
+INSERT INTO companies (company_id, company_name, merchant_type, mcc_code, industry, industry_risk_score, merchant_risk_level, accent)
 VALUES
-    ('companyA', 'Company A', 'Fashion Merchant', 'blue'),
-    ('companyB', 'Company B', 'Footwear And Leather Goods', 'green'),
-    ('companyC', 'Company C', 'Skincare And Makeup Merchant', 'purple');
+    ('companyA', 'Company A', 'Fashion Merchant', '5651', 'Family Clothing Stores', 8, 'LOW', 'blue'),
+    ('companyB', 'Company B', 'Footwear And Leather Goods', '5661', 'Shoe Stores', 12, 'MEDIUM', 'green'),
+    ('companyC', 'Company C', 'Skincare And Makeup Merchant', '5977', 'Cosmetic Stores', 10, 'HIGH', 'purple');
 
-INSERT INTO customers (customer_id, customer_name, segment, kyc_status)
+INSERT INTO customers (customer_id, customer_name, segment, kyc_status, customer_risk_level)
 VALUES
-    ('CUS-1001', 'Ava Lim', 'Retail', 'Verified'),
-    ('CUS-1002', 'Noah Tan', 'SME', 'Verified'),
-    ('CUS-1003', 'Maya Wong', 'Private Client', 'Enhanced Due Diligence'),
-    ('CUS-1004', 'Ethan Koh', 'Retail', 'Pending Review'),
-    ('CUS-1005', 'Sophia Chen', 'Corporate', 'Verified');
+    ('CUS-1001', 'Ava Lim', 'Retail', 'Verified', 'LOW'),
+    ('CUS-1002', 'Noah Tan', 'SME', 'Verified', 'MEDIUM'),
+    ('CUS-1003', 'Maya Wong', 'Private Client', 'Enhanced Due Diligence', 'HIGH'),
+    ('CUS-1004', 'Ethan Koh', 'Retail', 'Pending Review', 'HIGH'),
+    ('CUS-1005', 'Sophia Chen', 'Corporate', 'Verified', 'LOW');
 
 INSERT INTO compliance_rules
     (rule_id, company_id, rule_name, risk_level, reason, weight, amount_threshold, count_threshold, rule_type)
@@ -178,7 +183,9 @@ VALUES
     ('COM-C-004', 'companyC', 'Same card spends above S$1,500 within 24h', 'High', 'Unusual same-day cumulative spend', 55, 1500.00, NULL, 'card_spend_24h'),
     ('COM-C-005', 'companyC', '5+ low-value transactions below S$20 in 10 min', 'High', 'Possible card testing', 55, 20.00, 5, 'low_value_burst'),
     ('COM-C-006', 'companyC', 'New customer first purchase above S$800', 'Medium', 'New card/account plus high-value spend', 35, 800.00, NULL, 'new_customer_amount'),
-    ('SCR-001', 'companyA', 'Payment or customer screening match', 'High', 'Sanctions, PEP, watchlist, or adverse-media screening match', 65, NULL, NULL, 'screening_match');
+    ('SCR-001', 'companyA', 'Payment or customer screening match', 'High', 'Sanctions, PEP, watchlist, or adverse-media screening match', 65, NULL, NULL, 'screening_match'),
+    ('PROFILE-CUSTOMER-HIGH', 'companyA', 'High-risk customer profile', 'High', 'Customer KYC risk level is HIGH', 30, NULL, NULL, 'profile_risk'),
+    ('PROFILE-MERCHANT-HIGH', 'companyA', 'High-risk merchant profile', 'High', 'Merchant risk level is HIGH', 30, NULL, NULL, 'profile_risk');
 
 INSERT INTO transactions
     (transaction_id, company_id, customer_id, amount, currency, country, merchant_category,
@@ -186,9 +193,9 @@ INSERT INTO transactions
      is_new_customer, usual_spend_below_100, channel, direction, counterparty_name,
      counterparty_country, payment_reference, screening_status, status, risk_score, risk_band)
 VALUES
-    ('TXN-DEMO-001', 'companyA', 'CUS-1001', 95.00, 'SGD', 'Singapore', 'Fashion', 1, 180.00, 0, 0, 0, 0, 'Card Present', 'Inbound', 'Harbour Retail Pte Ltd', 'Singapore', 'Fashion purchase Harbour Retail Pte Ltd', 'Clear', 'Cleared', 0, 'Low'),
+    ('TXN-DEMO-001', 'companyA', 'CUS-1001', 95.00, 'SGD', 'Singapore', 'Fashion', 1, 180.00, 0, 0, 0, 0, 'Card Present', 'Inbound', 'Harbour Retail Pte Ltd', 'Singapore', 'Fashion purchase Harbour Retail Pte Ltd', 'Clear', 'Cleared', 8, 'Low'),
     ('TXN-DEMO-002', 'companyB', 'CUS-1003', 2150.00, 'SGD', 'Singapore', 'Leather Goods', 1, 2300.00, 0, 0, 0, 0, 'E-Commerce', 'Outbound', 'Orion Trade Holdings', 'Iran', 'Invoice payment to Orion Trade Holdings', 'Potential Match', 'Flagged', 100, 'Critical'),
-    ('TXN-DEMO-003', 'companyC', 'CUS-1004', 880.00, 'SGD', 'Malaysia', 'Skincare', 4, 950.00, 1, 0, 1, 0, 'Wallet', 'Outbound', 'Maple Distribution', 'Malaysia', 'Skincare purchase Maple Distribution', 'Clear', 'Flagged', 95, 'Critical');
+    ('TXN-DEMO-003', 'companyC', 'CUS-1004', 880.00, 'SGD', 'Malaysia', 'Skincare', 4, 950.00, 1, 0, 1, 0, 'Wallet', 'Outbound', 'Maple Distribution', 'Malaysia', 'Skincare purchase Maple Distribution', 'Clear', 'Flagged', 100, 'Critical');
 
 INSERT INTO transaction_screening_matches
     (transaction_id, watchlist_id, watchlist_name, match_type, match_field, input_value,
@@ -205,15 +212,18 @@ VALUES
     ('TXN-DEMO-002', 'COM-B-002', 60),
     ('TXN-DEMO-002', 'COM-B-004', 55),
     ('TXN-DEMO-002', 'SCR-001', 65),
+    ('TXN-DEMO-002', 'PROFILE-CUSTOMER-HIGH', 30),
     ('TXN-DEMO-003', 'COM-C-001', 30),
     ('TXN-DEMO-003', 'COM-C-003', 30),
-    ('TXN-DEMO-003', 'COM-C-006', 35);
+    ('TXN-DEMO-003', 'COM-C-006', 35),
+    ('TXN-DEMO-003', 'PROFILE-CUSTOMER-HIGH', 30),
+    ('TXN-DEMO-003', 'PROFILE-MERCHANT-HIGH', 30);
 
 INSERT INTO alerts
     (alert_id, transaction_id, primary_rule_id, grouped_count, company_id, customer_id, severity, risk_score, alert_status, analyst)
 VALUES
     ('ALT-DEMO-001', 'TXN-DEMO-002', 'COM-B-001', 1, 'companyB', 'CUS-1003', 'Critical', 100, 'New', 'Unassigned'),
-    ('ALT-DEMO-002', 'TXN-DEMO-003', 'COM-C-001', 1, 'companyC', 'CUS-1004', 'Critical', 95, 'Under Review', 'Operations Team');
+    ('ALT-DEMO-002', 'TXN-DEMO-003', 'COM-C-001', 1, 'companyC', 'CUS-1004', 'Critical', 100, 'Under Review', 'Operations Team');
 
 INSERT INTO alert_transaction_links (alert_id, transaction_id)
 VALUES
@@ -251,32 +261,84 @@ CREATE TRIGGER update_transaction_risk_after_rule_insert
 AFTER INSERT ON transaction_matched_rules
 FOR EACH ROW
 BEGIN
-    UPDATE transactions
+    UPDATE transactions t
     SET risk_score = LEAST(100, (
+            SELECT COALESCE(industry_risk_score, 0)
+            FROM companies
+            WHERE company_id = t.company_id
+        ) + (
+            SELECT CASE cu.customer_risk_level WHEN 'HIGH' THEN 30 WHEN 'MEDIUM' THEN 15 ELSE 0 END
+            FROM customers cu
+            WHERE cu.customer_id = t.customer_id
+        ) + (
+            SELECT CASE c.merchant_risk_level WHEN 'HIGH' THEN 30 WHEN 'MEDIUM' THEN 15 ELSE 0 END
+            FROM companies c
+            WHERE c.company_id = t.company_id
+        ) + (
             SELECT COALESCE(SUM(rule_weight), 0)
             FROM transaction_matched_rules
             WHERE transaction_id = NEW.transaction_id
+              AND rule_id NOT LIKE 'PROFILE-%'
         )),
         risk_band = CASE
             WHEN LEAST(100, (
+                SELECT COALESCE(industry_risk_score, 0)
+                FROM companies
+                WHERE company_id = t.company_id
+            ) + (
+                SELECT CASE cu.customer_risk_level WHEN 'HIGH' THEN 30 WHEN 'MEDIUM' THEN 15 ELSE 0 END
+                FROM customers cu
+                WHERE cu.customer_id = t.customer_id
+            ) + (
+                SELECT CASE c.merchant_risk_level WHEN 'HIGH' THEN 30 WHEN 'MEDIUM' THEN 15 ELSE 0 END
+                FROM companies c
+                WHERE c.company_id = t.company_id
+            ) + (
                 SELECT COALESCE(SUM(rule_weight), 0)
                 FROM transaction_matched_rules
                 WHERE transaction_id = NEW.transaction_id
+                  AND rule_id NOT LIKE 'PROFILE-%'
             )) >= 80 THEN 'Critical'
             WHEN LEAST(100, (
+                SELECT COALESCE(industry_risk_score, 0)
+                FROM companies
+                WHERE company_id = t.company_id
+            ) + (
+                SELECT CASE cu.customer_risk_level WHEN 'HIGH' THEN 30 WHEN 'MEDIUM' THEN 15 ELSE 0 END
+                FROM customers cu
+                WHERE cu.customer_id = t.customer_id
+            ) + (
+                SELECT CASE c.merchant_risk_level WHEN 'HIGH' THEN 30 WHEN 'MEDIUM' THEN 15 ELSE 0 END
+                FROM companies c
+                WHERE c.company_id = t.company_id
+            ) + (
                 SELECT COALESCE(SUM(rule_weight), 0)
                 FROM transaction_matched_rules
                 WHERE transaction_id = NEW.transaction_id
+                  AND rule_id NOT LIKE 'PROFILE-%'
             )) >= 55 THEN 'High'
             WHEN LEAST(100, (
+                SELECT COALESCE(industry_risk_score, 0)
+                FROM companies
+                WHERE company_id = t.company_id
+            ) + (
+                SELECT CASE cu.customer_risk_level WHEN 'HIGH' THEN 30 WHEN 'MEDIUM' THEN 15 ELSE 0 END
+                FROM customers cu
+                WHERE cu.customer_id = t.customer_id
+            ) + (
+                SELECT CASE c.merchant_risk_level WHEN 'HIGH' THEN 30 WHEN 'MEDIUM' THEN 15 ELSE 0 END
+                FROM companies c
+                WHERE c.company_id = t.company_id
+            ) + (
                 SELECT COALESCE(SUM(rule_weight), 0)
                 FROM transaction_matched_rules
                 WHERE transaction_id = NEW.transaction_id
+                  AND rule_id NOT LIKE 'PROFILE-%'
             )) >= 25 THEN 'Medium'
             ELSE 'Low'
         END,
         status = 'Flagged'
-    WHERE transaction_id = NEW.transaction_id;
+    WHERE t.transaction_id = NEW.transaction_id;
 END$$
 
 CREATE PROCEDURE open_alert_for_transaction(IN p_transaction_id VARCHAR(40))

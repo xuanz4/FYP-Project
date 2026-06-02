@@ -3,6 +3,7 @@ const path = require('path');
 const {
   evaluateTransaction,
   companyRuleSets,
+  normalizeRiskLevel,
   riskBands,
   serializeCompanyRuleSets,
 } = require('./src/complianceEngine');
@@ -36,11 +37,11 @@ const riskyMerchantCategories = ['Luxury Resale', 'Premium Bundle'];
 const channels = ['Card Present', 'E-Commerce', 'Wallet', 'Bank Transfer', 'ATM'];
 const counterparties = ['Harbour Retail Pte Ltd', 'Northbridge Luxury Resale', 'Orion Trade Holdings', 'Crimson Exchange', 'Maple Distribution'];
 const customers = [
-  { id: 'CUS-1001', name: 'Ava Lim', segment: 'Retail', kyc: 'Verified' },
-  { id: 'CUS-1002', name: 'Noah Tan', segment: 'SME', kyc: 'Verified' },
-  { id: 'CUS-1003', name: 'Maya Wong', segment: 'Private Client', kyc: 'Enhanced Due Diligence' },
-  { id: 'CUS-1004', name: 'Ethan Koh', segment: 'Retail', kyc: 'Pending Review' },
-  { id: 'CUS-1005', name: 'Sophia Chen', segment: 'Corporate', kyc: 'Verified' },
+  { id: 'CUS-1001', name: 'Ava Lim', segment: 'Retail', kyc: 'Verified', customerRiskLevel: 'LOW' },
+  { id: 'CUS-1002', name: 'Noah Tan', segment: 'SME', kyc: 'Verified', customerRiskLevel: 'MEDIUM' },
+  { id: 'CUS-1003', name: 'Maya Wong', segment: 'Private Client', kyc: 'Enhanced Due Diligence', customerRiskLevel: 'HIGH' },
+  { id: 'CUS-1004', name: 'Ethan Koh', segment: 'Retail', kyc: 'Pending Review', customerRiskLevel: 'HIGH' },
+  { id: 'CUS-1005', name: 'Sophia Chen', segment: 'Corporate', kyc: 'Verified', customerRiskLevel: 'LOW' },
 ];
 const normalCustomerPool = [customers[0], customers[0], customers[1], customers[1], customers[2], customers[4], customers[4]];
 
@@ -113,10 +114,15 @@ function createTransaction(overrides = {}) {
     companyId: company.id,
     companyName: company.name,
     merchantType: company.merchantType,
+    mccCode: company.mccCode,
+    industry: company.industry,
+    industryRiskScore: company.industryRiskScore,
+    merchantRiskLevel: normalizeRiskLevel(company.merchantRiskLevel),
     customerId: customer.id,
     customerName: customer.name,
     segment: customer.segment,
     kycStatus: customer.kyc,
+    customerRiskLevel: normalizeRiskLevel(customer.customerRiskLevel),
     amount,
     currency: 'SGD',
     country: isHighRiskCountry ? pick(highRiskCountries) : pick(countries),
@@ -136,6 +142,8 @@ function createTransaction(overrides = {}) {
     createdAt: new Date().toISOString(),
     ...overrides,
   };
+  transaction.customerRiskLevel = normalizeRiskLevel(transaction.customerRiskLevel);
+  transaction.merchantRiskLevel = normalizeRiskLevel(transaction.merchantRiskLevel || company.merchantRiskLevel);
 
   const result = evaluateTransaction(transaction, company.rules);
   const screening = screenPayment(transaction);
@@ -152,7 +160,8 @@ function createTransaction(overrides = {}) {
 
   transaction.screeningStatus = screening.status;
   transaction.screeningMatches = screening.matches;
-  transaction.riskScore = Math.min(100, matchedRules.reduce((score, rule) => score + rule.weight, 0));
+  transaction.profileRiskScore = result.profileRiskScore;
+  transaction.riskScore = Math.min(100, result.riskScore + matchedRules.filter((rule) => rule.id.startsWith('SCR-')).reduce((score, rule) => score + rule.weight, 0));
   transaction.riskBand = riskBands(transaction.riskScore);
   transaction.status = matchedRules.length ? 'Flagged' : 'Cleared';
   transaction.matchedRules = matchedRules;
@@ -426,12 +435,14 @@ app.post('/api/transactions', (req, res) => {
     customerId: req.body.customerId || id('CUS'),
     segment: req.body.segment || 'Manual',
     kycStatus: req.body.kycStatus || 'Verified',
+    customerRiskLevel: normalizeRiskLevel(req.body.customerRiskLevel || 'LOW'),
     amount,
     country: req.body.country || 'Singapore',
     merchantCategory: req.body.merchantCategory || 'Premium Bundle',
     channel: req.body.channel || 'Bank Transfer',
     direction: req.body.direction || 'Outbound',
     companyId: req.body.companyId || 'companyA',
+    merchantRiskLevel: req.body.merchantRiskLevel ? normalizeRiskLevel(req.body.merchantRiskLevel) : undefined,
   });
 
   logAudit('Manual Transaction Submitted', {

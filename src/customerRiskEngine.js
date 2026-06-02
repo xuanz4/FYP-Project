@@ -1,4 +1,5 @@
 const { screenCustomer } = require('./screeningEngine');
+const { calculateProfileRiskScore, normalizeRiskLevel } = require('./complianceEngine');
 
 const closedAlertStatuses = ['Resolved', 'False Positive'];
 const highRiskCountries = ['North Korea', 'Iran', 'Syria', 'Russia'];
@@ -20,6 +21,9 @@ function buildCustomerRiskProfiles(transactions = [], alerts = []) {
       customerName: txn.customerName,
       segment: txn.segment,
       kycStatus: txn.kycStatus,
+      customerRiskLevel: normalizeRiskLevel(txn.customerRiskLevel),
+      merchantRiskLevel: normalizeRiskLevel(txn.merchantRiskLevel),
+      profileRiskScore: calculateProfileRiskScore(txn),
       country: txn.country,
       companyId: txn.companyId,
       companyName: txn.companyName,
@@ -44,6 +48,9 @@ function buildCustomerRiskProfiles(transactions = [], alerts = []) {
     profile.companyId = txn.companyId;
     profile.companyName = txn.companyName;
     profile.kycStatus = txn.kycStatus;
+    profile.customerRiskLevel = normalizeRiskLevel(txn.customerRiskLevel);
+    profile.merchantRiskLevel = normalizeRiskLevel(txn.merchantRiskLevel);
+    profile.profileRiskScore = calculateProfileRiskScore(txn);
     profile.segment = txn.segment;
   });
 
@@ -69,6 +76,10 @@ function buildCustomerRiskProfiles(transactions = [], alerts = []) {
       if (profile.kycStatus === 'Enhanced Due Diligence') {
         score += 15;
         drivers.push('Enhanced due diligence profile');
+      }
+      if (profile.profileRiskScore) {
+        score += profile.profileRiskScore;
+        drivers.push(`Profile risk score ${profile.profileRiskScore}`);
       }
       if (profile.flaggedCount) {
         score += Math.min(30, profile.flaggedCount * 10);

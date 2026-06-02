@@ -1,4 +1,5 @@
 require('dotenv').config();
+const { calculateProfileRiskScore, normalizeRiskLevel } = require('./complianceEngine');
 
 let mysql;
 try {
@@ -57,13 +58,17 @@ async function upsertCompany(company) {
   if (!enabled) return;
 
   await pool.execute(
-    `INSERT INTO companies (company_id, company_name, merchant_type, accent)
-     VALUES (:id, :name, :merchantType, :accent)
+    `INSERT INTO companies (company_id, company_name, merchant_type, mcc_code, industry, industry_risk_score, merchant_risk_level, accent)
+     VALUES (:id, :name, :merchantType, :mccCode, :industry, :industryRiskScore, :merchantRiskLevel, :accent)
      ON DUPLICATE KEY UPDATE
        company_name = VALUES(company_name),
        merchant_type = VALUES(merchant_type),
+       mcc_code = VALUES(mcc_code),
+       industry = VALUES(industry),
+       industry_risk_score = VALUES(industry_risk_score),
+       merchant_risk_level = VALUES(merchant_risk_level),
        accent = VALUES(accent)`,
-    company,
+    { ...company, merchantRiskLevel: normalizeRiskLevel(company.merchantRiskLevel) },
   );
 }
 
@@ -71,13 +76,14 @@ async function upsertCustomer(customer) {
   if (!enabled) return;
 
   await pool.execute(
-    `INSERT INTO customers (customer_id, customer_name, segment, kyc_status)
-     VALUES (:id, :name, :segment, :kyc)
+    `INSERT INTO customers (customer_id, customer_name, segment, kyc_status, customer_risk_level)
+     VALUES (:id, :name, :segment, :kyc, :customerRiskLevel)
      ON DUPLICATE KEY UPDATE
        customer_name = VALUES(customer_name),
        segment = VALUES(segment),
-       kyc_status = VALUES(kyc_status)`,
-    customer,
+       kyc_status = VALUES(kyc_status),
+       customer_risk_level = VALUES(customer_risk_level)`,
+    { ...customer, customerRiskLevel: normalizeRiskLevel(customer.customerRiskLevel) },
   );
 }
 
@@ -89,6 +95,7 @@ async function saveTransaction(transaction) {
     name: transaction.customerName,
     segment: transaction.segment,
     kyc: transaction.kycStatus,
+    customerRiskLevel: transaction.customerRiskLevel,
   });
 
   await pool.execute(
@@ -172,7 +179,7 @@ async function saveTransaction(transaction) {
         riskLevel: rule.risk || transaction.riskBand,
         reason: rule.reason || rule.name,
         weight: rule.weight,
-        ruleType: rule.id.startsWith('SCR-') ? 'screening_match' : 'runtime_rule',
+        ruleType: rule.id.startsWith('SCR-') ? 'screening_match' : rule.id.startsWith('PROFILE-') ? 'profile_risk' : 'runtime_rule',
       },
     );
 
@@ -337,7 +344,7 @@ async function loadSnapshot() {
   }
 
   const [transactionRows] = await pool.query(
-    `SELECT t.*, c.company_name, c.merchant_type, cu.customer_name, cu.segment, cu.kyc_status
+    `SELECT t.*, c.company_name, c.merchant_type, c.mcc_code, c.industry, c.industry_risk_score, c.merchant_risk_level, cu.customer_name, cu.segment, cu.kyc_status, cu.customer_risk_level
      FROM transactions t
      JOIN companies c ON t.company_id = c.company_id
      JOIN customers cu ON t.customer_id = cu.customer_id
@@ -352,10 +359,15 @@ async function loadSnapshot() {
     companyId: row.company_id,
     companyName: row.company_name,
     merchantType: row.merchant_type,
+    mccCode: row.mcc_code,
+    industry: row.industry,
+    industryRiskScore: row.industry_risk_score,
+    merchantRiskLevel: normalizeRiskLevel(row.merchant_risk_level),
     customerId: row.customer_id,
     customerName: row.customer_name,
     segment: row.segment,
     kycStatus: row.kyc_status,
+    customerRiskLevel: normalizeRiskLevel(row.customer_risk_level),
     amount: Number(row.amount),
     currency: row.currency,
     country: row.country,
@@ -374,6 +386,10 @@ async function loadSnapshot() {
     screeningStatus: row.screening_status,
     screeningMatches: screeningMatches[row.transaction_id] || [],
     status: row.status,
+    profileRiskScore: calculateProfileRiskScore({
+      customerRiskLevel: row.customer_risk_level,
+      merchantRiskLevel: row.merchant_risk_level,
+    }),
     riskScore: row.risk_score,
     riskBand: row.risk_band,
     matchedRules: matchedRules[row.transaction_id] || [],

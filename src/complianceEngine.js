@@ -36,11 +36,64 @@
   },
 ];
 
+const riskLevelPoints = {
+  LOW: 0,
+  MEDIUM: 15,
+  HIGH: 30,
+};
+
+function normalizeRiskLevel(level) {
+  const normalized = String(level || 'LOW').trim().toUpperCase();
+  return Object.hasOwn(riskLevelPoints, normalized) ? normalized : 'LOW';
+}
+
+function riskLevelToPoints(level) {
+  return riskLevelPoints[normalizeRiskLevel(level)];
+}
+
+function calculateProfileRiskScore(transaction = {}) {
+  return riskLevelToPoints(transaction.customerRiskLevel) + riskLevelToPoints(transaction.merchantRiskLevel);
+}
+
+function buildProfileRiskRules(transaction = {}) {
+  const rules = [];
+  const customerRiskLevel = normalizeRiskLevel(transaction.customerRiskLevel);
+  const merchantRiskLevel = normalizeRiskLevel(transaction.merchantRiskLevel);
+
+  if (customerRiskLevel === 'HIGH') {
+    rules.push({
+      id: 'PROFILE-CUSTOMER-HIGH',
+      name: 'High-risk customer profile',
+      risk: 'High',
+      reason: 'Customer KYC risk level is HIGH',
+      weight: riskLevelToPoints(customerRiskLevel),
+      source: 'profile',
+    });
+  }
+
+  if (merchantRiskLevel === 'HIGH') {
+    rules.push({
+      id: 'PROFILE-MERCHANT-HIGH',
+      name: 'High-risk merchant profile',
+      risk: 'High',
+      reason: 'Merchant risk level is HIGH',
+      weight: riskLevelToPoints(merchantRiskLevel),
+      source: 'profile',
+    });
+  }
+
+  return rules;
+}
+
 const companyRuleSets = {
   companyA: {
     id: 'companyA',
     name: 'Company A',
     merchantType: 'Fashion Merchant',
+    mccCode: '5651',
+    industry: 'Family Clothing Stores',
+    industryRiskScore: 8,
+    merchantRiskLevel: 'LOW',
     accent: 'blue',
     cards: [
       {
@@ -77,6 +130,10 @@ const companyRuleSets = {
     id: 'companyB',
     name: 'Company B',
     merchantType: 'Footwear And Leather Goods',
+    mccCode: '5661',
+    industry: 'Shoe Stores',
+    industryRiskScore: 12,
+    merchantRiskLevel: 'MEDIUM',
     accent: 'green',
     cards: [
       {
@@ -108,6 +165,10 @@ const companyRuleSets = {
     id: 'companyC',
     name: 'Company C',
     merchantType: 'Skincare And Makeup Merchant',
+    mccCode: '5977',
+    industry: 'Cosmetic Stores',
+    industryRiskScore: 10,
+    merchantRiskLevel: 'HIGH',
     accent: 'purple',
     cards: [
       {
@@ -138,6 +199,9 @@ const companyRuleSets = {
 };
 
 function evaluateTransaction(transaction, rules = defaultRules) {
+  const industryRiskScore = Number(transaction.industryRiskScore) || 0;
+  const profileRiskScore = calculateProfileRiskScore(transaction);
+  const profileRiskRules = buildProfileRiskRules(transaction);
   const matchedRules = rules
     .filter((rule) => rule.test(transaction))
     .map((rule) => ({
@@ -150,12 +214,13 @@ function evaluateTransaction(transaction, rules = defaultRules) {
 
   const riskScore = Math.min(
     100,
-    matchedRules.reduce((score, rule) => score + rule.weight, 0),
+    industryRiskScore + profileRiskScore + matchedRules.reduce((score, rule) => score + rule.weight, 0),
   );
 
   return {
     riskScore,
-    matchedRules,
+    profileRiskScore,
+    matchedRules: [...profileRiskRules, ...matchedRules],
   };
 }
 
@@ -171,6 +236,10 @@ function serializeCompanyRuleSets(ruleSets = companyRuleSets) {
     id: company.id,
     name: company.name,
     merchantType: company.merchantType,
+    mccCode: company.mccCode,
+    industry: company.industry,
+    industryRiskScore: company.industryRiskScore,
+    merchantRiskLevel: normalizeRiskLevel(company.merchantRiskLevel),
     accent: company.accent,
     cards: company.cards,
     rules: company.rules.map((rule) => ({
@@ -186,7 +255,11 @@ function serializeCompanyRuleSets(ruleSets = companyRuleSets) {
 module.exports = {
   defaultRules,
   companyRuleSets,
+  calculateProfileRiskScore,
   evaluateTransaction,
+  normalizeRiskLevel,
   riskBands,
+  riskLevelPoints,
+  riskLevelToPoints,
   serializeCompanyRuleSets,
 };
