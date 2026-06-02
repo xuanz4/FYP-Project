@@ -1,0 +1,60 @@
+<%- include('partials/head', { title, activePage }) %>
+
+<main>
+  <section class="topbar">
+    <div>
+      <h1>Investigations</h1>
+      <p>Review flagged alerts, generated cases, and the compliance audit trail in one workspace.</p>
+    </div>
+  </section>
+  <section class="filter-bar">
+    <label for="companyFilter">Company</label>
+    <select id="companyFilter" aria-label="Company filter">
+      <option value="All">All Companies</option>
+    </select>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>Operations Working Queue</h2>
+        <p>Prioritized New, Under Review, and Escalated alerts and cases.</p>
+      </div>
+    </div>
+    <div id="operationsQueue" class="queue-list"></div>
+  </section>
+
+  <section class="workspace">
+    <section class="panel" id="alerts">
+      <div class="panel-header">
+        <div>
+          <h2>Alert Queue</h2>
+          <p>Assign and update compliance alert status.</p>
+        </div>
+      </div>
+      <div id="alertList" class="alert-list"></div>
+    </section>
+
+    <section class="panel" id="cases">
+      <div class="panel-header">
+        <div>
+          <h2>Investigation Cases</h2>
+          <p>Generated from flagged transaction alerts.</p>
+        </div>
+      </div>
+      <div id="caseList" class="case-list"></div>
+    </section>
+  </section>
+
+  <section class="panel single-panel" id="audit">
+    <div class="panel-header">
+      <div>
+        <h2>Audit Log</h2>
+        <p>Immutable activity trail for monitoring and analyst actions.</p>
+      </div>
+    </div>
+    <div id="auditList" class="audit-list page-list"></div>
+  </section>
+</main>
+
+<%- include('partials/footer') %>

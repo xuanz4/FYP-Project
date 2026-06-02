@@ -6,6 +6,9 @@ const {
   riskBands,
   serializeCompanyRuleSets,
 } = require('./src/complianceEngine');
+const { buildAnalytics } = require('./src/analyticsEngine');
+const { buildCustomerRiskProfiles } = require('./src/customerRiskEngine');
+const { screenCustomer, screenPayment, watchlist } = require('./src/screeningEngine');
 const database = require('./src/database');
 
 const app = express();
@@ -24,13 +27,14 @@ const transactions = [];
 const alerts = [];
 const cases = [];
 const auditLogs = [];
-const alertStatuses = ['Open', 'Investigating', 'Escalated', 'Closed', 'False Positive'];
+const workflowStatuses = ['New', 'Under Review', 'Escalated', 'Resolved', 'False Positive'];
 
 const countries = ['Singapore', 'Malaysia', 'United States', 'Indonesia', 'Thailand', 'Vietnam', 'United Arab Emirates'];
 const highRiskCountries = ['North Korea', 'Iran', 'Syria', 'Russia'];
 const standardMerchantCategories = ['Fashion', 'Footwear', 'Leather Goods', 'Skincare', 'Makeup'];
 const riskyMerchantCategories = ['Luxury Resale', 'Premium Bundle'];
 const channels = ['Card Present', 'E-Commerce', 'Wallet', 'Bank Transfer', 'ATM'];
+const counterparties = ['Harbour Retail Pte Ltd', 'Northbridge Luxury Resale', 'Orion Trade Holdings', 'Crimson Exchange', 'Maple Distribution'];
 const customers = [
   { id: 'CUS-1001', name: 'Ava Lim', segment: 'Retail', kyc: 'Verified' },
   { id: 'CUS-1002', name: 'Noah Tan', segment: 'SME', kyc: 'Verified' },
@@ -102,6 +106,8 @@ function createTransaction(overrides = {}) {
   const lowValueBurstCount = Math.random() < 0.02 ? 5 + Math.floor(Math.random() * 4) : Math.floor(Math.random() * 3);
   const isNewCustomer = Math.random() < 0.08;
   const usualSpendBelow100 = Math.random() < 0.12;
+  const counterpartyName = Math.random() < 0.045 ? pick(watchlist).name : pick(counterparties);
+  const counterpartyCountry = isHighRiskCountry ? pick(highRiskCountries) : pick(countries);
   const transaction = {
     id: id('TXN'),
     companyId: company.id,
@@ -123,31 +129,79 @@ function createTransaction(overrides = {}) {
     usualSpendBelow100,
     channel: pick(channels),
     direction: Math.random() > 0.5 ? 'Inbound' : 'Outbound',
+    counterpartyName,
+    counterpartyCountry,
+    paymentReference: `${merchantCategory} purchase ${counterpartyName}`,
     status: 'Screening',
     createdAt: new Date().toISOString(),
     ...overrides,
   };
 
   const result = evaluateTransaction(transaction, company.rules);
-  transaction.riskScore = result.riskScore;
-  transaction.riskBand = riskBands(result.riskScore);
-  transaction.status = result.matchedRules.length ? 'Flagged' : 'Cleared';
-  transaction.matchedRules = result.matchedRules;
+  const screening = screenPayment(transaction);
+  const matchedRules = [...result.matchedRules];
+  if (screening.matches.length) {
+    matchedRules.push({
+      id: 'SCR-001',
+      name: 'Payment or customer screening match',
+      risk: screening.matches.some((match) => match.type === 'Sanctions') ? 'High' : 'Medium',
+      reason: `${screening.matches[0].type} match on ${screening.matches[0].field}`,
+      weight: screening.matches.some((match) => match.type === 'Sanctions') ? 65 : 40,
+    });
+  }
+
+  transaction.screeningStatus = screening.status;
+  transaction.screeningMatches = screening.matches;
+  transaction.riskScore = Math.min(100, matchedRules.reduce((score, rule) => score + rule.weight, 0));
+  transaction.riskBand = riskBands(transaction.riskScore);
+  transaction.status = matchedRules.length ? 'Flagged' : 'Cleared';
+  transaction.matchedRules = matchedRules;
 
   pushLimited(transactions, transaction);
 
-  if (result.matchedRules.length) {
+  if (matchedRules.length) {
+    const primaryRule = matchedRules[0];
+    const duplicateAlert = alerts.find((alert) => (
+      alert.customerId === transaction.customerId
+      && alert.companyId === transaction.companyId
+      && alert.primaryRuleId === primaryRule.id
+      && !['Resolved', 'False Positive'].includes(alert.status)
+    ));
+
+    if (duplicateAlert) {
+      duplicateAlert.transactionIds = [...new Set([...(duplicateAlert.transactionIds || [duplicateAlert.transactionId]), transaction.id])];
+      duplicateAlert.transactionId = transaction.id;
+      duplicateAlert.groupedCount = duplicateAlert.transactionIds.length;
+      duplicateAlert.riskScore = Math.max(duplicateAlert.riskScore, transaction.riskScore);
+      duplicateAlert.severity = riskBands(duplicateAlert.riskScore);
+      duplicateAlert.updatedAt = transaction.createdAt;
+      logAudit('Alert Grouped', {
+        entityType: 'Alert',
+        entityId: duplicateAlert.id,
+        companyId: transaction.companyId,
+        companyName: transaction.companyName,
+        message: `${transaction.id} grouped into existing alert ${duplicateAlert.id}`,
+      });
+      queueDbWrite(async () => {
+        await database.saveTransaction(transaction);
+        await database.saveAlert(duplicateAlert);
+      });
+      broadcast('alertUpdate', duplicateAlert);
+    } else {
     const alert = {
       id: id('ALT'),
       transactionId: transaction.id,
+      transactionIds: [transaction.id],
+      groupedCount: 1,
       companyId: transaction.companyId,
       companyName: transaction.companyName,
       customerId: transaction.customerId,
       customerName: transaction.customerName,
       severity: transaction.riskBand,
       riskScore: transaction.riskScore,
-      rules: result.matchedRules,
-      status: 'Open',
+      rules: matchedRules,
+      primaryRuleId: primaryRule.id,
+      status: 'New',
       analyst: 'Unassigned',
       createdAt: transaction.createdAt,
     };
@@ -160,7 +214,8 @@ function createTransaction(overrides = {}) {
       customerId: transaction.customerId,
       summary: `${transaction.currency} ${transaction.amount.toLocaleString()} ${transaction.direction.toLowerCase()} transaction flagged`,
       priority: transaction.riskBand,
-      status: 'Triage',
+      status: 'New',
+      owner: 'Operations Team',
       dueAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
     };
     pushLimited(alerts, alert, 120);
@@ -186,6 +241,7 @@ function createTransaction(overrides = {}) {
     });
     broadcast('alert', alert);
     broadcast('case', complianceCase);
+    }
   } else {
     queueDbWrite(() => database.saveTransaction(transaction));
   }
@@ -193,6 +249,7 @@ function createTransaction(overrides = {}) {
   broadcast('transaction', transaction);
   broadcast('metrics', getMetrics());
   broadcast('charts', getCharts());
+  broadcast('analytics', getAnalytics());
   return transaction;
 }
 
@@ -200,8 +257,8 @@ function getMetrics() {
   const total = transactions.length;
   const flagged = transactions.filter((txn) => txn.status === 'Flagged').length;
   const highRisk = transactions.filter((txn) => ['High', 'Critical'].includes(txn.riskBand)).length;
-  const openAlerts = alerts.filter((alert) => alert.status === 'Open').length;
-  const activeAlerts = alerts.filter((alert) => !['Closed', 'False Positive'].includes(alert.status)).length;
+  const openAlerts = alerts.filter((alert) => alert.status === 'New').length;
+  const activeAlerts = alerts.filter((alert) => !['Resolved', 'False Positive'].includes(alert.status)).length;
   const valueScreened = transactions.reduce((sum, txn) => sum + txn.amount, 0);
 
   return {
@@ -227,7 +284,7 @@ function getCharts() {
     { label: 'Cleared', value: transactions.filter((txn) => txn.status === 'Cleared').length },
   ];
 
-  const alertStatus = alertStatuses.map((status) => ({
+  const alertStatus = workflowStatuses.map((status) => ({
     label: status,
     value: alerts.filter((alert) => alert.status === status).length,
   }));
@@ -250,6 +307,14 @@ function getCharts() {
   };
 }
 
+function getAnalytics() {
+  return buildAnalytics(transactions, alerts, cases);
+}
+
+function getCustomerRiskProfiles() {
+  return buildCustomerRiskProfiles(transactions, alerts);
+}
+
 
 function renderPage(view, title, activePage) {
   return (req, res) => {
@@ -258,17 +323,31 @@ function renderPage(view, title, activePage) {
 }
 
 app.get('/', renderPage('dashboard', 'Compliance Dashboard', 'dashboard'));
-app.get('/charts', renderPage('charts', 'Compliance Charts', 'charts'));
-app.get('/alerts', renderPage('alerts', 'Alert Queue', 'alerts'));
-app.get('/audit', renderPage('audit', 'Audit Log', 'audit'));
-app.get('/cases', renderPage('cases', 'Investigation Cases', 'cases'));
+app.get('/dashboard', renderPage('dashboard', 'Compliance Dashboard', 'dashboard'));
+app.get('/analytics', renderPage('analytics', 'Analytics', 'analytics'));
+app.get('/diligence', renderPage('diligence', 'Due Diligence', 'diligence'));
+app.get('/investigations', renderPage('investigations', 'Investigations', 'investigations'));
 app.get('/rules', renderPage('rules', 'Compliance Rules', 'rules'));
 
 app.get('/index.html', (req, res) => res.redirect(301, '/'));
-app.get('/charts.html', (req, res) => res.redirect(301, '/charts'));
-app.get('/alerts.html', (req, res) => res.redirect(301, '/alerts'));
-app.get('/audit.html', (req, res) => res.redirect(301, '/audit'));
-app.get('/cases.html', (req, res) => res.redirect(301, '/cases'));
+app.get('/dashboard.html', (req, res) => res.redirect(301, '/dashboard'));
+app.get('/analytics.html', (req, res) => res.redirect(301, '/analytics'));
+app.get('/charts', (req, res) => res.redirect(301, '/analytics#charts'));
+app.get('/analyze', (req, res) => res.redirect(301, '/analytics#analytics'));
+app.get('/customers', (req, res) => res.redirect(301, '/diligence'));
+app.get('/screening', (req, res) => res.redirect(301, '/diligence'));
+app.get('/alerts', (req, res) => res.redirect(301, '/investigations'));
+app.get('/audit', (req, res) => res.redirect(301, '/investigations#audit'));
+app.get('/cases', (req, res) => res.redirect(301, '/investigations#cases'));
+app.get('/diligence.html', (req, res) => res.redirect(301, '/diligence'));
+app.get('/investigations.html', (req, res) => res.redirect(301, '/investigations'));
+app.get('/charts.html', (req, res) => res.redirect(301, '/analytics#charts'));
+app.get('/analyze.html', (req, res) => res.redirect(301, '/analytics#analytics'));
+app.get('/customers.html', (req, res) => res.redirect(301, '/diligence'));
+app.get('/screening.html', (req, res) => res.redirect(301, '/diligence'));
+app.get('/alerts.html', (req, res) => res.redirect(301, '/investigations'));
+app.get('/audit.html', (req, res) => res.redirect(301, '/investigations#audit'));
+app.get('/cases.html', (req, res) => res.redirect(301, '/investigations#cases'));
 app.get('/rules.html', (req, res) => res.redirect(301, '/rules'));
 app.get('/api/stream', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -286,6 +365,28 @@ app.get('/api/stream', (req, res) => {
 
 app.get('/api/snapshot', (req, res) => {
   res.json(getSnapshot());
+});
+
+app.get('/api/analytics', (req, res) => {
+  res.json(getAnalytics());
+});
+
+app.get('/api/customers/risk', (req, res) => {
+  res.json(getCustomerRiskProfiles());
+});
+
+app.get('/api/watchlist', (req, res) => {
+  res.json(watchlist);
+});
+
+app.post('/api/screening/customer', (req, res) => {
+  const name = req.body.name || req.body.customerName;
+  if (!name) return res.status(400).json({ error: 'name is required' });
+  res.json(screenCustomer({ name, country: req.body.country }));
+});
+
+app.post('/api/screening/payment', (req, res) => {
+  res.json(screenPayment(req.body));
 });
 
 app.post('/api/transactions', (req, res) => {
@@ -323,7 +424,7 @@ app.patch('/api/alerts/:id', (req, res) => {
   const alert = alerts.find((item) => item.id === req.params.id);
   if (!alert) return res.status(404).json({ error: 'alert not found' });
 
-  if (req.body.status && !alertStatuses.includes(req.body.status)) {
+  if (req.body.status && !workflowStatuses.includes(req.body.status)) {
     return res.status(400).json({ error: 'invalid alert status' });
   }
 
@@ -346,7 +447,40 @@ app.patch('/api/alerts/:id', (req, res) => {
   broadcast('alertUpdate', alert);
   broadcast('metrics', getMetrics());
   broadcast('charts', getCharts());
+  broadcast('analytics', getAnalytics());
   res.json(alert);
+});
+
+app.patch('/api/cases/:id', (req, res) => {
+  const complianceCase = cases.find((item) => item.id === req.params.id);
+  if (!complianceCase) return res.status(404).json({ error: 'case not found' });
+
+  if (req.body.status && !workflowStatuses.includes(req.body.status)) {
+    return res.status(400).json({ error: 'invalid case status' });
+  }
+
+  const previousStatus = complianceCase.status;
+  complianceCase.status = req.body.status || complianceCase.status;
+  complianceCase.owner = req.body.owner || complianceCase.owner || 'Operations Team';
+  complianceCase.updatedAt = new Date().toISOString();
+
+  if (previousStatus !== complianceCase.status) {
+    logAudit('Case Status Changed', {
+      actor: complianceCase.owner,
+      entityType: 'Case',
+      entityId: complianceCase.id,
+      companyId: complianceCase.companyId,
+      companyName: complianceCase.companyName,
+      message: `${complianceCase.id} moved from ${previousStatus} to ${complianceCase.status}`,
+    });
+  }
+
+  queueDbWrite(() => database.updateCase(complianceCase));
+  broadcast('caseUpdate', complianceCase);
+  broadcast('metrics', getMetrics());
+  broadcast('charts', getCharts());
+  broadcast('analytics', getAnalytics());
+  res.json(complianceCase);
 });
 
 app.get('/api/rules', (req, res) => {
@@ -362,6 +496,9 @@ function getSnapshot() {
     auditLogs: auditLogs.slice(0, 60),
     ruleSets: serializedRuleSets,
     charts: getCharts(),
+    analytics: getAnalytics(),
+    customerRiskProfiles: getCustomerRiskProfiles(),
+    watchlist,
   };
 }
 

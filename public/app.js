@@ -5,12 +5,15 @@
   ruleSets: [],
   auditLogs: [],
   charts: {},
+  analytics: {},
   metrics: {},
+  customerRiskProfiles: [],
+  watchlist: [],
   riskFilter: 'All',
   companyFilter: 'All',
 };
 
-const alertStatuses = ['Investigating', 'Escalated', 'Closed', 'False Positive'];
+const workflowStatuses = ['New', 'Under Review', 'Escalated', 'Resolved', 'False Positive'];
 
 const money = new Intl.NumberFormat('en-SG', {
   style: 'currency',
@@ -30,6 +33,7 @@ const elements = {
   activeAlertsMetric: document.querySelector('#activeAlertsMetric'),
   valueMetric: document.querySelector('#valueMetric'),
   transactionRows: document.querySelector('#transactionRows'),
+  operationsQueue: document.querySelector('#operationsQueue'),
   alertList: document.querySelector('#alertList'),
   caseList: document.querySelector('#caseList'),
   auditList: document.querySelector('#auditList'),
@@ -40,6 +44,21 @@ const elements = {
   dispositionChart: document.querySelector('#dispositionChart'),
   alertStatusChart: document.querySelector('#alertStatusChart'),
   countryChart: document.querySelector('#countryChart'),
+  analysisFlagRate: document.querySelector('#analysisFlagRate'),
+  analysisHighRiskRate: document.querySelector('#analysisHighRiskRate'),
+  analysisEscalated: document.querySelector('#analysisEscalated'),
+  analysisOverdue: document.querySelector('#analysisOverdue'),
+  analysisInsights: document.querySelector('#analysisInsights'),
+  analysisDrivers: document.querySelector('#analysisDrivers'),
+  analysisCountries: document.querySelector('#analysisCountries'),
+  analysisCompanies: document.querySelector('#analysisCompanies'),
+  analysisCustomers: document.querySelector('#analysisCustomers'),
+  customerRiskRows: document.querySelector('#customerRiskRows'),
+  customerScreeningForm: document.querySelector('#customerScreeningForm'),
+  customerScreeningResults: document.querySelector('#customerScreeningResults'),
+  paymentScreeningForm: document.querySelector('#paymentScreeningForm'),
+  paymentScreeningResults: document.querySelector('#paymentScreeningResults'),
+  watchlistRows: document.querySelector('#watchlistRows'),
   connectionDot: document.querySelector('#connectionDot'),
   connectionText: document.querySelector('#connectionText'),
   riskFilter: document.querySelector('#riskFilter'),
@@ -54,7 +73,10 @@ function setSnapshot(snapshot) {
   state.auditLogs = snapshot.auditLogs || [];
   state.ruleSets = snapshot.ruleSets || snapshot.rules || [];
   state.charts = snapshot.charts || {};
+  state.analytics = snapshot.analytics || {};
   state.metrics = snapshot.metrics || {};
+  state.customerRiskProfiles = snapshot.customerRiskProfiles || [];
+  state.watchlist = snapshot.watchlist || [];
   populateCompanyFilter();
   render();
 }
@@ -103,7 +125,7 @@ function getFilteredMetrics() {
   const alerts = getFilteredAlerts();
   const total = transactions.length;
   const flagged = transactions.filter((txn) => txn.status === 'Flagged').length;
-  const activeAlerts = alerts.filter((alert) => !['Closed', 'False Positive'].includes(alert.status)).length;
+  const activeAlerts = alerts.filter((alert) => !['Resolved', 'False Positive'].includes(alert.status)).length;
   const valueScreened = transactions.reduce((sum, txn) => sum + txn.amount, 0);
   return {
     total,
@@ -118,7 +140,7 @@ function getFilteredCharts() {
   const transactions = getFilteredTransactions();
   const alerts = getFilteredAlerts();
   const riskOrder = ['Critical', 'High', 'Medium', 'Low'];
-  const alertStatusesForChart = ['Open', 'Investigating', 'Escalated', 'Closed', 'False Positive'];
+  const alertStatusesForChart = workflowStatuses;
   const countryCounts = transactions.reduce((summary, txn) => {
     summary[txn.country] = (summary[txn.country] || 0) + 1;
     return summary;
@@ -140,11 +162,15 @@ function getFilteredCharts() {
 function render() {
   renderMetrics();
   renderCharts();
+  renderAnalytics();
   renderTransactions();
+  renderOperationsQueue();
   renderAlerts();
   renderCases();
   renderAuditLogs();
   renderRules();
+  renderCustomerRisk();
+  renderWatchlist();
 }
 
 function renderMetrics() {
@@ -181,6 +207,177 @@ function renderBarChart(target, rows) {
   }).join('') || '<p class="muted">No chart data yet.</p>';
 }
 
+function percent(part, total) {
+  return total ? Math.round((part / total) * 100) : 0;
+}
+
+function summarizeBy(items, keyGetter) {
+  return items.reduce((summary, txn) => {
+    const label = keyGetter(txn) || 'Unknown';
+    summary[label] ||= { label, count: 0, flagged: 0, amount: 0, score: 0, customerId: txn.customerId };
+    summary[label].count += 1;
+    summary[label].flagged += txn.status === 'Flagged' ? 1 : 0;
+    summary[label].amount += Number(txn.amount) || 0;
+    summary[label].score += Number(txn.riskScore) || 0;
+    return summary;
+  }, {});
+}
+
+function topSummaries(summary, limit = 5) {
+  return Object.values(summary)
+    .sort((left, right) => right.score - left.score || right.count - left.count)
+    .slice(0, limit)
+    .map((item) => ({
+      ...item,
+      flagRate: percent(item.flagged, item.count),
+      averageRisk: item.count ? Math.round(item.score / item.count) : 0,
+    }));
+}
+
+function getFilteredAnalytics() {
+  const transactions = getFilteredTransactions();
+  const alerts = getFilteredAlerts();
+  const cases = getFilteredCases();
+  const total = transactions.length;
+  const flagged = transactions.filter((txn) => txn.status === 'Flagged').length;
+  const highRisk = transactions.filter((txn) => ['High', 'Critical'].includes(txn.riskBand)).length;
+  const activeAlerts = alerts.filter((alert) => !['Resolved', 'False Positive'].includes(alert.status)).length;
+  const escalatedAlerts = alerts.filter((alert) => alert.status === 'Escalated').length;
+  const overdueCases = cases.filter((item) => item.dueAt && new Date(item.dueAt).getTime() < Date.now()).length;
+  const drivers = {};
+
+  transactions.forEach((txn) => {
+    (txn.matchedRules || []).forEach((rule) => {
+      drivers[rule.name] ||= { label: rule.name, count: 0, score: 0, weight: 0 };
+      drivers[rule.name].count += 1;
+      drivers[rule.name].weight += Number(rule.weight) || 0;
+      drivers[rule.name].score += Number(rule.weight) || 0;
+    });
+  });
+
+  const insights = [];
+  if (percent(flagged, total) >= 35) insights.push('Flag rate is elevated. Review threshold tuning and recent merchant activity.');
+  if (highRisk >= 5) insights.push('High and critical risk transactions are building up. Prioritize escalation review.');
+  if (activeAlerts >= 10) insights.push('Active alert workload is high. Assign analysts before SLA pressure increases.');
+  if (escalatedAlerts > 0) insights.push('Escalated alerts are present. Confirm investigation notes and next actions.');
+  if (overdueCases > 0) insights.push('Some cases are past due. Reorder the queue by due date and priority.');
+  if (!insights.length) insights.push('Current monitoring activity is stable. Keep watching for new high-risk rule clusters.');
+
+  return {
+    summary: {
+      total,
+      flagged,
+      highRisk,
+      activeAlerts,
+      escalatedAlerts,
+      overdueCases,
+      flagRate: percent(flagged, total),
+      highRiskRate: percent(highRisk, total),
+    },
+    insights,
+    drivers: topSummaries(drivers, 6).map((item) => ({
+      ...item,
+      averageWeight: item.count ? Math.round(item.weight / item.count) : 0,
+    })),
+    countries: topSummaries(summarizeBy(transactions, (txn) => txn.country), 5),
+    companies: topSummaries(summarizeBy(transactions, (txn) => txn.companyName || txn.companyId), 5),
+    customers: topSummaries(summarizeBy(transactions, (txn) => txn.customerName || txn.customerId), 5),
+  };
+}
+
+function renderAnalytics() {
+  if (!elements.analysisInsights) return;
+  const analytics = getFilteredAnalytics();
+  elements.analysisFlagRate.textContent = `${analytics.summary.flagRate}%`;
+  elements.analysisHighRiskRate.textContent = `${analytics.summary.highRiskRate}%`;
+  elements.analysisEscalated.textContent = analytics.summary.escalatedAlerts;
+  elements.analysisOverdue.textContent = analytics.summary.overdueCases;
+
+  elements.analysisInsights.innerHTML = analytics.insights.map((insight) => `
+    <article class="insight-item">
+      <strong>${escapeHtml(insight)}</strong>
+    </article>
+  `).join('');
+
+  renderAnalysisRows(elements.analysisDrivers, analytics.drivers, (item) => `
+    <strong>${escapeHtml(item.label)}</strong>
+    <span>${item.count} matches - avg weight ${item.averageWeight}</span>
+  `);
+  renderAnalysisRows(elements.analysisCountries, analytics.countries, renderExposureRow);
+  renderAnalysisRows(elements.analysisCompanies, analytics.companies, renderExposureRow);
+  renderAnalysisRows(elements.analysisCustomers, analytics.customers, renderExposureRow);
+}
+
+function renderExposureRow(item) {
+  return `
+    <strong>${escapeHtml(item.label)}</strong>
+    <span>${item.flagged}/${item.count} flagged - ${item.flagRate}% flag rate - avg risk ${item.averageRisk} - ${money.format(item.amount)}</span>
+  `;
+}
+
+function renderAnalysisRows(target, rows, renderer) {
+  if (!target) return;
+  target.innerHTML = rows.map((row) => `
+    <article class="analysis-row">
+      ${renderer(row)}
+    </article>
+  `).join('') || '<p class="muted">No analysis data yet.</p>';
+}
+
+function renderCustomerRisk() {
+  if (!elements.customerRiskRows) return;
+  const rows = state.customerRiskProfiles
+    .filter(matchesCompany)
+    .slice(0, 50)
+    .map((profile) => `
+      <tr>
+        <td>
+          <strong>${escapeHtml(profile.customerName)}</strong>
+          <div class="muted">${escapeHtml(profile.customerId)}</div>
+        </td>
+        <td>${escapeHtml(profile.companyName || 'Company')}</td>
+        <td>${escapeHtml(profile.kycStatus)}</td>
+        <td>${escapeHtml(profile.screeningStatus)}</td>
+        <td>${profile.transactionCount} / ${money.format(profile.totalValue)}</td>
+        <td>${profile.openAlerts}</td>
+        <td><span class="badge risk-${profile.riskBand.toLowerCase()}">${profile.riskBand} ${profile.riskScore}</span></td>
+        <td>${profile.riskDrivers.map(escapeHtml).join(', ')}</td>
+      </tr>
+    `)
+    .join('');
+
+  elements.customerRiskRows.innerHTML = rows || '<tr><td colspan="8">No customer risk profiles yet.</td></tr>';
+}
+
+function renderWatchlist() {
+  if (!elements.watchlistRows) return;
+  renderAnalysisRows(elements.watchlistRows, state.watchlist, (entry) => `
+    <strong>${escapeHtml(entry.name)}</strong>
+    <span>${escapeHtml(entry.type)} - ${escapeHtml(entry.country)} - ${escapeHtml(entry.risk)} - ${escapeHtml(entry.reason)}</span>
+  `);
+}
+
+function renderScreeningResult(target, result) {
+  if (!target) return;
+  const matches = result.matches || [];
+  target.innerHTML = `
+    <article class="screening-summary">
+      <strong>${escapeHtml(result.status || 'Clear')}</strong>
+      <span>Highest match score: ${escapeHtml(result.highestScore || 0)}</span>
+    </article>
+    ${matches.map((match) => `
+      <article class="analysis-row">
+        <strong>${escapeHtml(match.name)}</strong>
+        <span>${escapeHtml(match.type)} - ${escapeHtml(match.field)} - score ${escapeHtml(match.score)} - ${escapeHtml(match.reason)}</span>
+      </article>
+    `).join('') || '<p class="muted">No list matches found.</p>'}
+  `;
+}
+
+function formToJson(form) {
+  return Object.fromEntries(new FormData(form).entries());
+}
+
 function renderTransactions() {
   if (!elements.transactionRows) return;
   const rows = getFilteredTransactions()
@@ -215,9 +412,9 @@ function renderAlerts() {
         <span class="badge risk-${alert.severity.toLowerCase()}">${alert.severity}</span>
       </div>
       <p>${alert.rules.map((rule) => escapeHtml(rule.name)).join(', ')}</p>
-      <div class="meta">${escapeHtml(alert.companyName || 'Company')} &middot; ${escapeHtml(alert.transactionId)} &middot; ${time.format(new Date(alert.createdAt))} &middot; ${escapeHtml(alert.status)} &middot; ${escapeHtml(alert.analyst)}</div>
+      <div class="meta">${escapeHtml(alert.companyName || 'Company')} &middot; ${escapeHtml(alert.id)} &middot; Latest ${escapeHtml(alert.transactionId)} &middot; ${escapeHtml(alert.groupedCount || 1)} transaction(s) &middot; Score ${escapeHtml(alert.riskScore)} &middot; ${time.format(new Date(alert.createdAt))} &middot; ${escapeHtml(alert.status)} &middot; ${escapeHtml(alert.analyst)}</div>
       <div class="alert-actions">
-        ${alertStatuses.map((status) => `
+        ${workflowStatuses.map((status) => `
           <button type="button" class="secondary-btn" data-alert-id="${escapeHtml(alert.id)}" data-status="${escapeHtml(status)}" ${alert.status === status ? 'disabled' : ''}>${escapeHtml(status)}</button>
         `).join('')}
       </div>
@@ -234,9 +431,60 @@ function renderCases() {
         <span class="badge risk-${item.priority.toLowerCase()}">${item.priority}</span>
       </div>
       <p>${escapeHtml(item.summary)}</p>
-      <div class="meta">${escapeHtml(item.companyName || 'Company')} &middot; ${escapeHtml(item.customerName)} &middot; ${escapeHtml(item.status)} &middot; Due ${new Date(item.dueAt).toLocaleDateString('en-SG')}</div>
+      <div class="meta">${escapeHtml(item.companyName || 'Company')} &middot; ${escapeHtml(item.customerName)} &middot; ${escapeHtml(item.status)} &middot; ${escapeHtml(item.owner || 'Operations Team')} &middot; Due ${new Date(item.dueAt).toLocaleDateString('en-SG')}</div>
+      <div class="alert-actions">
+        ${workflowStatuses.map((status) => `
+          <button type="button" class="secondary-btn" data-case-id="${escapeHtml(item.id)}" data-status="${escapeHtml(status)}" ${item.status === status ? 'disabled' : ''}>${escapeHtml(status)}</button>
+        `).join('')}
+      </div>
     </article>
   `).join('') || '<p class="muted">No cases generated.</p>';
+}
+
+function renderOperationsQueue() {
+  if (!elements.operationsQueue) return;
+  const activeStatuses = ['New', 'Under Review', 'Escalated'];
+  const alertItems = getFilteredAlerts()
+    .filter((alert) => activeStatuses.includes(alert.status))
+    .map((alert) => ({
+      id: alert.id,
+      type: 'Alert',
+      customerName: alert.customerName,
+      companyName: alert.companyName,
+      priority: alert.severity,
+      score: alert.riskScore,
+      status: alert.status,
+      summary: (alert.rules || []).map((rule) => rule.name).join(', ') || alert.transactionId,
+      createdAt: alert.createdAt,
+    }));
+  const caseItems = getFilteredCases()
+    .filter((item) => activeStatuses.includes(item.status))
+    .map((item) => ({
+      id: item.id,
+      type: 'Case',
+      customerName: item.customerName,
+      companyName: item.companyName,
+      priority: item.priority,
+      score: item.priority === 'Critical' ? 100 : item.priority === 'High' ? 75 : item.priority === 'Medium' ? 45 : 15,
+      status: item.status,
+      summary: item.summary,
+      createdAt: item.dueAt,
+    }));
+
+  const queue = [...alertItems, ...caseItems]
+    .sort((left, right) => right.score - left.score || new Date(left.createdAt) - new Date(right.createdAt))
+    .slice(0, 10);
+
+  elements.operationsQueue.innerHTML = queue.map((item) => `
+    <article class="queue-item">
+      <div class="queue-top">
+        <strong>${escapeHtml(item.type)} ${escapeHtml(item.id)}</strong>
+        <span class="badge risk-${item.priority.toLowerCase()}">${escapeHtml(item.priority)}</span>
+      </div>
+      <p>${escapeHtml(item.summary)}</p>
+      <div class="meta">${escapeHtml(item.companyName || 'Company')} &middot; ${escapeHtml(item.customerName || 'Customer')} &middot; ${escapeHtml(item.status)}</div>
+    </article>
+  `).join('') || '<p class="muted">No active operations work.</p>';
 }
 
 function renderAuditLogs() {
@@ -433,8 +681,23 @@ async function updateAlertStatus(alertId, status) {
   await fetch(`/api/alerts/${encodeURIComponent(alertId)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status, analyst: 'Analyst Ryan' }),
+    body: JSON.stringify({ status, analyst: 'Operations Team' }),
   });
+}
+
+async function updateCaseStatus(caseId, status) {
+  await fetch(`/api/cases/${encodeURIComponent(caseId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status, owner: 'Operations Team' }),
+  });
+}
+
+async function refreshCustomerRisk() {
+  if (!elements.customerRiskRows) return;
+  const response = await fetch('/api/customers/risk');
+  state.customerRiskProfiles = await response.json();
+  renderCustomerRisk();
 }
 
 
@@ -477,6 +740,16 @@ if (elements.alertList) {
   });
 }
 
+if (elements.caseList) {
+  elements.caseList.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-case-id]');
+    if (!button) return;
+
+    button.disabled = true;
+    await updateCaseStatus(button.dataset.caseId, button.dataset.status);
+  });
+}
+
 if (elements.simulateBtn) {
   elements.simulateBtn.addEventListener('click', async () => {
     elements.simulateBtn.disabled = true;
@@ -500,6 +773,30 @@ if (elements.simulateBtn) {
   });
 }
 
+if (elements.customerScreeningForm) {
+  elements.customerScreeningForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const response = await fetch('/api/screening/customer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(formToJson(elements.customerScreeningForm)),
+    });
+    renderScreeningResult(elements.customerScreeningResults, await response.json());
+  });
+}
+
+if (elements.paymentScreeningForm) {
+  elements.paymentScreeningForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const response = await fetch('/api/screening/payment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(formToJson(elements.paymentScreeningForm)),
+    });
+    renderScreeningResult(elements.paymentScreeningResults, await response.json());
+  });
+}
+
 fetch('/api/snapshot')
   .then((response) => response.json())
   .then(setSnapshot);
@@ -518,21 +815,39 @@ stream.addEventListener('snapshot', (event) => {
 stream.addEventListener('transaction', (event) => {
   upsert(state.transactions, JSON.parse(event.data));
   renderTransactions();
+  renderAnalytics();
+  renderOperationsQueue();
+  refreshCustomerRisk();
 });
 
 stream.addEventListener('alert', (event) => {
   upsert(state.alerts, JSON.parse(event.data));
   renderAlerts();
+  renderAnalytics();
+  renderOperationsQueue();
+  refreshCustomerRisk();
 });
 
 stream.addEventListener('alertUpdate', (event) => {
   upsert(state.alerts, JSON.parse(event.data));
   renderAlerts();
+  renderAnalytics();
+  renderOperationsQueue();
+  refreshCustomerRisk();
 });
 
 stream.addEventListener('case', (event) => {
   upsert(state.cases, JSON.parse(event.data));
   renderCases();
+  renderAnalytics();
+  renderOperationsQueue();
+});
+
+stream.addEventListener('caseUpdate', (event) => {
+  upsert(state.cases, JSON.parse(event.data));
+  renderCases();
+  renderAnalytics();
+  renderOperationsQueue();
 });
 
 stream.addEventListener('audit', (event) => {
@@ -548,6 +863,11 @@ stream.addEventListener('metrics', (event) => {
 stream.addEventListener('charts', (event) => {
   state.charts = JSON.parse(event.data);
   renderCharts();
+});
+
+stream.addEventListener('analytics', (event) => {
+  state.analytics = JSON.parse(event.data);
+  renderAnalytics();
 });
 
 stream.addEventListener('error', () => {

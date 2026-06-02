@@ -46,12 +46,33 @@ CREATE TABLE transactions (
     usual_spend_below_100 TINYINT(1) NOT NULL DEFAULT 0,
     channel VARCHAR(50) NOT NULL,
     direction ENUM('Inbound', 'Outbound') NOT NULL,
+    counterparty_name VARCHAR(120) NULL,
+    counterparty_country VARCHAR(80) NULL,
+    payment_reference VARCHAR(255) NULL,
+    screening_status ENUM('Clear', 'Potential Match') NOT NULL DEFAULT 'Clear',
     status ENUM('Screening', 'Cleared', 'Flagged') NOT NULL DEFAULT 'Screening',
     risk_score INT NOT NULL DEFAULT 0,
     risk_band ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL DEFAULT 'Low',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (company_id) REFERENCES companies(company_id),
     FOREIGN KEY (customer_id) REFERENCES customers(customer_id)
+);
+
+CREATE TABLE transaction_screening_matches (
+    screening_match_id INT AUTO_INCREMENT PRIMARY KEY,
+    transaction_id VARCHAR(40) NOT NULL,
+    watchlist_id VARCHAR(30) NOT NULL,
+    watchlist_name VARCHAR(120) NOT NULL,
+    match_type VARCHAR(50) NOT NULL,
+    match_field VARCHAR(50) NOT NULL,
+    input_value VARCHAR(255) NULL,
+    match_country VARCHAR(80) NULL,
+    risk_level ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL,
+    match_score INT NOT NULL,
+    reason VARCHAR(255) NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE,
+    UNIQUE KEY uniq_transaction_screening_match (transaction_id, watchlist_id, match_field)
 );
 
 CREATE TABLE transaction_matched_rules (
@@ -68,16 +89,29 @@ CREATE TABLE transaction_matched_rules (
 CREATE TABLE alerts (
     alert_id VARCHAR(40) PRIMARY KEY,
     transaction_id VARCHAR(40) NOT NULL,
+    primary_rule_id VARCHAR(30) NULL,
+    grouped_count INT NOT NULL DEFAULT 1,
     company_id VARCHAR(20) NOT NULL,
     customer_id VARCHAR(30) NOT NULL,
     severity ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL,
     risk_score INT NOT NULL,
-    alert_status ENUM('Open', 'Investigating', 'Escalated', 'Closed', 'False Positive') NOT NULL DEFAULT 'Open',
+    alert_status ENUM('New', 'Under Review', 'Escalated', 'Resolved', 'False Positive') NOT NULL DEFAULT 'New',
     analyst VARCHAR(100) NOT NULL DEFAULT 'Unassigned',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NULL,
     FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE,
+    FOREIGN KEY (primary_rule_id) REFERENCES compliance_rules(rule_id),
     FOREIGN KEY (company_id) REFERENCES companies(company_id),
     FOREIGN KEY (customer_id) REFERENCES customers(customer_id)
+);
+
+CREATE TABLE alert_transaction_links (
+    alert_id VARCHAR(40) NOT NULL,
+    transaction_id VARCHAR(40) NOT NULL,
+    linked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (alert_id, transaction_id),
+    FOREIGN KEY (alert_id) REFERENCES alerts(alert_id) ON DELETE CASCADE,
+    FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE
 );
 
 CREATE TABLE compliance_cases (
@@ -87,9 +121,11 @@ CREATE TABLE compliance_cases (
     customer_id VARCHAR(30) NOT NULL,
     summary VARCHAR(255) NOT NULL,
     priority ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL,
-    case_status ENUM('Triage', 'Investigating', 'Escalated', 'Resolved', 'Closed') NOT NULL DEFAULT 'Triage',
+    case_status ENUM('New', 'Under Review', 'Escalated', 'Resolved', 'False Positive') NOT NULL DEFAULT 'New',
+    owner VARCHAR(100) NOT NULL DEFAULT 'Operations Team',
     due_at DATETIME NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NULL,
     FOREIGN KEY (alert_id) REFERENCES alerts(alert_id) ON DELETE CASCADE,
     FOREIGN KEY (company_id) REFERENCES companies(company_id),
     FOREIGN KEY (customer_id) REFERENCES customers(customer_id)
@@ -141,52 +177,71 @@ VALUES
     ('COM-C-003', 'companyC', '4+ Company C purchases within 30 min', 'Medium', 'Possible split purchase or repeated attempts', 30, NULL, 4, 'recent_company_transactions'),
     ('COM-C-004', 'companyC', 'Same card spends above S$1,500 within 24h', 'High', 'Unusual same-day cumulative spend', 55, 1500.00, NULL, 'card_spend_24h'),
     ('COM-C-005', 'companyC', '5+ low-value transactions below S$20 in 10 min', 'High', 'Possible card testing', 55, 20.00, 5, 'low_value_burst'),
-    ('COM-C-006', 'companyC', 'New customer first purchase above S$800', 'Medium', 'New card/account plus high-value spend', 35, 800.00, NULL, 'new_customer_amount');
+    ('COM-C-006', 'companyC', 'New customer first purchase above S$800', 'Medium', 'New card/account plus high-value spend', 35, 800.00, NULL, 'new_customer_amount'),
+    ('SCR-001', 'companyA', 'Payment or customer screening match', 'High', 'Sanctions, PEP, watchlist, or adverse-media screening match', 65, NULL, NULL, 'screening_match');
 
 INSERT INTO transactions
     (transaction_id, company_id, customer_id, amount, currency, country, merchant_category,
      recent_company_transactions, card_spend_24h, near_threshold_count, low_value_burst_count,
-     is_new_customer, usual_spend_below_100, channel, direction, status, risk_score, risk_band)
+     is_new_customer, usual_spend_below_100, channel, direction, counterparty_name,
+     counterparty_country, payment_reference, screening_status, status, risk_score, risk_band)
 VALUES
-    ('TXN-DEMO-001', 'companyA', 'CUS-1001', 95.00, 'SGD', 'Singapore', 'Fashion', 1, 180.00, 0, 0, 0, 0, 'Card Present', 'Inbound', 'Cleared', 0, 'Low'),
-    ('TXN-DEMO-002', 'companyB', 'CUS-1003', 2150.00, 'SGD', 'Singapore', 'Leather Goods', 1, 2300.00, 0, 0, 0, 0, 'E-Commerce', 'Outbound', 'Flagged', 100, 'Critical'),
-    ('TXN-DEMO-003', 'companyC', 'CUS-1004', 880.00, 'SGD', 'Malaysia', 'Skincare', 4, 950.00, 1, 0, 1, 0, 'Wallet', 'Outbound', 'Flagged', 65, 'High');
+    ('TXN-DEMO-001', 'companyA', 'CUS-1001', 95.00, 'SGD', 'Singapore', 'Fashion', 1, 180.00, 0, 0, 0, 0, 'Card Present', 'Inbound', 'Harbour Retail Pte Ltd', 'Singapore', 'Fashion purchase Harbour Retail Pte Ltd', 'Clear', 'Cleared', 0, 'Low'),
+    ('TXN-DEMO-002', 'companyB', 'CUS-1003', 2150.00, 'SGD', 'Singapore', 'Leather Goods', 1, 2300.00, 0, 0, 0, 0, 'E-Commerce', 'Outbound', 'Orion Trade Holdings', 'Iran', 'Invoice payment to Orion Trade Holdings', 'Potential Match', 'Flagged', 100, 'Critical'),
+    ('TXN-DEMO-003', 'companyC', 'CUS-1004', 880.00, 'SGD', 'Malaysia', 'Skincare', 4, 950.00, 1, 0, 1, 0, 'Wallet', 'Outbound', 'Maple Distribution', 'Malaysia', 'Skincare purchase Maple Distribution', 'Clear', 'Flagged', 95, 'Critical');
+
+INSERT INTO transaction_screening_matches
+    (transaction_id, watchlist_id, watchlist_name, match_type, match_field, input_value,
+     match_country, risk_level, match_score, reason)
+VALUES
+    ('TXN-DEMO-002', 'WL-SAN-001', 'Orion Trade Holdings', 'Sanctions', 'Counterparty',
+     'Orion Trade Holdings', 'Iran', 'Critical', 100, 'Sanctions list match for trade-finance counterparty'),
+    ('TXN-DEMO-002', 'WL-SAN-001', 'Orion Trade Holdings', 'Sanctions', 'Payment Details',
+     'Invoice payment to Orion Trade Holdings', 'Iran', 'Critical', 88, 'Sanctions list match for trade-finance counterparty');
 
 INSERT INTO transaction_matched_rules (transaction_id, rule_id, rule_weight)
 VALUES
     ('TXN-DEMO-002', 'COM-B-001', 30),
     ('TXN-DEMO-002', 'COM-B-002', 60),
     ('TXN-DEMO-002', 'COM-B-004', 55),
+    ('TXN-DEMO-002', 'SCR-001', 65),
     ('TXN-DEMO-003', 'COM-C-001', 30),
     ('TXN-DEMO-003', 'COM-C-003', 30),
     ('TXN-DEMO-003', 'COM-C-006', 35);
 
 INSERT INTO alerts
-    (alert_id, transaction_id, company_id, customer_id, severity, risk_score, alert_status, analyst)
+    (alert_id, transaction_id, primary_rule_id, grouped_count, company_id, customer_id, severity, risk_score, alert_status, analyst)
 VALUES
-    ('ALT-DEMO-001', 'TXN-DEMO-002', 'companyB', 'CUS-1003', 'Critical', 100, 'Open', 'Unassigned'),
-    ('ALT-DEMO-002', 'TXN-DEMO-003', 'companyC', 'CUS-1004', 'High', 65, 'Investigating', 'Analyst');
+    ('ALT-DEMO-001', 'TXN-DEMO-002', 'COM-B-001', 1, 'companyB', 'CUS-1003', 'Critical', 100, 'New', 'Unassigned'),
+    ('ALT-DEMO-002', 'TXN-DEMO-003', 'COM-C-001', 1, 'companyC', 'CUS-1004', 'Critical', 95, 'Under Review', 'Operations Team');
+
+INSERT INTO alert_transaction_links (alert_id, transaction_id)
+VALUES
+    ('ALT-DEMO-001', 'TXN-DEMO-002'),
+    ('ALT-DEMO-002', 'TXN-DEMO-003');
 
 INSERT INTO compliance_cases
-    (case_id, alert_id, company_id, customer_id, summary, priority, case_status, due_at)
+    (case_id, alert_id, company_id, customer_id, summary, priority, case_status, owner, due_at)
 VALUES
-    ('CASE-DEMO-001', 'ALT-DEMO-001', 'companyB', 'CUS-1003', 'SGD 2,150 outbound transaction flagged', 'Critical', 'Triage', DATE_ADD(NOW(), INTERVAL 2 DAY)),
-    ('CASE-DEMO-002', 'ALT-DEMO-002', 'companyC', 'CUS-1004', 'SGD 880 outbound transaction flagged', 'High', 'Investigating', DATE_ADD(NOW(), INTERVAL 2 DAY));
+    ('CASE-DEMO-001', 'ALT-DEMO-001', 'companyB', 'CUS-1003', 'SGD 2,150 outbound transaction flagged', 'Critical', 'New', 'Operations Team', DATE_ADD(NOW(), INTERVAL 2 DAY)),
+    ('CASE-DEMO-002', 'ALT-DEMO-002', 'companyC', 'CUS-1004', 'SGD 880 outbound transaction flagged', 'Critical', 'Under Review', 'Operations Team', DATE_ADD(NOW(), INTERVAL 2 DAY));
 
 INSERT INTO audit_logs
     (audit_id, action, actor, entity_type, entity_id, company_id, message)
 VALUES
     ('AUD-DEMO-001', 'Alert Created', 'System', 'Alert', 'ALT-DEMO-001', 'companyB', 'Critical alert opened for Company B transaction'),
     ('AUD-DEMO-002', 'Case Created', 'System', 'Case', 'CASE-DEMO-001', 'companyB', 'Case generated from alert ALT-DEMO-001'),
-    ('AUD-DEMO-003', 'Alert Status Changed', 'Analyst', 'Alert', 'ALT-DEMO-002', 'companyC', 'ALT-DEMO-002 moved from Open to Investigating');
+    ('AUD-DEMO-003', 'Alert Status Changed', 'Operations Team', 'Alert', 'ALT-DEMO-002', 'companyC', 'ALT-DEMO-002 moved from New to Under Review');
 
 CREATE INDEX idx_transactions_company ON transactions(company_id);
 CREATE INDEX idx_transactions_customer ON transactions(customer_id);
 CREATE INDEX idx_transactions_status ON transactions(status);
 CREATE INDEX idx_transactions_risk_band ON transactions(risk_band);
 CREATE INDEX idx_transactions_created_at ON transactions(created_at);
+CREATE INDEX idx_screening_matches_transaction ON transaction_screening_matches(transaction_id);
 CREATE INDEX idx_alerts_status ON alerts(alert_status);
 CREATE INDEX idx_alerts_severity ON alerts(severity);
+CREATE INDEX idx_alerts_grouping ON alerts(customer_id, company_id, primary_rule_id, alert_status);
 CREATE INDEX idx_cases_status ON compliance_cases(case_status);
 CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
 
@@ -226,21 +281,34 @@ END$$
 
 CREATE PROCEDURE open_alert_for_transaction(IN p_transaction_id VARCHAR(40))
 BEGIN
+    DECLARE v_alert_id VARCHAR(40);
     DECLARE v_company_id VARCHAR(20);
     DECLARE v_customer_id VARCHAR(30);
+    DECLARE v_primary_rule_id VARCHAR(30);
     DECLARE v_risk_score INT;
     DECLARE v_risk_band VARCHAR(20);
+
+    SET v_alert_id = CONCAT('ALT-', UNIX_TIMESTAMP(), '-', FLOOR(RAND() * 10000));
 
     SELECT company_id, customer_id, risk_score, risk_band
     INTO v_company_id, v_customer_id, v_risk_score, v_risk_band
     FROM transactions
     WHERE transaction_id = p_transaction_id;
 
+    SELECT rule_id
+    INTO v_primary_rule_id
+    FROM transaction_matched_rules
+    WHERE transaction_id = p_transaction_id
+    ORDER BY rule_weight DESC, matched_rule_id ASC
+    LIMIT 1;
+
     INSERT INTO alerts
-        (alert_id, transaction_id, company_id, customer_id, severity, risk_score)
+        (alert_id, transaction_id, primary_rule_id, grouped_count, company_id, customer_id, severity, risk_score)
     VALUES
-        (CONCAT('ALT-', UNIX_TIMESTAMP(), '-', FLOOR(RAND() * 10000)),
-         p_transaction_id, v_company_id, v_customer_id, v_risk_band, v_risk_score);
+        (v_alert_id, p_transaction_id, v_primary_rule_id, 1, v_company_id, v_customer_id, v_risk_band, v_risk_score);
+
+    INSERT INTO alert_transaction_links (alert_id, transaction_id)
+    VALUES (v_alert_id, p_transaction_id);
 END$$
 
 CREATE PROCEDURE create_case_for_alert(IN p_alert_id VARCHAR(40))

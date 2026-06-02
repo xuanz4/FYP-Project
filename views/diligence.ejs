@@ -1,0 +1,88 @@
+<%- include('partials/head', { title, activePage }) %>
+
+<main>
+  <section class="topbar">
+    <div>
+      <h1>Due Diligence</h1>
+      <p>Assess customer risk and run sanctions, PEP, watchlist, adverse-media, and payment screening checks.</p>
+    </div>
+  </section>
+  <section class="filter-bar">
+    <label for="companyFilter">Company</label>
+    <select id="companyFilter" aria-label="Company filter">
+      <option value="All">All Companies</option>
+    </select>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>Customer Risk Profiles</h2>
+        <p>Dynamic KYC risk profiles combining customer data, geography, screening, alerts, and transaction behavior.</p>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Customer</th>
+            <th>Company</th>
+            <th>KYC</th>
+            <th>Screening</th>
+            <th>Transactions</th>
+            <th>Open Alerts</th>
+            <th>Risk</th>
+            <th>Drivers</th>
+          </tr>
+        </thead>
+        <tbody id="customerRiskRows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="screening-grid single-panel">
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Customer Screening</h2>
+          <p>Screen onboarding or existing customers against configured watchlists.</p>
+        </div>
+      </div>
+      <form id="customerScreeningForm" class="screening-form">
+        <label>Name<input name="name" value="Maya Wong" required></label>
+        <label>Country<input name="country" value="Singapore"></label>
+        <button type="submit">Screen customer</button>
+      </form>
+      <div id="customerScreeningResults" class="screening-results"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Payment Screening</h2>
+          <p>Screen customer, counterparty, countries, and payment details before release.</p>
+        </div>
+      </div>
+      <form id="paymentScreeningForm" class="screening-form">
+        <label>Customer<input name="customerName" value="Ava Lim" required></label>
+        <label>Counterparty<input name="counterpartyName" value="Orion Trade Holdings" required></label>
+        <label>Counterparty Country<input name="counterpartyCountry" value="Iran"></label>
+        <label>Payment Details<input name="paymentReference" value="Invoice payment to Orion Trade Holdings"></label>
+        <button type="submit">Screen payment</button>
+      </form>
+      <div id="paymentScreeningResults" class="screening-results"></div>
+    </section>
+  </section>
+
+  <section class="panel single-panel">
+    <div class="panel-header">
+      <div>
+        <h2>Configured Watchlist Sources</h2>
+        <p>Demo data sources used by the screening engine.</p>
+      </div>
+    </div>
+    <div id="watchlistRows" class="analysis-list wide"></div>
+  </section>
+</main>
+
+<%- include('partials/footer') %>
