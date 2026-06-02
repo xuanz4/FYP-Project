@@ -1,0 +1,26 @@
+{
+    "name": "transaction-compliance-monitor",
+    "version": "1.0.0",
+    "description": "Real-time transaction compliance monitoring dashboard.",
+    "main": "app.js",
+    "scripts": {
+        "start": "node app.js",
+        "test": "node tests/complianceEngine.test.js",
+        "db:init": "node scripts/initDb.js"
+    },
+    "keywords": [
+        "compliance",
+        "transactions",
+        "monitoring",
+        "aml"
+    ],
+    "author": "",
+    "license": "ISC",
+    "type": "commonjs",
+    "dependencies": {
+        "dotenv": "^16.6.1",
+        "ejs": "^3.1.10",
+        "express": "^5.2.1",
+        "mysql2": "^3.15.3"
+    }
+}

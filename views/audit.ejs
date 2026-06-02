@@ -1,0 +1,24 @@
+﻿<%- include('partials/head', { title, activePage }) %>
+
+<main>
+  <section class="topbar">
+    <div>
+      <h1>Audit Log</h1>
+      <p>Track monitoring events and analyst actions for compliance review.</p>
+    </div>
+  </section>
+  <section class="filter-bar">
+    <label for="companyFilter">Company</label>
+    <select id="companyFilter" aria-label="Company filter">
+      <option value="All">All Companies</option>
+    </select>
+  </section>
+  <section class="panel" id="audit">
+    <div class="panel-header"><div><h2>Audit Log</h2><p>Immutable activity trail for monitoring and analyst actions.</p></div></div>
+    <div id="auditList" class="audit-list page-list"></div>
+  </section>
+</main>
+
+<%- include('partials/footer') %>
+
+

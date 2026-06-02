@@ -1,0 +1,63 @@
+﻿<%- include('partials/head', { title, activePage }) %>
+
+<main>
+  <section class="topbar">
+    <div>
+      <h1>Compliance Dashboard</h1>
+      <p>Screen payments, surface AML risk, and triage flagged activity as it happens.</p>
+    </div>
+    <button id="simulateBtn" type="button">Simulate High-Risk Transaction</button>
+  </section>
+  <section class="filter-bar">
+    <label for="companyFilter">Company</label>
+    <select id="companyFilter" aria-label="Company filter">
+      <option value="All">All Companies</option>
+    </select>
+  </section>
+
+  <section class="metrics" id="dashboard">
+    <article><span>Total Screened</span><strong id="totalMetric">0</strong></article>
+    <article><span>Flag Rate</span><strong id="flagRateMetric">0%</strong></article>
+    <article><span>Active Alerts</span><strong id="activeAlertsMetric">0</strong></article>
+    <article><span>Value Screened</span><strong id="valueMetric">SGD 0</strong></article>
+  </section>
+
+  <section class="panel transactions-panel">
+    <div class="panel-header">
+      <div>
+        <h2>Live Transaction Feed</h2>
+        <p>Newest screened transactions appear first.</p>
+      </div>
+      <select id="riskFilter" aria-label="Risk filter">
+        <option value="All">All Risk Bands</option>
+        <option value="Critical">Critical</option>
+        <option value="High">High</option>
+        <option value="Medium">Medium</option>
+        <option value="Low">Low</option>
+      </select>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Customer</th>
+            <th>Company</th>
+            <th>Amount</th>
+            <th>Country</th>
+            <th>Channel</th>
+            <th>Risk</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="transactionRows"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<%- include('partials/footer') %>
+
+
+
+

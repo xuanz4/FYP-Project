@@ -1,0 +1,24 @@
+﻿<%- include('partials/head', { title, activePage }) %>
+
+<main>
+  <section class="topbar">
+    <div>
+      <h1>Alert Queue</h1>
+      <p>Review flagged transactions and update analyst disposition.</p>
+    </div>
+  </section>
+  <section class="filter-bar">
+    <label for="companyFilter">Company</label>
+    <select id="companyFilter" aria-label="Company filter">
+      <option value="All">All Companies</option>
+    </select>
+  </section>
+  <section class="panel" id="alerts">
+    <div class="panel-header"><div><h2>Alert Queue</h2><p>Assign and update compliance alert status.</p></div></div>
+    <div id="alertList" class="alert-list page-list"></div>
+  </section>
+</main>
+
+<%- include('partials/footer') %>
+
+
