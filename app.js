@@ -188,59 +188,59 @@ function createTransaction(overrides = {}) {
       });
       broadcast('alertUpdate', duplicateAlert);
     } else {
-    const alert = {
-      id: id('ALT'),
-      transactionId: transaction.id,
-      transactionIds: [transaction.id],
-      groupedCount: 1,
-      companyId: transaction.companyId,
-      companyName: transaction.companyName,
-      customerId: transaction.customerId,
-      customerName: transaction.customerName,
-      severity: transaction.riskBand,
-      riskScore: transaction.riskScore,
-      rules: matchedRules,
-      primaryRuleId: primaryRule.id,
-      status: 'New',
-      analyst: 'Unassigned',
-      createdAt: transaction.createdAt,
-    };
-    const complianceCase = {
-      id: id('CASE'),
-      alertId: alert.id,
-      companyId: transaction.companyId,
-      companyName: transaction.companyName,
-      customerName: transaction.customerName,
-      customerId: transaction.customerId,
-      summary: `${transaction.currency} ${transaction.amount.toLocaleString()} ${transaction.direction.toLowerCase()} transaction flagged`,
-      priority: transaction.riskBand,
-      status: 'New',
-      owner: 'Operations Team',
-      dueAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
-    };
-    pushLimited(alerts, alert, 120);
-    pushLimited(cases, complianceCase, 80);
-    logAudit('Alert Created', {
-      entityType: 'Alert',
-      entityId: alert.id,
-      companyId: transaction.companyId,
-      companyName: transaction.companyName,
-      message: `${alert.severity} alert opened for ${transaction.companyName} transaction by ${transaction.customerName}`,
-    });
-    logAudit('Case Created', {
-      entityType: 'Case',
-      entityId: complianceCase.id,
-      companyId: transaction.companyId,
-      companyName: transaction.companyName,
-      message: `Case generated from alert ${alert.id}`,
-    });
-    queueDbWrite(async () => {
-      await database.saveTransaction(transaction);
-      await database.saveAlert(alert);
-      await database.saveCase(complianceCase);
-    });
-    broadcast('alert', alert);
-    broadcast('case', complianceCase);
+      const alert = {
+        id: id('ALT'),
+        transactionId: transaction.id,
+        transactionIds: [transaction.id],
+        groupedCount: 1,
+        companyId: transaction.companyId,
+        companyName: transaction.companyName,
+        customerId: transaction.customerId,
+        customerName: transaction.customerName,
+        severity: transaction.riskBand,
+        riskScore: transaction.riskScore,
+        rules: matchedRules,
+        primaryRuleId: primaryRule.id,
+        status: 'New',
+        analyst: 'Unassigned',
+        createdAt: transaction.createdAt,
+      };
+      const complianceCase = {
+        id: id('CASE'),
+        alertId: alert.id,
+        companyId: transaction.companyId,
+        companyName: transaction.companyName,
+        customerName: transaction.customerName,
+        customerId: transaction.customerId,
+        summary: `${transaction.currency} ${transaction.amount.toLocaleString()} ${transaction.direction.toLowerCase()} transaction flagged`,
+        priority: transaction.riskBand,
+        status: 'New',
+        owner: 'Operations Team',
+        dueAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      };
+      pushLimited(alerts, alert, 120);
+      pushLimited(cases, complianceCase, 80);
+      logAudit('Alert Created', {
+        entityType: 'Alert',
+        entityId: alert.id,
+        companyId: transaction.companyId,
+        companyName: transaction.companyName,
+        message: `${alert.severity} alert opened for ${transaction.companyName} transaction by ${transaction.customerName}`,
+      });
+      logAudit('Case Created', {
+        entityType: 'Case',
+        entityId: complianceCase.id,
+        companyId: transaction.companyId,
+        companyName: transaction.companyName,
+        message: `Case generated from alert ${alert.id}`,
+      });
+      queueDbWrite(async () => {
+        await database.saveTransaction(transaction);
+        await database.saveAlert(alert);
+        await database.saveCase(complianceCase);
+      });
+      broadcast('alert', alert);
+      broadcast('case', complianceCase);
     }
   } else {
     queueDbWrite(() => database.saveTransaction(transaction));
@@ -315,6 +315,10 @@ function getCustomerRiskProfiles() {
   return buildCustomerRiskProfiles(transactions, alerts);
 }
 
+function findTransactionById(transactionId) {
+  return transactions.find((transaction) => transaction.id === transactionId) || null;
+}
+
 
 function renderPage(view, title, activePage) {
   return (req, res) => {
@@ -328,6 +332,22 @@ app.get('/analytics', renderPage('analytics', 'Analytics', 'analytics'));
 app.get('/diligence', renderPage('diligence', 'Due Diligence', 'diligence'));
 app.get('/investigations', renderPage('investigations', 'Investigations', 'investigations'));
 app.get('/rules', renderPage('rules', 'Compliance Rules', 'rules'));
+app.get('/transactions/:id', (req, res) => {
+  const transaction = findTransactionById(req.params.id);
+  if (!transaction) {
+    return res.status(404).render('transaction-detail', {
+      title: 'Transaction Not Found',
+      activePage: 'dashboard',
+      transaction: null,
+    });
+  }
+
+  res.render('transaction-detail', {
+    title: `Transaction ${transaction.id}`,
+    activePage: 'dashboard',
+    transaction,
+  });
+});
 
 app.get('/index.html', (req, res) => res.redirect(301, '/'));
 app.get('/dashboard.html', (req, res) => res.redirect(301, '/dashboard'));
@@ -365,6 +385,12 @@ app.get('/api/stream', (req, res) => {
 
 app.get('/api/snapshot', (req, res) => {
   res.json(getSnapshot());
+});
+
+app.get('/api/transactions/:id', (req, res) => {
+  const transaction = findTransactionById(req.params.id);
+  if (!transaction) return res.status(404).json({ error: 'transaction not found' });
+  res.json(transaction);
 });
 
 app.get('/api/analytics', (req, res) => {

@@ -1,0 +1,357 @@
+<%- include('partials/head', { title, activePage }) %>
+
+    <% const finalStatuses=['Pending RFI', 'STR Filed' , 'Dismissed as False Positive' , 'Escalated' ]; const
+        hasTransaction=Boolean(transaction); const statusSlug=hasTransaction ?
+        transaction.status.toLowerCase().replace(/[^a-z0-9]+/g, '-' ) : 'unknown' ; const isClosed=hasTransaction &&
+        finalStatuses.includes(transaction.status); const moneyFormatter=new Intl.NumberFormat('en-SG', {
+        style: 'currency' , currency: 'SGD' , maximumFractionDigits: 0, }); %>
+
+        <main data-transaction-detail-page data-transaction-id="<%= hasTransaction ? transaction.id : '' %>">
+            <section class="topbar detail-topbar">
+                <div>
+                    <a class="back-link" href="/dashboard">&larr; Back to Dashboard</a>
+                    <h1>Transaction Review</h1>
+                    <p>Review the flagged transaction, its broken rules, and the available investigation actions.</p>
+                </div>
+                <% if (hasTransaction) { %>
+                    <div class="detail-status-panel">
+                        <span id="transactionDetailStatus"
+                            class="badge transaction-status-badge status-<%= statusSlug %>">
+                            <%= transaction.status %>
+                        </span>
+                        <p id="transactionDetailConfirmation">
+                            <%= isClosed ? 'No further action is needed for this transaction.'
+                                : 'Choose an action to continue the review workflow.' %>
+                        </p>
+                    </div>
+                    <% } %>
+            </section>
+
+            <% if (!hasTransaction) { %>
+                <section class="panel detail-empty-state">
+                    <div class="panel-header">
+                        <div>
+                            <h2>Transaction not found</h2>
+                            <p>The transaction could not be loaded from the current session.</p>
+                        </div>
+                    </div>
+                    <div class="detail-empty-body">
+                        <p>Return to the dashboard and open a flagged transaction again.</p>
+                        <a class="secondary-link" href="/dashboard">Go back to Dashboard</a>
+                    </div>
+                </section>
+                <% } else { %>
+                    <script id="transactionDetailData"
+                        type="application/json"><%- JSON.stringify(transaction) %></script>
+
+                    <section class="detail-summary-grid">
+                        <article class="panel detail-hero-card">
+                            <div class="panel-header detail-card-header">
+                                <div>
+                                    <h2>
+                                        <%= transaction.customerName %>
+                                    </h2>
+                                    <p>
+                                        <%= transaction.companyName || 'Company' %> &middot; <%= transaction.customerId
+                                                %>
+                                    </p>
+                                </div>
+                                <span class="badge risk-<%= transaction.riskBand.toLowerCase() %>">
+                                    <%= transaction.riskBand %>
+                                        <%= transaction.riskScore %>
+                                </span>
+                            </div>
+                            <div class="detail-hero-body">
+                                <p class="detail-eyebrow">Flagged transaction <%= transaction.id %>
+                                </p>
+                                <p>Created <%= new Date(transaction.createdAt).toLocaleString('en-SG') %>
+                                </p>
+                                <p class="detail-amount">
+                                    <%= moneyFormatter.format(transaction.amount) %>
+                                </p>
+                                <p>
+                                    <%= transaction.country %> &middot; <%= transaction.channel %> &middot; <%=
+                                                transaction.direction %>
+                                </p>
+                            </div>
+                        </article>
+
+                        <article class="panel detail-summary-card">
+                            <div class="panel-header">
+                                <div>
+                                    <h2>Risk Snapshot</h2>
+                                    <p>Current screening and transaction review position.</p>
+                                </div>
+                            </div>
+                            <div class="detail-stat-grid">
+                                <article><span>Risk Score</span><strong>
+                                        <%= transaction.riskScore %>
+                                    </strong></article>
+                                <article><span>Status</span><strong class="transaction-status status-<%= statusSlug %>">
+                                        <%= transaction.status %>
+                                    </strong></article>
+                                <article><span>Screening</span><strong>
+                                        <%= transaction.screeningStatus || 'Pending' %>
+                                    </strong></article>
+                                <article><span>Currency</span><strong>
+                                        <%= transaction.currency %>
+                                    </strong></article>
+                            </div>
+                        </article>
+                    </section>
+
+                    <section class="detail-columns">
+                        <article class="panel detail-section">
+                            <div class="panel-header">
+                                <div>
+                                    <h2>Transaction Details</h2>
+                                    <p>Full record details for the review case.</p>
+                                </div>
+                            </div>
+                            <dl class="detail-definition-list">
+                                <div>
+                                    <dt>Name</dt>
+                                    <dd>
+                                        <%= transaction.customerName %>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>Customer ID</dt>
+                                    <dd>
+                                        <%= transaction.customerId %>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>Company</dt>
+                                    <dd>
+                                        <%= transaction.companyName || 'Company' %>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>Amount</dt>
+                                    <dd>
+                                        <%= moneyFormatter.format(transaction.amount) %>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>Date</dt>
+                                    <dd>
+                                        <%= new Date(transaction.createdAt).toLocaleString('en-SG') %>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>Country</dt>
+                                    <dd>
+                                        <%= transaction.country %>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>Merchant Category</dt>
+                                    <dd>
+                                        <%= transaction.merchantCategory %>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>Merchant Type</dt>
+                                    <dd>
+                                        <%= transaction.merchantType || 'N/A' %>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>Channel</dt>
+                                    <dd>
+                                        <%= transaction.channel %>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>Direction</dt>
+                                    <dd>
+                                        <%= transaction.direction %>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>Counterparty</dt>
+                                    <dd>
+                                        <%= transaction.counterpartyName %>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>Counterparty Country</dt>
+                                    <dd>
+                                        <%= transaction.counterpartyCountry %>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>Payment Reference</dt>
+                                    <dd>
+                                        <%= transaction.paymentReference %>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>KYC Status</dt>
+                                    <dd>
+                                        <%= transaction.kycStatus %>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>Recent Company Txns</dt>
+                                    <dd>
+                                        <%= transaction.recentCompanyTransactions %>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>Card Spend 24h</dt>
+                                    <dd>
+                                        <%= moneyFormatter.format(transaction.cardSpend24h || 0) %>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>Near Threshold Count</dt>
+                                    <dd>
+                                        <%= transaction.nearThresholdCount %>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>Low Value Burst Count</dt>
+                                    <dd>
+                                        <%= transaction.lowValueBurstCount %>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>New Customer</dt>
+                                    <dd>
+                                        <%= transaction.isNewCustomer ? 'Yes' : 'No' %>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>Usual Spend Below 100</dt>
+                                    <dd>
+                                        <%= transaction.usualSpendBelow100 ? 'Yes' : 'No' %>
+                                    </dd>
+                                </div>
+                            </dl>
+                        </article>
+
+                        <article class="panel detail-section">
+                            <div class="panel-header">
+                                <div>
+                                    <h2>Rules Broken</h2>
+                                    <p>The rule set that caused this transaction to be flagged.</p>
+                                </div>
+                            </div>
+                            <div class="detail-rule-list">
+                                <% if ((transaction.matchedRules || []).length) { %>
+                                    <% transaction.matchedRules.forEach((rule)=> { %>
+                                        <article class="detail-rule-item">
+                                            <div class="detail-rule-top">
+                                                <strong>
+                                                    <%= rule.name %>
+                                                </strong>
+                                                <span
+                                                    class="badge risk-<%= (rule.risk || transaction.riskBand).toLowerCase() %>">
+                                                    <%= rule.risk || transaction.riskBand %>
+                                                </span>
+                                            </div>
+                                            <p>
+                                                <%= rule.reason %>
+                                            </p>
+                                            <div class="meta">Rule ID <%= rule.id %> &middot; Weight <%= rule.weight %>
+                                            </div>
+                                        </article>
+                                        <% }); %>
+                                            <% } else { %>
+                                                <p class="muted">No automated rule matches were recorded for this
+                                                    transaction.</p>
+                                                <% } %>
+                                                    <% if ((transaction.screeningMatches || []).length) { %>
+                                                        <% transaction.screeningMatches.forEach((match)=> { %>
+                                                            <article class="detail-rule-item">
+                                                                <div class="detail-rule-top">
+                                                                    <strong>
+                                                                        <%= match.name %>
+                                                                    </strong>
+                                                                    <span
+                                                                        class="badge risk-<%= (match.risk || 'Medium').toLowerCase() %>">
+                                                                        <%= match.type %>
+                                                                    </span>
+                                                                </div>
+                                                                <p>
+                                                                    <%= match.reason %>
+                                                                </p>
+                                                                <div class="meta">Field <%= match.field %> &middot;
+                                                                        Score <%= match.score %>
+                                                                </div>
+                                                            </article>
+                                                            <% }); %>
+                                                                <% } %>
+                            </div>
+                        </article>
+                    </section>
+
+                    <section class="panel detail-section">
+                        <div class="panel-header">
+                            <div>
+                                <h2>Action Workflow</h2>
+                                <p>Choose the next step for this transaction.</p>
+                            </div>
+                        </div>
+                        <div id="transactionDetailActionButtons" class="transaction-action-grid">
+                            <button type="button" class="review-action-btn" data-transaction-action="rfi" <%=isClosed
+                                ? 'disabled' : '' %>>Request for Information (RFI)</button>
+                            <button type="button" class="review-action-btn" data-transaction-action="str" <%=isClosed
+                                ? 'disabled' : '' %>>File STR</button>
+                            <button type="button" class="review-action-btn danger" data-transaction-action="dismiss"
+                                <%=isClosed ? 'disabled' : '' %>>Dismiss as False Positive</button>
+                            <button type="button" class="review-action-btn warning" data-transaction-action="escalate"
+                                <%=isClosed ? 'disabled' : '' %>>Escalate</button>
+                        </div>
+                    </section>
+
+                    <div id="transactionActionModal" class="detail-modal action-modal" aria-hidden="true">
+                        <div class="detail-modal-backdrop" data-close-transaction-action></div>
+                        <section class="detail-dialog action-dialog" role="dialog" aria-modal="true"
+                            aria-labelledby="transactionActionTitle">
+                            <button type="button" class="detail-close" data-close-transaction-action
+                                aria-label="Close action form">Close</button>
+                            <div class="detail-heading">
+                                <div>
+                                    <span class="eyebrow">Demo Form</span>
+                                    <h2 id="transactionActionTitle">Transaction Action</h2>
+                                    <p>This form is for demonstration only and does not submit to a backend.</p>
+                                </div>
+                            </div>
+                            <form id="transactionActionForm" class="action-form">
+                                <input id="transactionActionType" type="hidden" name="action" value="">
+                                <label>
+                                    <span>Name</span>
+                                    <input id="transactionActionName" name="name" type="text" readonly
+                                        value="<%= transaction.customerName %>">
+                                </label>
+                                <label>
+                                    <span>Amount</span>
+                                    <input id="transactionActionAmount" name="amount" type="text" readonly
+                                        value="<%= moneyFormatter.format(transaction.amount) %>">
+                                </label>
+                                <label>
+                                    <span>Country</span>
+                                    <input id="transactionActionCountry" name="country" type="text" readonly
+                                        value="<%= transaction.country %>">
+                                </label>
+                                <label>
+                                    <span>Merchant Category</span>
+                                    <input id="transactionActionCategory" name="merchantCategory" type="text" readonly
+                                        value="<%= transaction.merchantCategory %>">
+                                </label>
+                                <label>
+                                    <span>Analyst Notes</span>
+                                    <textarea name="notes" rows="4"
+                                        placeholder="Optional context for the review"></textarea>
+                                </label>
+                                <button id="transactionActionSubmit" type="submit" class="action-submit">Submit</button>
+                            </form>
+                        </section>
+                    </div>
+                    <% } %>
+        </main>
+
+        <%- include('partials/footer') %>

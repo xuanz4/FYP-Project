@@ -1,4 +1,63 @@
-﻿const state = {
+﻿function loadTransactionStatusOverrides() {
+  if (typeof window === 'undefined' || !window.sessionStorage) return {};
+
+  try {
+    return JSON.parse(window.sessionStorage.getItem('ledgerSentinelTransactionOverrides') || '{}');
+  } catch (error) {
+    return {};
+  }
+}
+
+function persistTransactionStatusOverride(transactionId, override) {
+  if (typeof window === 'undefined' || !window.sessionStorage) return;
+
+  const existing = loadTransactionStatusOverrides();
+  existing[transactionId] = {
+    ...(existing[transactionId] || {}),
+    ...override,
+  };
+  window.sessionStorage.setItem('ledgerSentinelTransactionOverrides', JSON.stringify(existing));
+  state.transactionStatusOverrides = existing;
+}
+
+function statusClass(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+}
+
+function applyTransactionOverride(transaction) {
+  const override = state.transactionStatusOverrides?.[transaction.id];
+  return override ? { ...transaction, ...override } : transaction;
+}
+
+function applyTransactionOverrides() {
+  state.transactions = state.transactions.map((transaction) => applyTransactionOverride(transaction));
+  state.detailSeed = state.detailSeed ? applyTransactionOverride(state.detailSeed) : null;
+}
+
+function isFinalTransactionStatus(status) {
+  return ['Pending RFI', 'STR Filed', 'Dismissed as False Positive', 'Escalated'].includes(status);
+}
+
+function getTransactionActionStatus(action) {
+  return {
+    rfi: 'Pending RFI',
+    str: 'STR Filed',
+    dismiss: 'Dismissed as False Positive',
+    escalate: 'Escalated',
+  }[action];
+}
+
+const detailSeedElement = document.querySelector('#transactionDetailData');
+let detailSeed = null;
+if (detailSeedElement) {
+  try {
+    detailSeed = JSON.parse(detailSeedElement.textContent || 'null');
+  } catch (error) {
+    detailSeed = null;
+  }
+}
+
+const state = {
   transactions: [],
   alerts: [],
   cases: [],
@@ -11,9 +70,20 @@
   watchlist: [],
   riskFilter: 'All',
   companyFilter: 'All',
+  transactionStatusOverrides: loadTransactionStatusOverrides(),
+  detailSeed,
+  detailTransactionId: document.querySelector('[data-transaction-detail-page]')?.dataset.transactionId || detailSeed?.id || null,
 };
 
 const workflowStatuses = ['New', 'Under Review', 'Escalated', 'Resolved', 'False Positive'];
+const transactionStatusOrder = [
+  'Flagged',
+  'Pending RFI',
+  'STR Filed',
+  'Escalated',
+  'Dismissed as False Positive',
+  'Cleared',
+];
 
 const money = new Intl.NumberFormat('en-SG', {
   style: 'currency',
@@ -64,6 +134,19 @@ const elements = {
   riskFilter: document.querySelector('#riskFilter'),
   companyFilter: document.querySelector('#companyFilter'),
   simulateBtn: document.querySelector('#simulateBtn'),
+  transactionDetailPage: document.querySelector('[data-transaction-detail-page]'),
+  transactionDetailStatus: document.querySelector('#transactionDetailStatus'),
+  transactionDetailConfirmation: document.querySelector('#transactionDetailConfirmation'),
+  transactionDetailActionButtons: document.querySelector('#transactionDetailActionButtons'),
+  transactionActionModal: document.querySelector('#transactionActionModal'),
+  transactionActionForm: document.querySelector('#transactionActionForm'),
+  transactionActionTitle: document.querySelector('#transactionActionTitle'),
+  transactionActionSubmit: document.querySelector('#transactionActionSubmit'),
+  transactionActionName: document.querySelector('#transactionActionName'),
+  transactionActionAmount: document.querySelector('#transactionActionAmount'),
+  transactionActionCountry: document.querySelector('#transactionActionCountry'),
+  transactionActionCategory: document.querySelector('#transactionActionCategory'),
+  transactionActionType: document.querySelector('#transactionActionType'),
 };
 
 function setSnapshot(snapshot) {
@@ -77,6 +160,7 @@ function setSnapshot(snapshot) {
   state.metrics = snapshot.metrics || {};
   state.customerRiskProfiles = snapshot.customerRiskProfiles || [];
   state.watchlist = snapshot.watchlist || [];
+  applyTransactionOverrides();
   populateCompanyFilter();
   render();
 }
@@ -106,6 +190,11 @@ function matchesCompany(item) {
 
 function getFilteredTransactions() {
   return state.transactions.filter(matchesCompany);
+}
+
+function getTransactionById(transactionId) {
+  return state.transactions.find((transaction) => transaction.id === transactionId)
+    || (state.detailSeed && state.detailSeed.id === transactionId ? state.detailSeed : null);
 }
 
 function getFilteredAlerts() {
@@ -140,7 +229,7 @@ function getFilteredCharts() {
   const transactions = getFilteredTransactions();
   const alerts = getFilteredAlerts();
   const riskOrder = ['Critical', 'High', 'Medium', 'Low'];
-  const alertStatusesForChart = workflowStatuses;
+  const alertStatusesForChart = transactionStatusOrder;
   const countryCounts = transactions.reduce((summary, txn) => {
     summary[txn.country] = (summary[txn.country] || 0) + 1;
     return summary;
@@ -152,7 +241,7 @@ function getFilteredCharts() {
       { label: 'Flagged', value: transactions.filter((txn) => txn.status === 'Flagged').length },
       { label: 'Cleared', value: transactions.filter((txn) => txn.status === 'Cleared').length },
     ],
-    alertStatus: alertStatusesForChart.map((status) => ({ label: status, value: alerts.filter((alert) => alert.status === status).length })),
+    alertStatus: alertStatusesForChart.map((status) => ({ label: status, value: transactions.filter((txn) => txn.status === status).length })),
     topCountries: Object.entries(countryCounts)
       .map(([label, value]) => ({ label, value }))
       .sort((left, right) => right.value - left.value)
@@ -171,6 +260,7 @@ function render() {
   renderRules();
   renderCustomerRisk();
   renderWatchlist();
+  renderTransactionDetailPage();
 }
 
 function renderMetrics() {
@@ -384,7 +474,7 @@ function renderTransactions() {
     .filter((txn) => state.riskFilter === 'All' || txn.riskBand === state.riskFilter)
     .slice(0, 35)
     .map((txn) => `
-      <tr class="transaction-row" data-transaction-id="${escapeHtml(txn.id)}" title="View transaction details">
+      <tr class="transaction-row" data-transaction-id="${escapeHtml(txn.id)}">
         <td>${time.format(new Date(txn.createdAt))}</td>
         <td>
           <strong>${escapeHtml(txn.customerName)}</strong>
@@ -394,13 +484,18 @@ function renderTransactions() {
         <td>${money.format(txn.amount)}</td>
         <td>${escapeHtml(txn.country)}</td>
         <td>${escapeHtml(txn.channel)}</td>
-        <td><span class="badge risk-${txn.riskBand.toLowerCase()}">${txn.riskBand} ${txn.riskScore}</span></td>
-        <td class="status-${txn.status.toLowerCase()}">${txn.status}</td>
+        <td><span class="badge risk-${statusClass(txn.riskBand)}">${txn.riskBand} ${txn.riskScore}</span></td>
+        <td><span class="transaction-status status-${statusClass(txn.status)}">${txn.status}</span></td>
+        <td class="transaction-actions">
+          ${txn.status === 'Flagged'
+        ? `<button type="button" class="secondary-btn review-btn" data-review-transaction-id="${escapeHtml(txn.id)}">Review</button>`
+        : '<span class="muted">No action</span>'}
+        </td>
       </tr>
     `)
     .join('');
 
-  elements.transactionRows.innerHTML = rows || '<tr><td colspan="8">No transactions found.</td></tr>';
+  elements.transactionRows.innerHTML = rows || '<tr><td colspan="9">No transactions found.</td></tr>';
 }
 
 function renderAlerts() {
@@ -443,48 +538,51 @@ function renderCases() {
 
 function renderOperationsQueue() {
   if (!elements.operationsQueue) return;
-  const activeStatuses = ['New', 'Under Review', 'Escalated'];
-  const alertItems = getFilteredAlerts()
-    .filter((alert) => activeStatuses.includes(alert.status))
-    .map((alert) => ({
-      id: alert.id,
-      type: 'Alert',
-      customerName: alert.customerName,
-      companyName: alert.companyName,
-      priority: alert.severity,
-      score: alert.riskScore,
-      status: alert.status,
-      summary: (alert.rules || []).map((rule) => rule.name).join(', ') || alert.transactionId,
-      createdAt: alert.createdAt,
-    }));
-  const caseItems = getFilteredCases()
-    .filter((item) => activeStatuses.includes(item.status))
-    .map((item) => ({
-      id: item.id,
-      type: 'Case',
-      customerName: item.customerName,
-      companyName: item.companyName,
-      priority: item.priority,
-      score: item.priority === 'Critical' ? 100 : item.priority === 'High' ? 75 : item.priority === 'Medium' ? 45 : 15,
-      status: item.status,
-      summary: item.summary,
-      createdAt: item.dueAt,
-    }));
+  const queue = getFilteredTransactions()
+    .filter((txn) => txn.status === 'Flagged' && txn.riskBand === 'Critical')
+    .sort((left, right) => new Date(left.createdAt) - new Date(right.createdAt))
+    .slice(0, 25);
 
-  const queue = [...alertItems, ...caseItems]
-    .sort((left, right) => right.score - left.score || new Date(left.createdAt) - new Date(right.createdAt))
-    .slice(0, 10);
-
-  elements.operationsQueue.innerHTML = queue.map((item) => `
-    <article class="queue-item">
-      <div class="queue-top">
-        <strong>${escapeHtml(item.type)} ${escapeHtml(item.id)}</strong>
-        <span class="badge risk-${item.priority.toLowerCase()}">${escapeHtml(item.priority)}</span>
+  elements.operationsQueue.innerHTML = queue.length
+    ? `
+      <div class="table-wrap">
+        <table class="queue-table">
+          <thead>
+            <tr>
+              <th>Date / Time</th>
+              <th>Customer</th>
+              <th>Company</th>
+              <th>Amount</th>
+              <th>Country</th>
+              <th>Risk</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${queue.map((txn) => `
+              <tr class="transaction-row" data-queue-transaction-id="${escapeHtml(txn.id)}">
+                <td>${new Date(txn.createdAt).toLocaleString('en-SG')}</td>
+                <td>
+                  <strong>${escapeHtml(txn.customerName)}</strong>
+                  <div class="muted">${escapeHtml(txn.customerId)}</div>
+                </td>
+                <td>
+                  <strong>${escapeHtml(txn.companyName || 'Company')}</strong>
+                  <div class="muted">${escapeHtml(txn.merchantType || txn.merchantCategory)}</div>
+                </td>
+                <td>${money.format(txn.amount)}</td>
+                <td>${escapeHtml(txn.country)}</td>
+                <td><span class="badge risk-${statusClass(txn.riskBand)}">${txn.riskBand} ${txn.riskScore}</span></td>
+                <td class="transaction-actions queue-actions">
+                  <button type="button" class="secondary-btn review-btn queue-review-btn" data-review-transaction-id="${escapeHtml(txn.id)}">Review</button>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
       </div>
-      <p>${escapeHtml(item.summary)}</p>
-      <div class="meta">${escapeHtml(item.companyName || 'Company')} &middot; ${escapeHtml(item.customerName || 'Customer')} &middot; ${escapeHtml(item.status)}</div>
-    </article>
-  `).join('') || '<p class="muted">No active operations work.</p>';
+    `
+    : '<p class="muted">No critical transactions in the queue.</p>';
 }
 
 function renderAuditLogs() {
@@ -599,66 +697,7 @@ function getTransactionDetailModal() {
 }
 
 function openTransactionDetails(transactionId) {
-  const transaction = state.transactions.find((txn) => txn.id === transactionId);
-  if (!transaction) return;
-
-  const modal = getTransactionDetailModal();
-  const content = modal.querySelector('#transactionDetailContent');
-  const rules = transaction.matchedRules && transaction.matchedRules.length
-    ? transaction.matchedRules.map((rule) => `
-      <li>
-        <strong>${escapeHtml(rule.name)}</strong>
-        <span>Risk weight +${escapeHtml(rule.weight)}</span>
-      </li>
-    `).join('')
-    : '<li><strong>No rules matched</strong><span>This transaction cleared automated screening.</span></li>';
-
-  content.innerHTML = `
-    <div class="detail-heading">
-      <div>
-        <span class="eyebrow">Transaction Detail</span>
-        <h2 id="transactionDetailTitle">${escapeHtml(transaction.id)}</h2>
-        <p>${escapeHtml(transaction.customerName)} · ${time.format(new Date(transaction.createdAt))}</p>
-      </div>
-      <span class="badge risk-${transaction.riskBand.toLowerCase()}">${escapeHtml(transaction.riskBand)} ${escapeHtml(transaction.riskScore)}</span>
-    </div>
-
-    <div class="detail-summary">
-      <article><span>Amount</span><strong>${money.format(transaction.amount)}</strong></article>
-      <article><span>Status</span><strong class="status-${transaction.status.toLowerCase()}">${escapeHtml(transaction.status)}</strong></article>
-      <article><span>Direction</span><strong>${escapeHtml(transaction.direction)}</strong></article>
-    </div>
-
-    <div class="detail-grid">
-      <section>
-        <h3>Customer Profile</h3>
-        <dl>
-          <div><dt>Company</dt><dd>${escapeHtml(transaction.companyName || 'Company')}</dd></div>
-          <div><dt>Customer ID</dt><dd>${escapeHtml(transaction.customerId)}</dd></div>
-          <div><dt>Name</dt><dd>${escapeHtml(transaction.customerName)}</dd></div>
-          <div><dt>Segment</dt><dd>${escapeHtml(transaction.segment)}</dd></div>
-          <div><dt>KYC Status</dt><dd>${escapeHtml(transaction.kycStatus)}</dd></div>
-        </dl>
-      </section>
-      <section>
-        <h3>Transaction Data</h3>
-        <dl>
-          <div><dt>Country</dt><dd>${escapeHtml(transaction.country)}</dd></div>
-          <div><dt>Channel</dt><dd>${escapeHtml(transaction.channel)}</dd></div>
-          <div><dt>Merchant Category</dt><dd>${escapeHtml(transaction.merchantCategory)}</dd></div>
-          <div><dt>Currency</dt><dd>${escapeHtml(transaction.currency)}</dd></div>
-        </dl>
-      </section>
-    </div>
-
-    <section class="rule-breakdown">
-      <h3>Rule Breakdown</h3>
-      <ul>${rules}</ul>
-    </section>
-  `;
-
-  modal.classList.add('open');
-  document.body.classList.add('modal-open');
+  window.location.assign(`/transactions/${encodeURIComponent(transactionId)}`);
 }
 
 function closeTransactionDetails() {
@@ -666,6 +705,126 @@ function closeTransactionDetails() {
   if (!modal) return;
   modal.classList.remove('open');
   document.body.classList.remove('modal-open');
+}
+
+let activeTransactionAction = null;
+
+function renderTransactionDetailPage() {
+  if (!elements.transactionDetailPage) return;
+
+  const transaction = getTransactionById(state.detailTransactionId);
+  if (!transaction) return;
+
+  const current = applyTransactionOverride(transaction);
+  if (elements.transactionDetailStatus) {
+    elements.transactionDetailStatus.className = `badge transaction-status-badge status-${statusClass(current.status)}`;
+    elements.transactionDetailStatus.textContent = current.status;
+  }
+
+  if (elements.transactionDetailConfirmation) {
+    const actionLabel = current.actionLabel || current.reviewAction || null;
+    elements.transactionDetailConfirmation.textContent = isFinalTransactionStatus(current.status)
+      ? `${actionLabel ? `${actionLabel} completed. ` : ''}No further action is needed for this transaction.`
+      : 'Choose an action to continue the review workflow.';
+  }
+
+  const buttonContainer = elements.transactionDetailActionButtons;
+  if (buttonContainer) {
+    const completed = isFinalTransactionStatus(current.status);
+    buttonContainer.querySelectorAll('[data-transaction-action]').forEach((button) => {
+      button.disabled = completed;
+    });
+  }
+
+  if (elements.transactionActionTitle && activeTransactionAction) {
+    const actionLabel = activeTransactionAction === 'rfi'
+      ? 'Request for Information'
+      : activeTransactionAction === 'str'
+        ? 'File STR'
+        : 'Review action';
+    elements.transactionActionTitle.textContent = actionLabel;
+  }
+
+  if (elements.transactionActionForm && elements.transactionActionType) {
+    elements.transactionActionType.value = activeTransactionAction || '';
+  }
+}
+
+function populateTransactionActionForm(transaction, action) {
+  if (!elements.transactionActionForm) return;
+
+  if (elements.transactionActionName) elements.transactionActionName.value = transaction.customerName || '';
+  if (elements.transactionActionAmount) elements.transactionActionAmount.value = money.format(transaction.amount || 0);
+  if (elements.transactionActionCountry) elements.transactionActionCountry.value = transaction.country || '';
+  if (elements.transactionActionCategory) elements.transactionActionCategory.value = transaction.merchantCategory || transaction.merchantType || '';
+  if (elements.transactionActionType) elements.transactionActionType.value = action;
+  if (elements.transactionActionSubmit) {
+    elements.transactionActionSubmit.textContent = action === 'rfi' ? 'Submit RFI' : 'Submit STR';
+  }
+}
+
+function openTransactionActionForm(action) {
+  const transaction = getTransactionById(state.detailTransactionId);
+  if (!transaction) return;
+  if (isFinalTransactionStatus(applyTransactionOverride(transaction).status)) return;
+
+  activeTransactionAction = action;
+  populateTransactionActionForm(transaction, action);
+  if (elements.transactionActionModal) {
+    elements.transactionActionModal.classList.add('open');
+    document.body.classList.add('modal-open');
+  }
+  renderTransactionDetailPage();
+}
+
+function closeTransactionActionForm() {
+  activeTransactionAction = null;
+  if (elements.transactionActionModal) {
+    elements.transactionActionModal.classList.remove('open');
+  }
+  document.body.classList.remove('modal-open');
+  renderTransactionDetailPage();
+}
+
+function updateTransactionDetailStatus(transactionId, status, actionLabel, source) {
+  persistTransactionStatusOverride(transactionId, {
+    status,
+    actionLabel,
+    reviewAction: source,
+    updatedAt: new Date().toISOString(),
+  });
+
+  state.transactions = state.transactions.map((transaction) => (
+    transaction.id === transactionId
+      ? applyTransactionOverride({ ...transaction, status, actionLabel, reviewAction: source, updatedAt: new Date().toISOString() })
+      : transaction
+  ));
+
+  if (state.detailSeed && state.detailSeed.id === transactionId) {
+    state.detailSeed = applyTransactionOverride({ ...state.detailSeed, status, actionLabel, reviewAction: source, updatedAt: new Date().toISOString() });
+  }
+
+  if (elements.transactionDetailConfirmation) {
+    elements.transactionDetailConfirmation.textContent = `${actionLabel} completed. No further action is needed for this transaction.`;
+  }
+
+  render();
+}
+
+function finalizeTransactionAction(action, extra = {}) {
+  const transaction = getTransactionById(state.detailTransactionId);
+  if (!transaction) return;
+
+  const status = getTransactionActionStatus(action);
+  if (!status) return;
+
+  updateTransactionDetailStatus(transaction.id, status, extra.actionLabel || status, action);
+  closeTransactionActionForm();
+}
+
+function updateTransactionDetailActionFeedback(message) {
+  if (!elements.transactionDetailConfirmation) return;
+  elements.transactionDetailConfirmation.textContent = message;
 }
 
 function escapeHtml(value) {
@@ -718,9 +877,16 @@ if (elements.companyRuleTabs) {
 }
 if (elements.transactionRows) {
   elements.transactionRows.addEventListener('click', (event) => {
-    const row = event.target.closest('[data-transaction-id]');
-    if (!row) return;
-    openTransactionDetails(row.dataset.transactionId);
+    const reviewButton = event.target.closest('[data-review-transaction-id]');
+    if (!reviewButton) return;
+    openTransactionDetails(reviewButton.dataset.reviewTransactionId);
+  });
+}
+if (elements.operationsQueue) {
+  elements.operationsQueue.addEventListener('click', (event) => {
+    const reviewButton = event.target.closest('[data-review-transaction-id]');
+    if (!reviewButton) return;
+    openTransactionDetails(reviewButton.dataset.reviewTransactionId);
   });
 }
 if (elements.riskFilter) {
@@ -729,6 +895,53 @@ if (elements.riskFilter) {
     renderTransactions();
   });
 }
+
+if (elements.transactionDetailActionButtons) {
+  elements.transactionDetailActionButtons.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-transaction-action]');
+    if (!button) return;
+
+    const action = button.dataset.transactionAction;
+    if (action === 'rfi' || action === 'str') {
+      openTransactionActionForm(action);
+      return;
+    }
+
+    const transaction = getTransactionById(state.detailTransactionId);
+    if (!transaction || isFinalTransactionStatus(applyTransactionOverride(transaction).status)) return;
+
+    const status = getTransactionActionStatus(action);
+    if (!status) return;
+
+    updateTransactionDetailStatus(transaction.id, status, button.textContent.trim(), action);
+    updateTransactionDetailActionFeedback(`${button.textContent.trim()} completed. No further action is needed for this transaction.`);
+  });
+}
+
+if (elements.transactionActionForm) {
+  elements.transactionActionForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const action = elements.transactionActionType?.value || activeTransactionAction;
+    if (!action) return;
+
+    const label = action === 'rfi' ? 'Request for Information' : 'File STR';
+    finalizeTransactionAction(action, { actionLabel: label });
+  });
+}
+
+if (elements.transactionActionModal) {
+  elements.transactionActionModal.addEventListener('click', (event) => {
+    if (event.target.closest('[data-close-transaction-action]')) {
+      closeTransactionActionForm();
+    }
+  });
+}
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && elements.transactionActionModal?.classList.contains('open')) {
+    closeTransactionActionForm();
+  }
+});
 
 if (elements.alertList) {
   elements.alertList.addEventListener('click', async (event) => {
@@ -814,10 +1027,12 @@ stream.addEventListener('snapshot', (event) => {
 
 stream.addEventListener('transaction', (event) => {
   upsert(state.transactions, JSON.parse(event.data));
+  applyTransactionOverrides();
   renderTransactions();
   renderAnalytics();
   renderOperationsQueue();
   refreshCustomerRisk();
+  renderTransactionDetailPage();
 });
 
 stream.addEventListener('alert', (event) => {

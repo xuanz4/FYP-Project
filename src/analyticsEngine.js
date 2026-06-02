@@ -1,4 +1,12 @@
 const closedStatuses = ['Resolved', 'False Positive'];
+const transactionStatusOrder = [
+  'Flagged',
+  'Pending RFI',
+  'STR Filed',
+  'Escalated',
+  'Dismissed as False Positive',
+  'Cleared',
+];
 
 function pct(part, total) {
   return total ? Math.round((part / total) * 100) : 0;
@@ -115,6 +123,10 @@ function buildAnalytics(transactions = [], alerts = [], cases = []) {
     countries: countryRows,
     companies: companyRows,
     customers: customerRows,
+    alertStatus: transactionStatusOrder.map((status) => ({
+      label: status,
+      value: transactions.filter((txn) => txn.status === status).length,
+    })),
   };
 }
 
