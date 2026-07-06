@@ -1,24 +1,24 @@
 ﻿const defaultRules = [
   {
     id: 'RULE-001',
-    name: 'Large transaction threshold',
-    description: 'Flags transactions equal to or above SGD 10,000.',
+    name: 'Large local card transaction',
+    description: 'Flags local card transactions equal to or above SGD 10,000.',
     weight: 35,
     test: (txn) => txn.amount >= 10000,
   },
   {
     id: 'RULE-002',
-    name: 'High-risk jurisdiction',
-    description: 'Flags transactions involving sanctioned or high-risk countries.',
-    weight: 40,
-    test: (txn) => ['North Korea', 'Iran', 'Syria', 'Russia'].includes(txn.country),
+    name: 'Contextual jurisdiction escalation',
+    description: 'Adds manual-review context when customer, issuer, or counterparty data references a high-risk jurisdiction.',
+    weight: 20,
+    test: (txn) => ['North Korea', 'Iran', 'Syria', 'Russia'].includes(txn.counterpartyCountry || txn.country),
   },
   {
     id: 'RULE-003',
-    name: 'Crypto or money transfer activity',
-    description: 'Raises risk for crypto exchange and money transfer merchant categories.',
-    weight: 20,
-    test: (txn) => ['Crypto Exchange', 'Money Transfer'].includes(txn.merchantCategory),
+    name: 'Elevated same-card spend',
+    description: 'Flags unusual cumulative spend on the same card within 24 hours.',
+    weight: 35,
+    test: (txn) => Number(txn.cardSpend24h) > 3000,
   },
   {
     id: 'RULE-004',
@@ -29,10 +29,10 @@
   },
   {
     id: 'RULE-005',
-    name: 'Large outbound funds movement',
-    description: 'Flags outbound transfers above SGD 25,000.',
+    name: 'Low-value card testing burst',
+    description: 'Flags repeated low-value card payments that may indicate card testing.',
     weight: 30,
-    test: (txn) => txn.direction === 'Outbound' && txn.amount > 25000,
+    test: (txn) => Number(txn.lowValueBurstCount) >= 5 && txn.amount < 20,
   },
 ];
 
@@ -141,8 +141,8 @@ function buildProfileRiskRules(transaction = {}) {
 const companyRuleSets = {
   companyA: {
     id: 'companyA',
-    name: 'Company A',
-    merchantType: 'Fashion Merchant',
+    name: 'Merchant Profile 5651',
+    merchantType: 'MCC 5651 - Family Clothing Stores',
     mccCode: '5651',
     industry: 'Family Clothing Stores',
     industryRiskScore: 8,
@@ -150,7 +150,7 @@ const companyRuleSets = {
     accent: 'blue',
     cards: [
       {
-        title: 'Merchant pattern',
+        title: 'MCC pattern',
         tone: 'blue',
         text: 'Average spend is usually around S$60-S$150. Higher baskets can happen when customers buy several clothing items or bags.',
       },
@@ -165,7 +165,7 @@ const companyRuleSets = {
         text: 'Above S$1,200, or same card spends above S$1,500 in 24 hours.',
       },
       {
-        title: 'Extra watch',
+        title: 'Card review context',
         tone: 'purple',
         text: 'New card plus high first purchase.',
       },
@@ -173,7 +173,7 @@ const companyRuleSets = {
     rules: [
       { id: 'COM-A-001', name: 'Single transaction above S$700', risk: 'Medium', reason: 'Above expected clothing basket', weight: 30, test: (txn) => txn.amount > 700 },
       { id: 'COM-A-002', name: 'Single transaction above S$1,200', risk: 'High', reason: 'Unusual for ordinary fashion purchase', weight: 55, test: (txn) => txn.amount > 1200 },
-      { id: 'COM-A-003', name: '4+ Company A transactions within 30 min', risk: 'Medium', reason: 'Possible split payment or repeated attempts', weight: 30, test: (txn) => txn.recentCompanyTransactions >= 4 },
+      { id: 'COM-A-003', name: '4+ merchant transactions within 30 min', risk: 'Medium', reason: 'Possible split payment or repeated card attempts', weight: 30, test: (txn) => txn.recentCompanyTransactions >= 4 },
       { id: 'COM-A-004', name: 'Same card spends above S$1,500 within 24h', risk: 'High', reason: 'Unusual cumulative fashion spend', weight: 55, test: (txn) => txn.cardSpend24h > 1500 },
       { id: 'COM-A-005', name: 'Several amounts just below S$700', risk: 'Medium', reason: 'Possible threshold avoidance', weight: 30, test: (txn) => txn.nearThresholdCount >= 3 && txn.amount < 700 },
       { id: 'COM-A-006', name: 'New customer first purchase above S$800', risk: 'Medium', reason: 'New card/account plus high-value spend', weight: 35, test: (txn) => txn.isNewCustomer && txn.amount > 800 },
@@ -181,8 +181,8 @@ const companyRuleSets = {
   },
   companyB: {
     id: 'companyB',
-    name: 'Company B',
-    merchantType: 'Footwear And Leather Goods',
+    name: 'Merchant Profile 5661',
+    merchantType: 'MCC 5661 - Shoe Stores',
     mccCode: '5661',
     industry: 'Shoe Stores',
     industryRiskScore: 12,
@@ -190,7 +190,7 @@ const companyRuleSets = {
     accent: 'green',
     cards: [
       {
-        title: 'Merchant pattern',
+        title: 'MCC pattern',
         tone: 'green',
         text: 'Average spend is usually around S$100-S$200+, while one pair or bag can push baskets higher.',
       },
@@ -208,7 +208,7 @@ const companyRuleSets = {
     rules: [
       { id: 'COM-B-001', name: 'Single transaction above S$1,000', risk: 'Medium', reason: 'Likely multiple pairs or leather goods', weight: 30, test: (txn) => txn.amount > 1000 },
       { id: 'COM-B-002', name: 'Single transaction above S$2,000', risk: 'High', reason: 'Far above normal footwear basket', weight: 60, test: (txn) => txn.amount > 2000 },
-      { id: 'COM-B-003', name: '3+ Company B purchases within 30 min', risk: 'Medium', reason: 'Repeated attempts, split purchase, or card testing', weight: 35, test: (txn) => txn.recentCompanyTransactions >= 3 },
+      { id: 'COM-B-003', name: '3+ merchant purchases within 30 min', risk: 'Medium', reason: 'Repeated attempts, split purchase, or card testing', weight: 35, test: (txn) => txn.recentCompanyTransactions >= 3 },
       { id: 'COM-B-004', name: 'Same card spends above S$1,500 within 24h', risk: 'High', reason: 'Unusual same-day cumulative spending', weight: 55, test: (txn) => txn.cardSpend24h > 1500 },
       { id: 'COM-B-005', name: 'Many amounts just below S$1,000', risk: 'Medium', reason: 'Possible threshold avoidance', weight: 30, test: (txn) => txn.nearThresholdCount >= 3 && txn.amount < 1000 },
       { id: 'COM-B-006', name: 'Customer usually below S$100, suddenly above S$800', risk: 'Medium', reason: 'Possible account takeover or stolen card use', weight: 35, test: (txn) => txn.usualSpendBelow100 && txn.amount > 800 },
@@ -216,8 +216,8 @@ const companyRuleSets = {
   },
   companyC: {
     id: 'companyC',
-    name: 'Company C',
-    merchantType: 'Skincare And Makeup Merchant',
+    name: 'Merchant Profile 5977',
+    merchantType: 'MCC 5977 - Cosmetic Stores',
     mccCode: '5977',
     industry: 'Cosmetic Stores',
     industryRiskScore: 10,
@@ -225,7 +225,7 @@ const companyRuleSets = {
     accent: 'purple',
     cards: [
       {
-        title: 'Merchant pattern',
+        title: 'MCC pattern',
         tone: 'purple',
         text: 'Average spend is usually around S$100-S$200. Premium skincare sets can be expensive, so review before blocking.',
       },
@@ -243,7 +243,7 @@ const companyRuleSets = {
     rules: [
       { id: 'COM-C-001', name: 'Single transaction above S$700', risk: 'Medium', reason: 'Higher than normal skincare/makeup basket', weight: 30, test: (txn) => txn.amount > 700 },
       { id: 'COM-C-002', name: 'Single transaction above S$1,000', risk: 'High', reason: 'Unusual unless buying many premium items', weight: 55, test: (txn) => txn.amount > 1000 },
-      { id: 'COM-C-003', name: '4+ Company C purchases within 30 min', risk: 'Medium', reason: 'Possible split purchase or repeated attempts', weight: 30, test: (txn) => txn.recentCompanyTransactions >= 4 },
+      { id: 'COM-C-003', name: '4+ merchant purchases within 30 min', risk: 'Medium', reason: 'Possible split purchase or repeated card attempts', weight: 30, test: (txn) => txn.recentCompanyTransactions >= 4 },
       { id: 'COM-C-004', name: 'Same card spends above S$1,500 within 24h', risk: 'High', reason: 'Unusual same-day cumulative spend', weight: 55, test: (txn) => txn.cardSpend24h > 1500 },
       { id: 'COM-C-005', name: '5+ low-value transactions below S$20 in 10 min', risk: 'High', reason: 'Possible card testing', weight: 55, test: (txn) => txn.lowValueBurstCount >= 5 && txn.amount < 20 },
       { id: 'COM-C-006', name: 'New customer first purchase above S$800', risk: 'Medium', reason: 'New card/account plus high-value spend', weight: 35, test: (txn) => txn.isNewCustomer && txn.amount > 800 },

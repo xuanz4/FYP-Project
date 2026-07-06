@@ -35,7 +35,7 @@ function buildAnalytics(transactions = [], alerts = [], cases = []) {
   transactions.forEach((txn) => {
     const transactionScore = Number(txn.riskScore) || 0;
     const country = txn.country || 'Unknown';
-    const company = txn.companyName || txn.companyId || 'Unknown Company';
+    const company = txn.companyName || txn.companyId || 'Unknown Merchant Profile';
     const customer = txn.customerName || txn.customerId || 'Unknown Customer';
 
     countryExposure[country] ||= { count: 0, flagged: 0, amount: 0, score: 0 };

@@ -4,14 +4,14 @@
     <section class="topbar">
       <div>
         <h1>Compliance Dashboard</h1>
-        <p>Screen payments, surface AML risk, and triage flagged activity as it happens.</p>
+        <p>Monitor UNIWEB local card payments for Singapore merchants using MCC-driven merchant risk and behavioural signals.</p>
       </div>
-      <button id="simulateBtn" type="button">Simulate High-Risk Transaction</button>
+      <button id="simulateBtn" type="button">Simulate High-Risk Card Transaction</button>
     </section>
     <section class="filter-bar">
-      <label for="companyFilter">Company</label>
-      <select id="companyFilter" aria-label="Company filter">
-        <option value="All">All Companies</option>
+      <label for="companyFilter">Merchant Profile</label>
+      <select id="companyFilter" aria-label="Merchant profile filter">
+        <option value="All">All Merchant Profiles</option>
       </select>
     </section>
 
@@ -36,7 +36,7 @@
       <div class="panel-header">
         <div>
           <h2>Live Transaction Feed</h2>
-          <p>Newest screened transactions appear first.</p>
+          <p>Newest screened local card transactions appear first.</p>
         </div>
         <select id="riskFilter" aria-label="Risk filter">
           <option value="All">All Risk Bands</option>
@@ -52,9 +52,9 @@
             <tr>
               <th>Time</th>
               <th>Customer</th>
-              <th>Company</th>
+              <th>Merchant Profile</th>
               <th>Amount</th>
-              <th>Country</th>
+              <th>Location</th>
               <th>Channel</th>
               <th>Risk</th>
               <th>Status</th>

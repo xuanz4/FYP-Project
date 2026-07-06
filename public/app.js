@@ -1,8 +1,9 @@
 ﻿function loadTransactionStatusOverrides() {
   if (typeof window === 'undefined' || !window.sessionStorage) return {};
 
+  // Browser-side dashboard controller. The Express server entry point is ../app.js.
   try {
-    return JSON.parse(window.sessionStorage.getItem('ledgerSentinelTransactionOverrides') || '{}');
+    return JSON.parse(window.sessionStorage.getItem('uniwebTransactionOverrides') || '{}');
   } catch (error) {
     return {};
   }
@@ -16,7 +17,7 @@ function persistTransactionStatusOverride(transactionId, override) {
     ...(existing[transactionId] || {}),
     ...override,
   };
-  window.sessionStorage.setItem('ledgerSentinelTransactionOverrides', JSON.stringify(existing));
+  window.sessionStorage.setItem('uniwebTransactionOverrides', JSON.stringify(existing));
   state.transactionStatusOverrides = existing;
 }
 
@@ -177,7 +178,7 @@ function upsert(collection, item) {
 function populateCompanyFilter() {
   if (!elements.companyFilter) return;
   const current = elements.companyFilter.value || state.companyFilter;
-  elements.companyFilter.innerHTML = '<option value="All">All Companies</option>' + state.ruleSets.map((company) => `
+  elements.companyFilter.innerHTML = '<option value="All">All Merchant Profiles</option>' + state.ruleSets.map((company) => `
     <option value="${escapeHtml(company.id)}">${escapeHtml(company.name)}</option>
   `).join('');
   elements.companyFilter.value = state.ruleSets.some((company) => company.id === current) ? current : 'All';
@@ -425,7 +426,7 @@ function renderCustomerRisk() {
           <strong>${escapeHtml(profile.customerName)}</strong>
           <div class="muted">${escapeHtml(profile.customerId)}</div>
         </td>
-        <td>${escapeHtml(profile.companyName || 'Company')}</td>
+        <td>${escapeHtml(profile.companyName || 'Merchant Profile')}</td>
         <td>${escapeHtml(profile.kycStatus)}</td>
         <td>${escapeHtml(profile.screeningStatus)}</td>
         <td>${profile.transactionCount} / ${money.format(profile.totalValue)}</td>
@@ -480,7 +481,7 @@ function renderTransactions() {
           <strong>${escapeHtml(txn.customerName)}</strong>
           <div class="muted">${escapeHtml(txn.customerId)}</div>
         </td>
-        <td><strong>${escapeHtml(txn.companyName || 'Company')}</strong><div class="muted">${escapeHtml(txn.merchantType || txn.merchantCategory)}</div></td>
+        <td><strong>${escapeHtml(txn.companyName || 'Merchant Profile')}</strong><div class="muted">${escapeHtml(txn.merchantType || txn.merchantCategory)}</div></td>
         <td>${money.format(txn.amount)}</td>
         <td>${escapeHtml(txn.country)}</td>
         <td>${escapeHtml(txn.channel)}</td>
@@ -507,7 +508,7 @@ function renderAlerts() {
         <span class="badge risk-${alert.severity.toLowerCase()}">${alert.severity}</span>
       </div>
       <p>${alert.rules.map((rule) => escapeHtml(rule.name)).join(', ')}</p>
-      <div class="meta">${escapeHtml(alert.companyName || 'Company')} &middot; ${escapeHtml(alert.id)} &middot; Latest ${escapeHtml(alert.transactionId)} &middot; ${escapeHtml(alert.groupedCount || 1)} transaction(s) &middot; Score ${escapeHtml(alert.riskScore)} &middot; ${time.format(new Date(alert.createdAt))} &middot; ${escapeHtml(alert.status)} &middot; ${escapeHtml(alert.analyst)}</div>
+      <div class="meta">${escapeHtml(alert.companyName || 'Merchant Profile')} &middot; ${escapeHtml(alert.id)} &middot; Latest ${escapeHtml(alert.transactionId)} &middot; ${escapeHtml(alert.groupedCount || 1)} transaction(s) &middot; Score ${escapeHtml(alert.riskScore)} &middot; ${time.format(new Date(alert.createdAt))} &middot; ${escapeHtml(alert.status)} &middot; ${escapeHtml(alert.analyst)}</div>
       <div class="alert-actions">
         ${workflowStatuses.map((status) => `
           <button type="button" class="secondary-btn" data-alert-id="${escapeHtml(alert.id)}" data-status="${escapeHtml(status)}" ${alert.status === status ? 'disabled' : ''}>${escapeHtml(status)}</button>
@@ -526,7 +527,7 @@ function renderCases() {
         <span class="badge risk-${item.priority.toLowerCase()}">${item.priority}</span>
       </div>
       <p>${escapeHtml(item.summary)}</p>
-      <div class="meta">${escapeHtml(item.companyName || 'Company')} &middot; ${escapeHtml(item.customerName)} &middot; ${escapeHtml(item.status)} &middot; ${escapeHtml(item.owner || 'Operations Team')} &middot; Due ${new Date(item.dueAt).toLocaleDateString('en-SG')}</div>
+      <div class="meta">${escapeHtml(item.companyName || 'Merchant Profile')} &middot; ${escapeHtml(item.customerName)} &middot; ${escapeHtml(item.status)} &middot; ${escapeHtml(item.owner || 'Operations Team')} &middot; Due ${new Date(item.dueAt).toLocaleDateString('en-SG')}</div>
       <div class="alert-actions">
         ${workflowStatuses.map((status) => `
           <button type="button" class="secondary-btn" data-case-id="${escapeHtml(item.id)}" data-status="${escapeHtml(status)}" ${item.status === status ? 'disabled' : ''}>${escapeHtml(status)}</button>
@@ -551,9 +552,9 @@ function renderOperationsQueue() {
             <tr>
               <th>Date / Time</th>
               <th>Customer</th>
-              <th>Company</th>
+              <th>Merchant Profile</th>
               <th>Amount</th>
-              <th>Country</th>
+              <th>Location</th>
               <th>Risk</th>
               <th>Actions</th>
             </tr>
@@ -567,7 +568,7 @@ function renderOperationsQueue() {
                   <div class="muted">${escapeHtml(txn.customerId)}</div>
                 </td>
                 <td>
-                  <strong>${escapeHtml(txn.companyName || 'Company')}</strong>
+                  <strong>${escapeHtml(txn.companyName || 'Merchant Profile')}</strong>
                   <div class="muted">${escapeHtml(txn.merchantType || txn.merchantCategory)}</div>
                 </td>
                 <td>${money.format(txn.amount)}</td>
@@ -596,7 +597,7 @@ function renderAuditLogs() {
           <span>${time.format(new Date(entry.createdAt))}</span>
         </div>
         <p>${escapeHtml(entry.message || '')}</p>
-        <div class="meta">${escapeHtml(entry.companyName || 'All Companies')} &middot; ${escapeHtml(entry.actor)} &middot; ${escapeHtml(entry.entityType)}${entry.entityId ? ` &middot; ${escapeHtml(entry.entityId)}` : ''}</div>
+        <div class="meta">${escapeHtml(entry.companyName || 'All Merchant Profiles')} &middot; ${escapeHtml(entry.actor)} &middot; ${escapeHtml(entry.entityType)}${entry.entityId ? ` &middot; ${escapeHtml(entry.entityId)}` : ''}</div>
       </div>
     </article>
   `).join('') || '<p class="muted">No audit activity yet.</p>';
@@ -606,7 +607,7 @@ function renderRules() {
   if (!elements.companyRuleTabs || !elements.companyRuleDetail) return;
   const ruleSets = state.ruleSets || [];
   if (!ruleSets.length) {
-    elements.companyRuleDetail.innerHTML = '<p class="muted">No company rules available.</p>';
+    elements.companyRuleDetail.innerHTML = '<p class="muted">No merchant profile rules available.</p>';
     return;
   }
 
@@ -632,7 +633,7 @@ function renderRules() {
         <span>${escapeHtml(selected.merchantType)}</span>
         <h2>${escapeHtml(selected.name)} rules</h2>
       </div>
-      <div class="company-view-pill">Viewing ${escapeHtml(selected.name)}</div>
+      <div class="company-view-pill">MCC ${escapeHtml(selected.mccCode || 'N/A')}</div>
     </section>
 
     <section class="company-rule-cards">
@@ -971,12 +972,13 @@ if (elements.simulateBtn) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customerName: 'Manual High-Risk Review',
-          amount: 52000,
-          country: 'Iran',
-          merchantCategory: 'Crypto Exchange',
-          channel: 'Bank Transfer',
-          direction: 'Outbound',
+          customerName: 'Manual High-Risk Card Review',
+          amount: 12500,
+          country: 'Singapore',
+          counterpartyCountry: 'Iran',
+          merchantCategory: 'High-Value Retail',
+          channel: 'E-Commerce Card',
+          direction: 'Sale',
           actor: 'Analyst Ryan',
         }),
       });

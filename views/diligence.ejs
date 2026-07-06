@@ -4,13 +4,13 @@
   <section class="topbar">
     <div>
       <h1>Due Diligence</h1>
-      <p>Assess customer risk and run sanctions, PEP, watchlist, adverse-media, and payment screening checks.</p>
+      <p>Assess customer and merchant-profile risk for local card payments, including sanctions, PEP, watchlist, adverse-media, and contextual jurisdiction checks.</p>
     </div>
   </section>
   <section class="filter-bar">
-    <label for="companyFilter">Company</label>
-    <select id="companyFilter" aria-label="Company filter">
-      <option value="All">All Companies</option>
+    <label for="companyFilter">Merchant Profile</label>
+    <select id="companyFilter" aria-label="Merchant profile filter">
+      <option value="All">All Merchant Profiles</option>
     </select>
   </section>
 
@@ -18,7 +18,7 @@
     <div class="panel-header">
       <div>
         <h2>Customer Risk Profiles</h2>
-        <p>Dynamic KYC risk profiles combining customer data, geography, screening, alerts, and transaction behavior.</p>
+        <p>Dynamic KYC risk profiles combining customer data, merchant profile, screening, alerts, and card-payment behaviour.</p>
       </div>
     </div>
     <div class="table-wrap">
@@ -26,7 +26,7 @@
         <thead>
           <tr>
             <th>Customer</th>
-            <th>Company</th>
+            <th>Merchant Profile</th>
             <th>KYC</th>
             <th>Screening</th>
             <th>Transactions</th>
@@ -60,14 +60,14 @@
       <div class="panel-header">
         <div>
           <h2>Payment Screening</h2>
-          <p>Screen customer, counterparty, countries, and payment details before release.</p>
+          <p>Screen customer, merchant context, jurisdiction context, and card-payment details before review.</p>
         </div>
       </div>
       <form id="paymentScreeningForm" class="screening-form">
         <label>Customer<input name="customerName" value="Ava Lim" required></label>
-        <label>Counterparty<input name="counterpartyName" value="Orion Trade Holdings" required></label>
-        <label>Counterparty Country<input name="counterpartyCountry" value="Iran"></label>
-        <label>Payment Details<input name="paymentReference" value="Invoice payment to Orion Trade Holdings"></label>
+        <label>Context Party<input name="counterpartyName" value="Orion Trade Holdings" required></label>
+        <label>Context Country<input name="counterpartyCountry" value="Iran"></label>
+        <label>Payment Details<input name="paymentReference" value="Card payment linked to Orion Trade Holdings"></label>
         <button type="submit">Screen payment</button>
       </form>
       <div id="paymentScreeningResults" class="screening-results"></div>

@@ -11,7 +11,7 @@
                 <div>
                     <a class="back-link" href="/dashboard">&larr; Back to Dashboard</a>
                     <h1>Transaction Review</h1>
-                    <p>Review the flagged transaction, its broken rules, and the available investigation actions.</p>
+                    <p>Review the flagged local card transaction, its triggered rules, and the available investigation actions.</p>
                 </div>
                 <% if (hasTransaction) { %>
                     <div class="detail-status-panel">
@@ -52,7 +52,7 @@
                                         <%= transaction.customerName %>
                                     </h2>
                                     <p>
-                                        <%= transaction.companyName || 'Company' %> &middot; <%= transaction.customerId
+                                        <%= transaction.companyName || 'Merchant Profile' %> &middot; <%= transaction.customerId
                                                 %>
                                     </p>
                                     <p>
@@ -120,7 +120,7 @@
                             <div class="panel-header">
                                 <div>
                                     <h2>Transaction Details</h2>
-                                    <p>Full record details for the review case.</p>
+                                    <p>Full local card-payment record details for the review case.</p>
                                 </div>
                             </div>
                             <dl class="detail-definition-list">
@@ -137,9 +137,9 @@
                                     </dd>
                                 </div>
                                 <div>
-                                    <dt>Company</dt>
+                                    <dt>Merchant Profile</dt>
                                     <dd>
-                                        <%= transaction.companyName || 'Company' %>
+                                        <%= transaction.companyName || 'Merchant Profile' %>
                                     </dd>
                                 </div>
                                 <div>
@@ -170,7 +170,7 @@
                                     </dd>
                                 </div>
                                 <div>
-                                    <dt>Country</dt>
+                                    <dt>Transaction Location</dt>
                                     <dd>
                                         <%= transaction.country %>
                                     </dd>
@@ -212,19 +212,19 @@
                                     </dd>
                                 </div>
                                 <div>
-                                    <dt>Direction</dt>
+                                    <dt>Card Transaction Type</dt>
                                     <dd>
                                         <%= transaction.direction %>
                                     </dd>
                                 </div>
                                 <div>
-                                    <dt>Counterparty</dt>
+                                    <dt>Context Party</dt>
                                     <dd>
                                         <%= transaction.counterpartyName %>
                                     </dd>
                                 </div>
                                 <div>
-                                    <dt>Counterparty Country</dt>
+                                    <dt>Context Country</dt>
                                     <dd>
                                         <%= transaction.counterpartyCountry %>
                                     </dd>
@@ -284,7 +284,7 @@
                                     </dd>
                                 </div>
                                 <div>
-                                    <dt>Recent Company Txns</dt>
+                                    <dt>Recent Merchant Txns</dt>
                                     <dd>
                                         <%= transaction.recentCompanyTransactions %>
                                     </dd>
@@ -424,7 +424,7 @@
                                         value="<%= moneyFormatter.format(transaction.amount) %>">
                                 </label>
                                 <label>
-                                    <span>Country</span>
+                                    <span>Transaction Location</span>
                                     <input id="transactionActionCountry" name="country" type="text" readonly
                                         value="<%= transaction.country %>">
                                 </label>

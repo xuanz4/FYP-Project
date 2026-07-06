@@ -12,6 +12,7 @@ const { buildCustomerRiskProfiles } = require('./src/customerRiskEngine');
 const { screenCustomer, screenPayment, watchlist } = require('./src/screeningEngine');
 const database = require('./src/database');
 
+// Server-side Express entry point. Browser UI code lives in public/app.js.
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -30,11 +31,12 @@ const cases = [];
 const auditLogs = [];
 const workflowStatuses = ['New', 'Under Review', 'Escalated', 'Resolved', 'False Positive'];
 
-const countries = ['Singapore', 'Malaysia', 'United States', 'Indonesia', 'Thailand', 'Vietnam', 'United Arab Emirates'];
+const countries = ['Singapore'];
 const highRiskCountries = ['North Korea', 'Iran', 'Syria', 'Russia'];
-const standardMerchantCategories = ['Fashion', 'Footwear', 'Leather Goods', 'Skincare', 'Makeup'];
-const riskyMerchantCategories = ['Luxury Resale', 'Premium Bundle'];
-const channels = ['Card Present', 'E-Commerce', 'Wallet', 'Bank Transfer', 'ATM'];
+const standardMerchantCategories = ['Retail Goods', 'Apparel', 'Footwear', 'Cosmetics', 'Household Goods'];
+const riskyMerchantCategories = ['High-Value Retail', 'Premium Bundle'];
+const channels = ['Card Present', 'Card Not Present', 'E-Commerce Card'];
+const cardDirections = ['Sale', 'Refund'];
 const counterparties = ['Harbour Retail Pte Ltd', 'Northbridge Luxury Resale', 'Orion Trade Holdings', 'Crimson Exchange', 'Maple Distribution'];
 const customers = [
   { id: 'CUS-1001', name: 'Ava Lim', segment: 'Retail', kyc: 'Verified', customerRiskLevel: 'LOW' },
@@ -125,7 +127,7 @@ function createTransaction(overrides = {}) {
     customerRiskLevel: normalizeRiskLevel(customer.customerRiskLevel),
     amount,
     currency: 'SGD',
-    country: isHighRiskCountry ? pick(highRiskCountries) : pick(countries),
+    country: pick(countries),
     merchantCategory,
     recentCompanyTransactions,
     cardSpend24h,
@@ -134,9 +136,9 @@ function createTransaction(overrides = {}) {
     isNewCustomer,
     usualSpendBelow100,
     channel: pick(channels),
-    direction: Math.random() > 0.5 ? 'Inbound' : 'Outbound',
+    direction: pick(cardDirections),
     counterpartyName,
-    counterpartyCountry,
+    counterpartyCountry: isHighRiskCountry ? pick(highRiskCountries) : counterpartyCountry,
     paymentReference: `${merchantCategory} purchase ${counterpartyName}`,
     status: 'Screening',
     createdAt: new Date().toISOString(),
@@ -242,7 +244,7 @@ function createTransaction(overrides = {}) {
         companyName: transaction.companyName,
         customerName: transaction.customerName,
         customerId: transaction.customerId,
-        summary: `${transaction.currency} ${transaction.amount.toLocaleString()} ${transaction.direction.toLowerCase()} transaction flagged`,
+        summary: `${transaction.currency} ${transaction.amount.toLocaleString()} ${transaction.direction.toLowerCase()} card transaction flagged`,
         priority: transaction.riskBand,
         status: 'New',
         owner: 'Operations Team',
@@ -458,10 +460,11 @@ app.post('/api/transactions', (req, res) => {
     kycStatus: req.body.kycStatus || 'Verified',
     customerRiskLevel: normalizeRiskLevel(req.body.customerRiskLevel || 'LOW'),
     amount,
-    country: req.body.country || 'Singapore',
+    country: 'Singapore',
+    counterpartyCountry: req.body.counterpartyCountry || req.body.contextCountry || 'Singapore',
     merchantCategory: req.body.merchantCategory || 'Premium Bundle',
-    channel: req.body.channel || 'Bank Transfer',
-    direction: req.body.direction || 'Outbound',
+    channel: channels.includes(req.body.channel) ? req.body.channel : 'E-Commerce Card',
+    direction: cardDirections.includes(req.body.direction) ? req.body.direction : 'Sale',
     companyId: req.body.companyId || 'companyA',
     merchantRiskLevel: req.body.merchantRiskLevel ? normalizeRiskLevel(req.body.merchantRiskLevel) : undefined,
   });
@@ -585,7 +588,7 @@ async function startServer() {
   }
 
   const server = app.listen(PORT, () => {
-    console.log(`Compliance monitoring system running on http://localhost:${PORT}`);
+    console.log(`UNIWEB local card-payment monitoring running on http://localhost:${PORT} (Singapore merchants, MCC-driven risk)`);
     setInterval(() => {
       createTransaction();
     }, 4000);

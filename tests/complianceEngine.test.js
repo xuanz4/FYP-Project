@@ -13,18 +13,21 @@ const { screenPayment } = require('../src/screeningEngine');
 
 const highRiskTransaction = {
   amount: 50000,
-  country: 'Iran',
-  merchantCategory: 'Crypto Exchange',
+  country: 'Singapore',
+  counterpartyCountry: 'Iran',
+  merchantCategory: 'High-Value Retail',
+  cardSpend24h: 52000,
   kycStatus: 'Pending Review',
-  direction: 'Outbound',
+  direction: 'Sale',
 };
 
 const lowRiskTransaction = {
   amount: 120,
   country: 'Singapore',
-  merchantCategory: 'Grocery',
+  merchantCategory: 'Retail Goods',
+  cardSpend24h: 120,
   kycStatus: 'Verified',
-  direction: 'Inbound',
+  direction: 'Sale',
 };
 
 const highRiskResult = evaluateTransaction(highRiskTransaction);
@@ -47,11 +50,11 @@ const highProfileRiskResult = evaluateTransaction({
   merchantRiskLevel: 'HIGH',
 });
 
-assert.strictEqual(highRiskResult.transactionDetectionScore, 150);
-assert.strictEqual(highRiskResult.finalRiskScore, 150);
-assert.strictEqual(highRiskResult.riskScore, 150);
+assert.strictEqual(highRiskResult.transactionDetectionScore, 115);
+assert.strictEqual(highRiskResult.finalRiskScore, 115);
+assert.strictEqual(highRiskResult.riskScore, 115);
 assert.strictEqual(riskBands(highRiskResult.riskScore), 'Critical');
-assert.strictEqual(highRiskResult.matchedRules.length, 5);
+assert.strictEqual(highRiskResult.matchedRules.length, 4);
 
 assert.strictEqual(lowRiskResult.riskScore, 0);
 assert.strictEqual(lowRiskResult.mccRiskScore, 0);
@@ -105,10 +108,11 @@ const analytics = buildAnalytics(
       riskBand: 'High',
       riskScore: 55,
       amount: 1500,
-      country: 'Iran',
-      companyName: 'Company A',
+      country: 'Singapore',
+      counterpartyCountry: 'Iran',
+      companyName: 'Merchant Profile 5651',
       customerName: 'Ava Lim',
-      matchedRules: [{ name: 'High-risk jurisdiction', weight: 40 }],
+      matchedRules: [{ name: 'Contextual jurisdiction escalation', weight: 20 }],
     },
     {
       status: 'Cleared',
@@ -116,7 +120,7 @@ const analytics = buildAnalytics(
       riskScore: 0,
       amount: 120,
       country: 'Singapore',
-      companyName: 'Company A',
+      companyName: 'Merchant Profile 5651',
       customerName: 'Noah Tan',
       matchedRules: [],
     },
@@ -129,13 +133,13 @@ assert.strictEqual(analytics.summary.flagRate, 50);
 assert.strictEqual(analytics.summary.highRiskRate, 50);
 assert.strictEqual(analytics.summary.escalatedAlerts, 1);
 assert.strictEqual(analytics.summary.overdueCases, 1);
-assert.strictEqual(analytics.drivers[0].label, 'High-risk jurisdiction');
+assert.strictEqual(analytics.drivers[0].label, 'Contextual jurisdiction escalation');
 
 const screening = screenPayment({
   customerName: 'Ava Lim',
   counterpartyName: 'Orion Trade Holdings',
   counterpartyCountry: 'Iran',
-  paymentReference: 'Invoice payment to Orion Trade Holdings',
+  paymentReference: 'Card payment linked to Orion Trade Holdings',
 });
 
 assert.strictEqual(screening.status, 'Potential Match');
@@ -152,7 +156,7 @@ const customerProfiles = buildCustomerRiskProfiles(
       merchantRiskLevel: 'MEDIUM',
       country: 'Singapore',
       companyId: 'companyA',
-      companyName: 'Company A',
+      companyName: 'Merchant Profile 5651',
       status: 'Flagged',
       riskScore: 70,
       amount: 3000,
