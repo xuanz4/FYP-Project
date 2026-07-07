@@ -200,7 +200,12 @@ VALUES
     ('TIME-001', 'companyA', 'Transaction Outside Operating Hours', 'Medium', 'Transaction occurred outside normal merchant operating hours.', 10, NULL, NULL, 'operating_hours'),
     ('SCR-001', 'companyA', 'Payment or customer screening match', 'High', 'Sanctions, PEP, watchlist, or adverse-media screening match', 65, NULL, NULL, 'screening_match'),
     ('PROFILE-CUSTOMER-HIGH', 'companyA', 'High-risk customer profile', 'High', 'Customer KYC risk level is HIGH', 30, NULL, NULL, 'profile_risk'),
-    ('PROFILE-MERCHANT-HIGH', 'companyA', 'High-risk merchant profile', 'High', 'Merchant risk level is HIGH', 30, NULL, NULL, 'profile_risk');
+    ('PROFILE-MERCHANT-HIGH', 'companyA', 'High-risk merchant profile', 'High', 'Merchant risk level is HIGH', 30, NULL, NULL, 'profile_risk'),
+    ('RULE-001', 'companyA', 'Large local card transaction', 'High', 'Local card transaction equal to or above SGD 10,000.', 35, 10000.00, NULL, 'amount'),
+    ('RULE-002', 'companyA', 'Contextual jurisdiction escalation', 'High', 'Customer, issuer, or counterparty data references a high-risk jurisdiction.', 20, NULL, NULL, 'jurisdiction'),
+    ('RULE-003', 'companyA', 'Elevated same-card spend', 'Medium', 'Unusual cumulative spend on the same card within 24 hours.', 35, 3000.00, NULL, 'card_spend_24h'),
+    ('RULE-004', 'companyA', 'Incomplete customer diligence', 'Medium', 'Customer KYC profile is pending review.', 25, NULL, NULL, 'kyc_pending'),
+    ('RULE-005', 'companyA', 'Low-value card testing burst', 'High', 'Repeated low-value card payments may indicate card testing.', 30, 20.00, 5, 'low_value_burst');
 
 INSERT INTO transactions
     (transaction_id, company_id, customer_id, amount, currency, country, merchant_category,
