@@ -1656,7 +1656,7 @@ async function startServer() {
   }
 
   const server = app.listen(PORT, () => {
-    console.log(`UNIWEB local card-payment monitoring running on http://localhost:${PORT} (Singapore merchants, MCC-driven risk)`);
+    console.log(`UNIWEB local (domestic) card-payment monitoring running on http://localhost:${PORT} - any Singapore merchant profile, MCC-driven risk classification`);
     setInterval(() => {
       createTransaction();
     }, 4000);

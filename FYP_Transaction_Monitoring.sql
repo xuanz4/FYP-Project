@@ -1,3 +1,7 @@
+-- UNIWEB local (domestic) card-payment monitoring schema for Singapore merchants.
+-- Merchant risk is assessed via MCC code (industry_risk_score) and merchant_risk_level;
+-- monitoring rules are merchant-agnostic and apply to any merchant profile, not just the
+-- example companyA/B/C rows seeded below. Scope is local card payments only.
 DROP DATABASE IF EXISTS fyp_transaction_monitoring;
 CREATE DATABASE fyp_transaction_monitoring;
 USE fyp_transaction_monitoring;
@@ -162,6 +166,8 @@ CREATE TABLE audit_logs (
     FOREIGN KEY (company_id) REFERENCES companies(company_id)
 );
 
+-- Example merchant profiles only. Any Singapore merchant, regardless of industry, can be
+-- onboarded the same way with its own MCC code, industry_risk_score, and merchant_risk_level.
 INSERT INTO companies (company_id, company_name, merchant_type, mcc_code, industry, industry_risk_score, merchant_risk_level, accent)
 VALUES
     ('companyA', 'Merchant Profile 5651', 'MCC 5651 - Family Clothing Stores', '5651', 'Family Clothing Stores', 8, 'LOW', 'blue'),
@@ -179,24 +185,24 @@ VALUES
 INSERT INTO compliance_rules
     (rule_id, company_id, rule_name, risk_level, reason, weight, amount_threshold, count_threshold, rule_type)
 VALUES
-    ('COM-A-001', 'companyA', 'Single transaction above S$700', 'Medium', 'Above expected clothing basket', 30, 700.00, NULL, 'amount'),
-    ('COM-A-002', 'companyA', 'Single transaction above S$1,200', 'High', 'Unusual for ordinary fashion purchase', 55, 1200.00, NULL, 'amount'),
+    ('COM-A-001', 'companyA', 'Single transaction above S$700', 'Medium', 'Above this merchant profile''s typical basket size', 30, 700.00, NULL, 'amount'),
+    ('COM-A-002', 'companyA', 'Single transaction above S$1,200', 'High', 'Far above this merchant profile''s typical basket size', 55, 1200.00, NULL, 'amount'),
     ('COM-A-003', 'companyA', '4+ merchant transactions within 30 min', 'Medium', 'Possible split payment or repeated card attempts', 30, NULL, 4, 'recent_company_transactions'),
-    ('COM-A-004', 'companyA', 'Same card spends above S$1,500 within 24h', 'High', 'Unusual cumulative fashion spend', 55, 1500.00, NULL, 'card_spend_24h'),
+    ('COM-A-004', 'companyA', 'Same card spends above S$1,500 within 24h', 'High', 'Unusual cumulative same-card spend for this merchant profile', 55, 1500.00, NULL, 'card_spend_24h'),
     ('COM-A-005', 'companyA', 'Several amounts just below S$700', 'Medium', 'Possible threshold avoidance', 30, 700.00, 3, 'near_threshold'),
-    ('COM-A-006', 'companyA', 'New customer first purchase above S$800', 'Medium', 'New card/account plus high-value spend', 35, 800.00, NULL, 'new_customer_amount'),
-    ('COM-B-001', 'companyB', 'Single transaction above S$1,000', 'Medium', 'Likely multiple pairs or leather goods', 30, 1000.00, NULL, 'amount'),
-    ('COM-B-002', 'companyB', 'Single transaction above S$2,000', 'High', 'Far above normal footwear basket', 60, 2000.00, NULL, 'amount'),
-    ('COM-B-003', 'companyB', '3+ merchant purchases within 30 min', 'Medium', 'Repeated attempts, split purchase, or card testing', 35, NULL, 3, 'recent_company_transactions'),
-    ('COM-B-004', 'companyB', 'Same card spends above S$1,500 within 24h', 'High', 'Unusual same-day cumulative spending', 55, 1500.00, NULL, 'card_spend_24h'),
-    ('COM-B-005', 'companyB', 'Many amounts just below S$1,000', 'Medium', 'Possible threshold avoidance', 30, 1000.00, 3, 'near_threshold'),
-    ('COM-B-006', 'companyB', 'Customer usually below S$100, suddenly above S$800', 'Medium', 'Possible account takeover or stolen card use', 35, 800.00, NULL, 'usual_spend_jump'),
-    ('COM-C-001', 'companyC', 'Single transaction above S$700', 'Medium', 'Higher than normal skincare/makeup basket', 30, 700.00, NULL, 'amount'),
-    ('COM-C-002', 'companyC', 'Single transaction above S$1,000', 'High', 'Unusual unless buying many premium items', 55, 1000.00, NULL, 'amount'),
-    ('COM-C-003', 'companyC', '4+ merchant purchases within 30 min', 'Medium', 'Possible split purchase or repeated card attempts', 30, NULL, 4, 'recent_company_transactions'),
-    ('COM-C-004', 'companyC', 'Same card spends above S$1,500 within 24h', 'High', 'Unusual same-day cumulative spend', 55, 1500.00, NULL, 'card_spend_24h'),
-    ('COM-C-005', 'companyC', '5+ low-value transactions below S$20 in 10 min', 'High', 'Possible card testing', 55, 20.00, 5, 'low_value_burst'),
-    ('COM-C-006', 'companyC', 'New customer first purchase above S$800', 'Medium', 'New card/account plus high-value spend', 35, 800.00, NULL, 'new_customer_amount'),
+    ('COM-A-006', 'companyA', 'New or usually low-spend customer above S$800', 'Medium', 'New card/account, or a sudden spend jump, plus a high-value purchase', 35, 800.00, NULL, 'new_or_deviating_customer'),
+    ('COM-B-001', 'companyB', 'Single transaction above S$1,000', 'Medium', 'Above this merchant profile''s typical basket size', 30, 1000.00, NULL, 'amount'),
+    ('COM-B-002', 'companyB', 'Single transaction above S$2,000', 'High', 'Far above this merchant profile''s typical basket size', 55, 2000.00, NULL, 'amount'),
+    ('COM-B-003', 'companyB', '3+ merchant transactions within 30 min', 'Medium', 'Possible split payment or repeated card attempts', 30, NULL, 3, 'recent_company_transactions'),
+    ('COM-B-004', 'companyB', 'Same card spends above S$1,500 within 24h', 'High', 'Unusual cumulative same-card spend for this merchant profile', 55, 1500.00, NULL, 'card_spend_24h'),
+    ('COM-B-005', 'companyB', 'Several amounts just below S$1,000', 'Medium', 'Possible threshold avoidance', 30, 1000.00, 3, 'near_threshold'),
+    ('COM-B-006', 'companyB', 'New or usually low-spend customer above S$800', 'Medium', 'New card/account, or a sudden spend jump, plus a high-value purchase', 35, 800.00, NULL, 'new_or_deviating_customer'),
+    ('COM-C-001', 'companyC', 'Single transaction above S$700', 'Medium', 'Above this merchant profile''s typical basket size', 30, 700.00, NULL, 'amount'),
+    ('COM-C-002', 'companyC', 'Single transaction above S$1,000', 'High', 'Far above this merchant profile''s typical basket size', 55, 1000.00, NULL, 'amount'),
+    ('COM-C-003', 'companyC', '4+ merchant transactions within 30 min', 'Medium', 'Possible split payment or repeated card attempts', 30, NULL, 4, 'recent_company_transactions'),
+    ('COM-C-004', 'companyC', 'Same card spends above S$1,500 within 24h', 'High', 'Unusual cumulative same-card spend for this merchant profile', 55, 1500.00, NULL, 'card_spend_24h'),
+    ('COM-C-005', 'companyC', 'Several amounts just below S$700', 'Medium', 'Possible threshold avoidance', 30, 700.00, 3, 'near_threshold'),
+    ('COM-C-006', 'companyC', 'New or usually low-spend customer above S$800', 'Medium', 'New card/account, or a sudden spend jump, plus a high-value purchase', 35, 800.00, NULL, 'new_or_deviating_customer'),
     ('TIME-001', 'companyA', 'Transaction Outside Operating Hours', 'Medium', 'Transaction occurred outside normal merchant operating hours.', 10, NULL, NULL, 'operating_hours'),
     ('SCR-001', 'companyA', 'Payment or customer screening match', 'High', 'Sanctions, PEP, watchlist, or adverse-media screening match', 65, NULL, NULL, 'screening_match'),
     ('PROFILE-CUSTOMER-HIGH', 'companyA', 'High-risk customer profile', 'High', 'Customer KYC risk level is HIGH', 30, NULL, NULL, 'profile_risk'),
