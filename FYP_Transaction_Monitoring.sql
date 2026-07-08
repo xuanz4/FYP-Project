@@ -41,6 +41,7 @@ CREATE TABLE compliance_rules (
 
 CREATE TABLE transactions (
     transaction_id VARCHAR(40) PRIMARY KEY,
+    unique_transaction_id CHAR(6) NULL,
     company_id VARCHAR(20) NOT NULL,
     customer_id VARCHAR(30) NOT NULL,
     amount DECIMAL(10,2) NOT NULL,
@@ -214,7 +215,7 @@ VALUES
     ('RULE-005', 'companyA', 'Low-value card testing burst', 'High', 'Repeated low-value card payments may indicate card testing.', 30, 20.00, 5, 'low_value_burst');
 
 INSERT INTO transactions
-    (transaction_id, company_id, customer_id, amount, currency, country, merchant_category,
+    (transaction_id, unique_transaction_id, company_id, customer_id, amount, currency, country, merchant_category,
      recent_company_transactions, card_spend_24h, near_threshold_count, low_value_burst_count,
      is_new_customer, usual_spend_below_100, channel, direction, counterparty_name,
      counterparty_country, payment_reference, screening_status, status, transaction_hour,
@@ -222,9 +223,9 @@ INSERT INTO transactions
      profile_risk_score, transaction_detection_score, final_risk_score, risk_level,
      recommended_action, risk_score, risk_band, created_at)
 VALUES
-    ('TXN-DEMO-001', 'companyA', 'CUS-1001', 95.00, 'SGD', 'Singapore', 'Apparel', 1, 180.00, 0, 0, 0, 0, 'Card Present', 'Sale', 'Harbour Retail Pte Ltd', 'Singapore', 'Local card purchase Harbour Retail Pte Ltd', 'Clear', 'Cleared', 14, 0, 8, 0, 0, 8, 'Low', 'Allow', 8, 'Low', '2026-06-03 14:00:00'),
-    ('TXN-DEMO-002', 'companyB', 'CUS-1003', 2150.00, 'SGD', 'Singapore', 'Footwear', 1, 2300.00, 0, 0, 0, 0, 'E-Commerce Card', 'Sale', 'Orion Trade Holdings', 'Iran', 'Card payment linked to Orion Trade Holdings', 'Potential Match', 'Flagged', 2, 1, 12, 45, 220, 277, 'Critical', 'Manual Review or Hold Settlement', 277, 'Critical', '2026-06-03 02:00:00'),
-    ('TXN-DEMO-003', 'companyC', 'CUS-1004', 880.00, 'SGD', 'Singapore', 'Cosmetics', 4, 950.00, 1, 0, 1, 0, 'Card Not Present', 'Sale', 'Maple Distribution', 'Singapore', 'Local card purchase Maple Distribution', 'Clear', 'Flagged', 14, 0, 10, 60, 95, 165, 'Critical', 'Manual Review or Hold Settlement', 165, 'Critical', '2026-06-03 14:00:00');
+    ('TXN-DEMO-001', '100001', 'companyA', 'CUS-1001', 95.00, 'SGD', 'Singapore', 'Apparel', 1, 180.00, 0, 0, 0, 0, 'Card Present', 'Sale', 'Harbour Retail Pte Ltd', 'Singapore', 'Local card purchase Harbour Retail Pte Ltd', 'Clear', 'Cleared', 14, 0, 8, 0, 0, 8, 'Low', 'Allow', 8, 'Low', '2026-06-03 14:00:00'),
+    ('TXN-DEMO-002', '100002', 'companyB', 'CUS-1003', 2150.00, 'SGD', 'Singapore', 'Footwear', 1, 2300.00, 0, 0, 0, 0, 'E-Commerce Card', 'Sale', 'Orion Trade Holdings', 'Iran', 'Card payment linked to Orion Trade Holdings', 'Potential Match', 'Flagged', 2, 1, 12, 45, 220, 277, 'Critical', 'Manual Review or Hold Settlement', 277, 'Critical', '2026-06-03 02:00:00'),
+    ('TXN-DEMO-003', '100003', 'companyC', 'CUS-1004', 880.00, 'SGD', 'Singapore', 'Cosmetics', 4, 950.00, 1, 0, 1, 0, 'Card Not Present', 'Sale', 'Maple Distribution', 'Singapore', 'Local card purchase Maple Distribution', 'Clear', 'Flagged', 14, 0, 10, 60, 95, 165, 'Critical', 'Manual Review or Hold Settlement', 165, 'Critical', '2026-06-03 14:00:00');
 
 INSERT INTO transaction_screening_matches
     (transaction_id, watchlist_id, watchlist_name, match_type, match_field, input_value,
@@ -278,6 +279,7 @@ CREATE INDEX idx_transactions_customer ON transactions(customer_id);
 CREATE INDEX idx_transactions_status ON transactions(status);
 CREATE INDEX idx_transactions_risk_band ON transactions(risk_band);
 CREATE INDEX idx_transactions_created_at ON transactions(created_at);
+CREATE INDEX idx_transactions_unique_transaction_id ON transactions(unique_transaction_id);
 CREATE INDEX idx_screening_matches_transaction ON transaction_screening_matches(transaction_id);
 CREATE INDEX idx_alerts_status ON alerts(alert_status);
 CREATE INDEX idx_alerts_severity ON alerts(severity);

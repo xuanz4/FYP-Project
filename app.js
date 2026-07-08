@@ -60,6 +60,26 @@ function id(prefix) {
   return `${prefix}-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
 }
 
+// STAN-equivalent: a 6-digit numeric reference for the live feed and receipts. Kept unique
+// within the in-memory transaction history (unlike a real STAN, which only cycles uniquely
+// per terminal per day) since transaction.id is already the durable/globally-unique key.
+function generateUniqueTransactionId() {
+  let candidate;
+  do {
+    candidate = String(Math.floor(Math.random() * 1000000)).padStart(6, '0');
+  } while (transactions.some((txn) => txn.uniqueTransactionId === candidate));
+  return candidate;
+}
+
+// The live feed/queue only need enough to triage a transaction (reference number, merchant,
+// amount, risk) - not the cardholder's name. Name is only resolved when a specific
+// transaction is pulled up for review (findTransactionById / GET /transactions/:id),
+// mirroring how a STAN is used to retrieve full detail only when an investigation needs it.
+function redactTransactionForFeed(transaction) {
+  const { customerName, ...redacted } = transaction;
+  return redacted;
+}
+
 function pick(items) {
   return items[Math.floor(Math.random() * items.length)];
 }
@@ -115,6 +135,7 @@ function createTransaction(overrides = {}) {
   const counterpartyCountry = isHighRiskCountry ? pick(highRiskCountries) : pick(countries);
   const transaction = {
     id: id('TXN'),
+    uniqueTransactionId: generateUniqueTransactionId(),
     companyId: company.id,
     companyName: company.name,
     merchantType: company.merchantType,
@@ -280,7 +301,7 @@ function createTransaction(overrides = {}) {
     queueDbWrite(() => database.saveTransaction(transaction));
   }
 
-  broadcast('transaction', transaction);
+  broadcast('transaction', redactTransactionForFeed(transaction));
   broadcast('metrics', getMetrics());
   broadcast('charts', getCharts());
   broadcast('analytics', getAnalytics());
@@ -878,7 +899,7 @@ function clientApp() {
         <tr class="transaction-row" data-transaction-id="${escapeHtml(txn.id)}">
           <td>${time.format(new Date(txn.createdAt))}</td>
           <td>
-            <strong>${escapeHtml(txn.customerName)}</strong>
+            <strong>STAN ${escapeHtml(txn.uniqueTransactionId)}</strong>
             <div class="muted">${escapeHtml(txn.customerId)}</div>
           </td>
           <td><strong>${escapeHtml(txn.companyName || 'Merchant Profile')}</strong><div class="muted">${escapeHtml(txn.merchantType || txn.merchantCategory)}</div></td>
@@ -951,7 +972,7 @@ function clientApp() {
             <thead>
               <tr>
                 <th>Date / Time</th>
-                <th>Customer</th>
+                <th>Transaction Ref</th>
                 <th>Merchant Profile</th>
                 <th>Amount</th>
                 <th>Location</th>
@@ -964,7 +985,7 @@ function clientApp() {
                 <tr class="transaction-row" data-queue-transaction-id="${escapeHtml(txn.id)}">
                   <td>${new Date(txn.createdAt).toLocaleString('en-SG')}</td>
                   <td>
-                    <strong>${escapeHtml(txn.customerName)}</strong>
+                    <strong>STAN ${escapeHtml(txn.uniqueTransactionId)}</strong>
                     <div class="muted">${escapeHtml(txn.customerId)}</div>
                   </td>
                   <td>
@@ -1619,7 +1640,7 @@ app.get('/api/rules', (req, res) => {
 function getSnapshot() {
   return {
     metrics: getMetrics(),
-    transactions: transactions.slice(0, 80),
+    transactions: transactions.slice(0, 80).map(redactTransactionForFeed),
     alerts: alerts.slice(0, 50),
     cases: cases.slice(0, 30),
     auditLogs: auditLogs.slice(0, 60),

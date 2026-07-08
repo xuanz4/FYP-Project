@@ -65,7 +65,7 @@
                                 </span>
                             </div>
                             <div class="detail-hero-body">
-                                <p class="detail-eyebrow">Flagged transaction <%= transaction.id %>
+                                <p class="detail-eyebrow">Flagged transaction <%= transaction.id %> &middot; STAN <%= transaction.uniqueTransactionId %>
                                 </p>
                                 <p>Created <%= new Date(transaction.createdAt).toLocaleString('en-SG') %>
                                 </p>
@@ -134,6 +134,12 @@
                                     <dt>Customer ID</dt>
                                     <dd>
                                         <%= transaction.customerId %>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>Unique Transaction ID</dt>
+                                    <dd>
+                                        <%= transaction.uniqueTransactionId %>
                                     </dd>
                                 </div>
                                 <div>

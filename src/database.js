@@ -100,7 +100,7 @@ async function saveTransaction(transaction) {
 
   await pool.execute(
     `INSERT INTO transactions (
-      transaction_id, company_id, customer_id, amount, currency, country,
+      transaction_id, unique_transaction_id, company_id, customer_id, amount, currency, country,
       merchant_category, recent_company_transactions, card_spend_24h,
       near_threshold_count, low_value_burst_count, is_new_customer,
       usual_spend_below_100, channel, direction, counterparty_name,
@@ -109,7 +109,7 @@ async function saveTransaction(transaction) {
       mcc_risk_score, profile_risk_score, transaction_detection_score,
       final_risk_score, risk_level, recommended_action, risk_score, risk_band, created_at
     ) VALUES (
-      :id, :companyId, :customerId, :amount, :currency, :country,
+      :id, :uniqueTransactionId, :companyId, :customerId, :amount, :currency, :country,
       :merchantCategory, :recentCompanyTransactions, :cardSpend24h,
       :nearThresholdCount, :lowValueBurstCount, :isNewCustomer,
       :usualSpendBelow100, :channel, :direction, :counterpartyName,
@@ -391,6 +391,7 @@ async function loadSnapshot() {
   const screeningMatches = await getScreeningMatches(transactionIds);
   const transactions = transactionRows.map((row) => ({
     id: row.transaction_id,
+    uniqueTransactionId: row.unique_transaction_id,
     companyId: row.company_id,
     companyName: row.company_name,
     merchantType: row.merchant_type,
