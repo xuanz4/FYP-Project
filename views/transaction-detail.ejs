@@ -1,27 +1,51 @@
 <%- include('partials/head', { title, activePage }) %>
 
-    <% const finalStatuses=['Pending RFI', 'STR Filed' , 'Dismissed as False Positive' , 'Escalated' ]; const
-        hasTransaction=Boolean(transaction); const statusSlug=hasTransaction ?
-        transaction.status.toLowerCase().replace(/[^a-z0-9]+/g, '-' ) : 'unknown' ; const isClosed=hasTransaction &&
-        finalStatuses.includes(transaction.status); const moneyFormatter=new Intl.NumberFormat('en-SG', {
-        style: 'currency' , currency: 'SGD' , maximumFractionDigits: 0, }); %>
+    <% const hasTransaction=Boolean(transaction); const moneyFormatter=new Intl.NumberFormat('en-SG', {
+        style: 'currency' , currency: 'SGD' , maximumFractionDigits: 0, });
+        const isAssessmentResolved=hasTransaction && Boolean(transaction.finalRiskLevel || transaction.resolvedAt ||
+        transaction.caseStatus === 'Resolved' || transaction.assessmentStatus === 'Resolved');
+        const isAssessmentEscalated=hasTransaction && !isAssessmentResolved && Boolean(transaction.assessmentStatus === 'Escalated' ||
+        transaction.reviewAction === 'escalate' || transaction.status === 'Escalated');
+        const transactionStatusSlug=hasTransaction ? transaction.status.toLowerCase().replace(/[^a-z0-9]+/g, '-' ) :
+        'unknown' ; const assessmentStatus=isAssessmentResolved ? 'Resolved' : isAssessmentEscalated ? 'Escalated' : 'New' ; const assessmentStatusSlug=assessmentStatus
+        .toLowerCase().replace(/[^a-z0-9]+/g, '-' ); %>
 
-        <main data-transaction-detail-page data-transaction-id="<%= hasTransaction ? transaction.id : '' %>">
+        <main data-transaction-detail-page data-transaction-id="<%= hasTransaction ? transaction.id : '' %>" data-email-test-mode="<%= emailTestMode ? 'true' : 'false' %>">
             <section class="topbar detail-topbar">
                 <div>
                     <a class="back-link" href="/dashboard">&larr; Back to Dashboard</a>
                     <h1>Transaction Review</h1>
-                    <p>Review the flagged transaction, its broken rules, and the available investigation actions.</p>
+                    <% if (hasTransaction) { %>
+                        <p>
+                            <%= transaction.id %>
+                        </p>
+                        <% } else { %>
+                            <p>Review a flagged transaction and complete the assessment.</p>
+                            <% } %>
                 </div>
                 <% if (hasTransaction) { %>
                     <div class="detail-status-panel">
-                        <span id="transactionDetailStatus"
-                            class="badge transaction-status-badge status-<%= statusSlug %>">
-                            <%= transaction.status %>
-                        </span>
+                        <div class="status-pair">
+                            <span>Transaction Status</span>
+                            <strong class="badge transaction-status-badge status-<%= transactionStatusSlug %>">
+                                <%= transaction.status %>
+                            </strong>
+                        </div>
+                        <div class="status-pair">
+                            <span>Assessment Status</span>
+                            <strong id="assessmentStatusBadge"
+                                class="badge transaction-status-badge status-<%= assessmentStatusSlug %>">
+                                <%= assessmentStatus %>
+                            </strong>
+                        </div>
+                        <div class="status-pair">
+                            <span>Decision</span>
+                            <strong id="assessmentDecisionBadge">
+                                <%= transaction.decision || 'Not assigned' %>
+                            </strong>
+                        </div>
                         <p id="transactionDetailConfirmation">
-                            <%= isClosed ? 'No further action is needed for this transaction.'
-                                : 'Choose an action to continue the review workflow.' %>
+                            <%= isAssessmentResolved ? 'Assessment resolved.' : isAssessmentEscalated ? 'This case has been escalated for senior review.' : 'Assessment pending review.' %>
                         </p>
                     </div>
                     <% } %>
@@ -44,359 +68,250 @@
                     <script id="transactionDetailData"
                         type="application/json"><%- JSON.stringify(transaction) %></script>
 
-                    <section class="detail-summary-grid">
-                        <article class="panel detail-hero-card">
-                            <div class="panel-header detail-card-header">
-                                <div>
-                                    <h2>
-                                        <%= transaction.customerName %>
-                                    </h2>
-                                    <p>
-                                        <%= transaction.companyName || 'Company' %> &middot; <%= transaction.customerId
-                                                %>
-                                    </p>
-                                    <p>
-                                        MCC <%= transaction.mccCode || 'N/A' %> &middot; <%= transaction.industry || 'Industry N/A' %>
-                                    </p>
-                                </div>
-                                <span class="badge risk-<%= (transaction.riskLevel || transaction.riskBand).toLowerCase() %>">
-                                    <%= transaction.riskLevel || transaction.riskBand %>
-                                        <%= transaction.finalRiskScore || transaction.riskScore %>
-                                </span>
+                    <section class="panel detail-section">
+                        <div class="panel-header">
+                            <div>
+                                <h2>Risk Summary</h2>
+                                <p>Initial automated risk and final assessment outcome.</p>
                             </div>
-                            <div class="detail-hero-body">
-                                <p class="detail-eyebrow">Flagged transaction <%= transaction.id %>
-                                </p>
-                                <p>Created <%= new Date(transaction.createdAt).toLocaleString('en-SG') %>
-                                </p>
-                                <p class="detail-amount">
-                                    <%= moneyFormatter.format(transaction.amount) %>
-                                </p>
-                                <p>
-                                    <%= transaction.country %> &middot; <%= transaction.channel %> &middot; <%=
-                                                transaction.direction %>
-                                </p>
-                            </div>
-                        </article>
-
-                        <article class="panel detail-summary-card">
-                            <div class="panel-header">
-                                <div>
-                                    <h2>Risk Snapshot</h2>
-                                    <p>Current screening and transaction review position.</p>
-                                </div>
-                            </div>
-                            <div class="detail-stat-grid">
-                                <article><span>Final Risk Score</span><strong>
-                                        <%= transaction.finalRiskScore || transaction.riskScore %>
-                                    </strong></article>
-                                <article><span>Risk Level</span><strong>
-                                        <%= transaction.riskLevel || transaction.riskBand %>
-                                    </strong></article>
-                                <article><span>Recommended Action</span><strong>
-                                        <%= transaction.recommendedAction || 'Allow' %>
-                                    </strong></article>
-                                <article><span>Status</span><strong class="transaction-status status-<%= statusSlug %>">
-                                        <%= transaction.status %>
-                                    </strong></article>
-                                <article><span>Screening</span><strong>
-                                        <%= transaction.screeningStatus || 'Pending' %>
-                                    </strong></article>
-                                <article><span>MCC Risk</span><strong>
-                                        <%= transaction.mccRiskScore ?? transaction.industryRiskScore ?? 0 %>
-                                    </strong></article>
-                                <article><span>Profile Risk</span><strong>
-                                        <%= transaction.profileRiskScore || 0 %>
-                                    </strong></article>
-                                <article><span>Detection Risk</span><strong>
-                                        <%= transaction.transactionDetectionScore || 0 %>
-                                    </strong></article>
-                            </div>
-                        </article>
+                        </div>
+                        <div class="detail-stat-grid risk-summary-grid">
+                            <article><span>Initial Risk Score</span><strong>
+                                    <%= transaction.initialRiskScore ?? transaction.riskScore %>
+                                </strong></article>
+                            <article><span>Initial Risk Level</span><strong>
+                                    <%= transaction.initialRiskLevel || transaction.riskLevel || transaction.riskBand %>
+                                </strong></article>
+                            <article><span>Final Risk Score</span><strong id="assessmentFinalRiskScoreSummary">
+                                    <%= transaction.finalRiskScore ?? 'Not assigned' %>
+                                </strong></article>
+                            <article><span>Final Risk Level</span><strong id="assessmentFinalRiskLevelSummary">
+                                    <%= transaction.finalRiskLevel || 'Not assigned' %>
+                                </strong></article>
+                            <article><span>Decision</span><strong id="assessmentDecision">
+                                    <%= transaction.decision || 'Not assigned' %>
+                                </strong></article>
+                            <article><span>Resolution Reason</span><strong id="assessmentResolutionReason">
+                                    <%= transaction.resolutionReason || 'Not assigned' %>
+                                </strong></article>
+                            <article><span>Screening Result</span><strong>
+                                    <%= transaction.screeningStatus || 'Pending' %>
+                                </strong></article>
+                            <article><span>Recommended Action</span><strong>
+                                    <%= transaction.recommendedAction || 'Allow' %>
+                                </strong></article>
+                        </div>
                     </section>
 
-                    <section class="detail-columns">
+                    <section class="detail-two-column">
                         <article class="panel detail-section">
                             <div class="panel-header">
                                 <div>
-                                    <h2>Transaction Details</h2>
-                                    <p>Full record details for the review case.</p>
+                                    <h2>Transaction Information</h2>
+                                    <p>Core payment and customer details.</p>
                                 </div>
                             </div>
-                            <dl class="detail-definition-list">
-                                <div>
-                                    <dt>Name</dt>
-                                    <dd>
-                                        <%= transaction.customerName %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Customer ID</dt>
-                                    <dd>
-                                        <%= transaction.customerId %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Company</dt>
-                                    <dd>
-                                        <%= transaction.companyName || 'Company' %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Amount</dt>
-                                    <dd>
-                                        <%= moneyFormatter.format(transaction.amount) %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Date</dt>
-                                    <dd>
-                                        <%= new Date(transaction.createdAt).toLocaleString('en-SG') %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Transaction Time</dt>
-                                    <dd>
-                                        <%= new Date(transaction.createdAt).toLocaleTimeString('en-SG') %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Operating Hours Check</dt>
-                                    <dd>
-                                        <%= transaction.operatingHoursTriggered ? 'Outside operating hours' : 'Within operating hours' %>
-                                        <% if (transaction.transactionHour !== null && transaction.transactionHour !== undefined) { %>
-                                            (hour <%= transaction.transactionHour %>)
-                                        <% } %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Country</dt>
-                                    <dd>
-                                        <%= transaction.country %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Merchant Category</dt>
-                                    <dd>
-                                        <%= transaction.merchantCategory %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Merchant Type</dt>
-                                    <dd>
-                                        <%= transaction.merchantType || 'N/A' %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>MCC Code</dt>
-                                    <dd>
-                                        <%= transaction.mccCode || 'N/A' %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Industry</dt>
-                                    <dd>
-                                        <%= transaction.industry || 'N/A' %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>MCC Risk Score</dt>
-                                    <dd>
-                                        <%= transaction.mccRiskScore ?? transaction.industryRiskScore ?? 0 %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Channel</dt>
-                                    <dd>
-                                        <%= transaction.channel %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Direction</dt>
-                                    <dd>
-                                        <%= transaction.direction %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Counterparty</dt>
-                                    <dd>
-                                        <%= transaction.counterpartyName %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Counterparty Country</dt>
-                                    <dd>
-                                        <%= transaction.counterpartyCountry %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Payment Reference</dt>
-                                    <dd>
-                                        <%= transaction.paymentReference %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>KYC Status</dt>
-                                    <dd>
-                                        <%= transaction.kycStatus %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Customer Risk Level</dt>
-                                    <dd>
-                                        <%= transaction.customerRiskLevel || 'LOW' %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Merchant Risk Level</dt>
-                                    <dd>
-                                        <%= transaction.merchantRiskLevel || 'LOW' %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Profile Risk Score</dt>
-                                    <dd>
-                                        <%= transaction.profileRiskScore || 0 %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Transaction Detection Score</dt>
-                                    <dd>
-                                        <%= transaction.transactionDetectionScore || 0 %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Final Risk Score</dt>
-                                    <dd>
-                                        <%= transaction.finalRiskScore || transaction.riskScore %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Risk Level</dt>
-                                    <dd>
-                                        <%= transaction.riskLevel || transaction.riskBand %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Recommended Action</dt>
-                                    <dd>
-                                        <%= transaction.recommendedAction || 'Allow' %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Recent Company Txns</dt>
-                                    <dd>
-                                        <%= transaction.recentCompanyTransactions %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Card Spend 24h</dt>
-                                    <dd>
-                                        <%= moneyFormatter.format(transaction.cardSpend24h || 0) %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Near Threshold Count</dt>
-                                    <dd>
-                                        <%= transaction.nearThresholdCount %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Low Value Burst Count</dt>
-                                    <dd>
-                                        <%= transaction.lowValueBurstCount %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>New Customer</dt>
-                                    <dd>
-                                        <%= transaction.isNewCustomer ? 'Yes' : 'No' %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Usual Spend Below 100</dt>
-                                    <dd>
-                                        <%= transaction.usualSpendBelow100 ? 'Yes' : 'No' %>
-                                    </dd>
-                                </div>
+                            <dl class="detail-definition-list detail-info-grid">
+                                <div><dt>Customer Name</dt><dd><%= transaction.customerName %></dd></div>
+                                <div><dt>Customer ID</dt><dd><%= transaction.customerId %></dd></div>
+                                <div><dt>Company</dt><dd><%= transaction.companyName || 'Company' %></dd></div>
+                                <div><dt>Amount</dt><dd><%= moneyFormatter.format(transaction.amount) %></dd></div>
+                                <div><dt>Date and Time</dt><dd><%= new Date(transaction.createdAt).toLocaleString('en-SG') %></dd></div>
+                                <div><dt>Country</dt><dd><%= transaction.country %></dd></div>
+                                <div><dt>Channel</dt><dd><%= transaction.channel %></dd></div>
+                                <div><dt>Direction</dt><dd><%= transaction.direction %></dd></div>
+                                <div><dt>Counterparty</dt><dd><%= transaction.counterpartyName || 'N/A' %></dd></div>
+                                <div><dt>Counterparty Country</dt><dd><%= transaction.counterpartyCountry || 'N/A' %></dd></div>
+                                <div><dt>Payment Reference</dt><dd><%= transaction.paymentReference || 'N/A' %></dd></div>
+                                <div><dt>KYC Status</dt><dd><%= transaction.kycStatus %></dd></div>
+                                <div><dt>Customer Risk</dt><dd><%= transaction.customerRiskLevel || 'LOW' %></dd></div>
+                                <div><dt>Merchant Risk</dt><dd><%= transaction.merchantRiskLevel || 'LOW' %></dd></div>
                             </dl>
                         </article>
 
                         <article class="panel detail-section">
                             <div class="panel-header">
                                 <div>
-                                    <h2>Triggered Rules</h2>
-                                    <p>The profile, screening, and transaction detection rules contributing to this score.</p>
+                                    <h2>Risk Breakdown</h2>
+                                    <p>Point components used for the initial risk score.</p>
                                 </div>
                             </div>
-                            <div class="detail-rule-list">
-                                <% const rulesToShow = transaction.triggeredRules || transaction.matchedRules || []; %>
-                                <% if (rulesToShow.length) { %>
-                                    <% rulesToShow.forEach((rule)=> { %>
-                                        <article class="detail-rule-item">
-                                            <div class="detail-rule-top">
-                                                <strong>
-                                                    <%= rule.name %>
-                                                </strong>
-                                                <span
-                                                    class="badge risk-<%= (rule.risk || transaction.riskBand).toLowerCase() %>">
-                                                    <%= rule.risk || transaction.riskBand %>
-                                                </span>
-                                            </div>
-                                            <p>
-                                                <%= rule.reason %>
-                                            </p>
-                                            <div class="meta">Rule ID <%= rule.id %> &middot; Weight <%= rule.weight %>
-                                            </div>
-                                        </article>
-                                        <% }); %>
-                                            <% } else { %>
-                                                <p class="muted">No automated rule matches were recorded for this
-                                                    transaction.</p>
-                                                <% } %>
-                                                    <% if ((transaction.screeningMatches || []).length) { %>
-                                                        <% transaction.screeningMatches.forEach((match)=> { %>
-                                                            <article class="detail-rule-item">
-                                                                <div class="detail-rule-top">
-                                                                    <strong>
-                                                                        <%= match.name %>
-                                                                    </strong>
-                                                                    <span
-                                                                        class="badge risk-<%= (match.risk || 'Medium').toLowerCase() %>">
-                                                                        <%= match.type %>
-                                                                    </span>
-                                                                </div>
-                                                                <p>
-                                                                    <%= match.reason %>
-                                                                </p>
-                                                                <div class="meta">Field <%= match.field %> &middot;
-                                                                        Score <%= match.score %>
-                                                                </div>
-                                                            </article>
-                                                            <% }); %>
-                                                                <% } %>
+                            <div class="risk-breakdown-cards">
+                                <article><span>MCC Risk</span><strong><%= transaction.mccRiskScore ?? transaction.industryRiskScore ?? 0 %></strong></article>
+                                <article><span>Profile Risk</span><strong><%= transaction.profileRiskScore || 0 %></strong></article>
+                                <article><span>Detection Risk</span><strong><%= transaction.transactionDetectionScore || 0 %></strong></article>
+                                <article><span>Initial Total</span><strong><%= transaction.initialRiskScore ?? transaction.riskScore %></strong></article>
                             </div>
                         </article>
                     </section>
 
-                    <section class="panel detail-section">
+                    <section class="panel detail-section compact-rules-section">
                         <div class="panel-header">
                             <div>
-                                <h2>Action Workflow</h2>
-                                <p>Choose the next step for this transaction.</p>
+                                <h2>Triggered Rules</h2>
+                                <p>Rules and screening matches that contributed to the score.</p>
                             </div>
                         </div>
-                        <div id="transactionDetailActionButtons" class="transaction-action-grid">
-                            <button type="button" class="review-action-btn" data-transaction-action="rfi" <%=isClosed
-                                ? 'disabled' : '' %>>Request for Information (RFI)</button>
-                            <button type="button" class="review-action-btn" data-transaction-action="str" <%=isClosed
-                                ? 'disabled' : '' %>>File STR</button>
-                            <button type="button" class="review-action-btn danger" data-transaction-action="dismiss"
-                                <%=isClosed ? 'disabled' : '' %>>Dismiss as False Positive</button>
-                            <button type="button" class="review-action-btn warning" data-transaction-action="escalate"
-                                <%=isClosed ? 'disabled' : '' %>>Escalate</button>
+                        <div class="detail-rule-list compact-rule-list">
+                            <% const rulesToShow = transaction.triggeredRules || transaction.matchedRules || []; %>
+                            <% if (rulesToShow.length) { %>
+                                <% rulesToShow.forEach((rule)=> { %>
+                                    <article class="detail-rule-item">
+                                        <div class="detail-rule-top">
+                                            <strong><%= rule.name %></strong>
+                                            <span class="badge risk-<%= (rule.risk || transaction.riskBand).toLowerCase() %>">
+                                                <%= rule.risk || transaction.riskBand %>
+                                            </span>
+                                        </div>
+                                        <p><%= rule.reason %></p>
+                                        <div class="meta">Rule ID <%= rule.id %> &middot; Weight <%= rule.weight %></div>
+                                    </article>
+                                    <% }); %>
+                                        <% } %>
+                                            <% if ((transaction.screeningMatches || []).length) { %>
+                                                <% transaction.screeningMatches.forEach((match)=> { %>
+                                                    <article class="detail-rule-item">
+                                                        <div class="detail-rule-top">
+                                                            <strong><%= match.name %></strong>
+                                                            <span class="badge risk-<%= (match.risk || 'Medium').toLowerCase() %>">
+                                                                <%= match.type %>
+                                                            </span>
+                                                        </div>
+                                                        <p><%= match.reason %></p>
+                                                        <div class="meta">Field <%= match.field %> &middot; Score <%= match.score %></div>
+                                                    </article>
+                                                    <% }); %>
+                                                        <% } %>
+                                                            <% if (!rulesToShow.length && !(transaction.screeningMatches || []).length) { %>
+                                                                <p class="muted">No automated rule matches were recorded for this transaction.</p>
+                                                                <% } %>
                         </div>
                     </section>
+
+                    <% if (isAssessmentResolved) { %>
+                        <section id="assessmentOutcomeSection" class="panel detail-section assessment-outcome-section">
+                            <div class="assessment-resolved-message">
+                                <strong>Assessment resolved</strong>
+                                <span>Decision, final risk, reason, and timestamp are recorded below.</span>
+                            </div>
+                            <div class="detail-stat-grid assessment-outcome-grid">
+                                <article><span>Final Risk Level</span><strong id="assessmentFinalRiskLevel"><%= transaction.finalRiskLevel || 'Not assigned' %></strong></article>
+                                <article><span>Final Risk Score</span><strong id="assessmentFinalRiskScore"><%= transaction.finalRiskScore ?? 'Not assigned' %></strong></article>
+                                <article><span>Decision</span><strong id="assessmentDecisionDetail"><%= transaction.decision || 'Not assigned' %></strong></article>
+                                <article><span>Resolution Reason</span><strong id="assessmentResolutionReasonDetail"><%= transaction.resolutionReason || 'Not assigned' %></strong></article>
+                                <article class="wide-stat"><span>Analyst Notes</span><strong id="assessmentAnalystNotes"><%= transaction.analystNotes || 'Not assigned' %></strong></article>
+                                <article><span>Resolved At</span><strong id="assessmentResolvedAtDetail"><%= transaction.resolvedAt ? new Date(transaction.resolvedAt).toLocaleString('en-SG') : 'Not assigned' %></strong></article>
+                            </div>
+                        </section>
+                    <% } else { %>
+                        <section id="assessmentOutcomeSection" class="panel detail-section assessment-outcome-section is-hidden">
+                            <div class="assessment-resolved-message">
+                                <strong>Assessment resolved</strong>
+                                <span>Decision, final risk, reason, and timestamp are recorded below.</span>
+                            </div>
+                            <div class="detail-stat-grid assessment-outcome-grid">
+                                <article><span>Final Risk Level</span><strong id="assessmentFinalRiskLevel">Not assigned</strong></article>
+                                <article><span>Final Risk Score</span><strong id="assessmentFinalRiskScore">Not assigned</strong></article>
+                                <article><span>Decision</span><strong id="assessmentDecisionDetail">Not assigned</strong></article>
+                                <article><span>Resolution Reason</span><strong id="assessmentResolutionReasonDetail">Not assigned</strong></article>
+                                <article class="wide-stat"><span>Analyst Notes</span><strong id="assessmentAnalystNotes">Not assigned</strong></article>
+                                <article><span>Resolved At</span><strong id="assessmentResolvedAtDetail">Not assigned</strong></article>
+                            </div>
+                        </section>
+
+                        <section id="investigationActionsSection" class="panel detail-section">
+                            <div class="panel-header">
+                                <div>
+                                    <h2>Investigation Actions</h2>
+                                    <p>Use these actions when further investigation is required before resolving the assessment.</p>
+                                </div>
+                            </div>
+                            <div id="transactionDetailActionButtons" class="transaction-action-grid">
+                                <button type="button" class="review-action-btn" data-transaction-action="rfi">Request for Information (RFI)</button>
+                                <button type="button" class="review-action-btn" data-transaction-action="str">File STR</button>
+                                <button type="button" class="review-action-btn warning" data-transaction-action="escalate">Escalate</button>
+                            </div>
+                        </section>
+
+                        <section id="resolveAssessmentSection" class="panel detail-section">
+                            <div class="panel-header">
+                                <div>
+                                    <h2>Resolve Assessment</h2>
+                                    <p>Assign the final risk level and assessment outcome.</p>
+                                </div>
+                            </div>
+                            <form id="resolveAssessmentForm" class="action-form">
+                                <p id="escalatedAssessmentMessage" class="escalated-assessment-message <%= isAssessmentEscalated ? '' : 'is-hidden' %>">
+                                    This case has been escalated for senior review. A senior analyst or compliance manager may resolve the assessment.
+                                </p>
+                                <label>
+                                    <span>Final Risk Level</span>
+                                    <select name="finalRiskLevel" required>
+                                        <option value="">Select final risk level</option>
+                                        <option value="Low">Low</option>
+                                        <option value="Medium">Medium</option>
+                                        <option value="High">High</option>
+                                        <option value="Critical">Critical</option>
+                                    </select>
+                                </label>
+                                <label>
+                                    <span>Decision</span>
+                                    <select name="decision" required>
+                                        <option value="">Select decision</option>
+                                        <option value="Accepted">Accepted</option>
+                                        <option value="Rejected">Rejected</option>
+                                        <option value="Escalated">Escalated</option>
+                                    </select>
+                                </label>
+                                <label>
+                                    <span>Resolution Reason</span>
+                                    <select name="resolutionReason" required>
+                                        <option value="">Select reason</option>
+                                        <option value="Legitimate Transaction">Legitimate Transaction</option>
+                                        <option value="False Positive">False Positive</option>
+                                        <option value="Suspicious Activity">Suspicious Activity</option>
+                                        <option value="Insufficient Information">Insufficient Information</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                </label>
+                                <label class="full-span">
+                                    <span>Analyst Notes</span>
+                                    <textarea name="analystNotes" rows="4" required minlength="10"></textarea>
+                                </label>
+                                <button type="submit" class="primary-btn">Resolve Assessment</button>
+                                <p id="resolveAssessmentFeedback" class="muted"></p>
+                            </form>
+                        </section>
+                    <% } %>
+
+                    <%
+                        const safeActivityLogs =
+                            typeof activityLogs !== 'undefined' && Array.isArray(activityLogs)
+                                ? activityLogs
+                                : [];
+                    %>
+                    <% if (safeActivityLogs.length > 0) { %>
+                        <section class="panel detail-section">
+                            <div class="panel-header">
+                                <div>
+                                    <h2>Activity Log</h2>
+                                    <p>Timeline for this transaction only.</p>
+                                </div>
+                            </div>
+                            <div id="transactionActivityLog" class="transaction-activity-list">
+                                <% safeActivityLogs.forEach((entry)=> { %>
+                                    <article class="transaction-activity-item">
+                                        <time><%= new Date(entry.createdAt).toLocaleTimeString('en-SG') %></time>
+                                        <div>
+                                            <strong><%= entry.action %></strong>
+                                            <p><%= entry.message || '' %></p>
+                                            <span><%= entry.actor || 'System' %> &middot; <%= new Date(entry.createdAt).toLocaleString('en-SG') %></span>
+                                        </div>
+                                    </article>
+                                <% }); %>
+                            </div>
+                        </section>
+                    <% } %>
 
                     <div id="transactionActionModal" class="detail-modal action-modal" aria-hidden="true">
                         <div class="detail-modal-backdrop" data-close-transaction-action></div>
@@ -440,10 +355,62 @@
                                 </label>
                                 <label>
                                     <span>Analyst Notes</span>
-                                    <textarea name="notes" rows="4"
-                                        placeholder="Optional context for the review"></textarea>
+                                    <textarea name="notes" rows="4" required minlength="10"
+                                        placeholder="Enter at least 10 meaningful characters"></textarea>
                                 </label>
                                 <button id="transactionActionSubmit" type="submit" class="action-submit">Submit</button>
+                            </form>
+                        </section>
+                    </div>
+                    <div id="rfiEmailModal" class="detail-modal action-modal" aria-hidden="true">
+                        <div class="detail-modal-backdrop" data-close-rfi-modal></div>
+                        <section class="detail-dialog action-dialog rfi-dialog" role="dialog" aria-modal="true"
+                            aria-labelledby="rfiEmailTitle">
+                            <button type="button" class="detail-close" data-close-rfi-modal
+                                aria-label="Close RFI form">Close</button>
+                            <div class="detail-heading">
+                                <div>
+                                    <span class="eyebrow">Customer Verification</span>
+                                    <h2 id="rfiEmailTitle">Request for Information</h2>
+                                    <p>Send a neutral customer-facing verification request.</p>
+                                </div>
+                            </div>
+                            <form id="rfiEmailForm" class="action-form">
+                                <p class="rfi-warning">
+                                    Use neutral verification wording. Do not disclose internal risk scores, screening results, suspicious transaction reporting, or investigation details to the customer.
+                                </p>
+                                <p id="rfiTestModeNotice" class="rfi-test-mode-notice <%= emailTestMode ? '' : 'is-hidden' %>">
+                                    Development mode: Email will be captured by Ethereal and will not be delivered to the real customer.
+                                </p>
+                                <label>
+                                    <span>Recipient Type</span>
+                                    <input id="rfiRecipientType" type="text" readonly value="<%= transaction.accountType || 'Individual' %>">
+                                </label>
+                                <label>
+                                    <span>Recipient Name</span>
+                                    <input id="rfiRecipientName" type="text" readonly value="<%= transaction.accountType === 'Organisation' ? (transaction.authorisedContactName || transaction.customerName) : transaction.customerName %>">
+                                </label>
+                                <label>
+                                    <span id="rfiRecipientEmailLabel"><%= transaction.accountType === 'Organisation' ? 'Authorised contact email' : 'Customer email' %></span>
+                                    <input id="rfiRecipientEmail" type="email" readonly value="<%= transaction.accountType === 'Organisation' ? (transaction.authorisedContactEmail || '') : (transaction.customerEmail || '') %>">
+                                    <small id="rfiRecipientEmailHelp">Saved customer contact. In Ethereal test mode, the email is captured in a preview inbox and is not delivered to this address.</small>
+                                </label>
+                                <label class="full-span">
+                                    <span>Subject</span>
+                                    <input name="subject" type="text" required value="Additional Information Required for Your Transaction">
+                                </label>
+                                <label class="full-span">
+                                    <span>Information Requested</span>
+                                    <textarea name="informationRequested" rows="4" required minlength="10"
+                                        placeholder="Please provide the invoice and source-of-funds documents."></textarea>
+                                </label>
+                                <div id="rfiEmailPreview" class="email-preview is-hidden"></div>
+                                <p id="rfiEmailFeedback" class="muted"></p>
+                                <div class="modal-actions">
+                                    <button type="button" class="secondary-btn" data-close-rfi-modal>Cancel</button>
+                                    <button id="rfiPreviewButton" type="button" class="secondary-btn">Preview Email</button>
+                                    <button id="rfiSendButton" type="submit" class="action-submit">Send RFI</button>
+                                </div>
                             </form>
                         </section>
                     </div>

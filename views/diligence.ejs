@@ -7,22 +7,79 @@
       <p>Assess customer risk and run sanctions, PEP, watchlist, adverse-media, and payment screening checks.</p>
     </div>
   </section>
-  <section class="filter-bar">
-    <label for="companyFilter">Company</label>
-    <select id="companyFilter" aria-label="Company filter">
-      <option value="All">All Companies</option>
-    </select>
+  <section class="filter-bar diligence-filter-bar">
+    <label>
+      <span>Company</span>
+      <select id="companyFilter" aria-label="Company filter">
+        <option value="All">All Companies</option>
+      </select>
+    </label>
+    <label>
+      <span>KYC Status</span>
+      <select id="kycStatusFilter" aria-label="KYC status filter">
+        <option value="All">All KYC Statuses</option>
+        <option value="Verified">Verified</option>
+        <option value="Pending Review">Pending Review</option>
+        <option value="Enhanced Due Diligence">Enhanced Due Diligence</option>
+      </select>
+    </label>
+    <label>
+      <span>Screening Status</span>
+      <select id="screeningStatusFilter" aria-label="Screening status filter">
+        <option value="All">All Screening Statuses</option>
+        <option value="Clear">Clear</option>
+        <option value="Potential Match">Potential Match</option>
+      </select>
+    </label>
+    <label>
+      <span>Risk Level</span>
+      <select id="customerRiskLevelFilter" aria-label="Customer risk level filter">
+        <option value="All">All Risk Levels</option>
+        <option value="Critical">Critical</option>
+        <option value="High">High</option>
+        <option value="Medium">Medium</option>
+        <option value="Low">Low</option>
+      </select>
+    </label>
+  </section>
+
+  <section class="diligence-summary-grid">
+    <article>
+      <span>Total Customers</span>
+      <strong id="dueDiligenceTotalCustomers">0</strong>
+      <p>Profiles in current view.</p>
+    </article>
+    <article>
+      <span>Pending KYC Reviews</span>
+      <strong id="dueDiligencePendingKyc">0</strong>
+      <p>Need onboarding review.</p>
+    </article>
+    <article>
+      <span>Potential Screening Matches</span>
+      <strong id="dueDiligencePotentialMatches">0</strong>
+      <p>Watchlist review required.</p>
+    </article>
+    <article>
+      <span>High/Critical Risk</span>
+      <strong id="dueDiligenceHighRiskCustomers">0</strong>
+      <p>Priority customers.</p>
+    </article>
+    <article>
+      <span>Open Alerts</span>
+      <strong id="dueDiligenceOpenAlerts">0</strong>
+      <p>Active linked alerts.</p>
+    </article>
   </section>
 
   <section class="panel">
     <div class="panel-header">
       <div>
         <h2>Customer Risk Profiles</h2>
-        <p>Dynamic KYC risk profiles combining customer data, geography, screening, alerts, and transaction behavior.</p>
+        <p>Review customer-level KYC, screening, alert and transaction risk.</p>
       </div>
     </div>
-    <div class="table-wrap">
-      <table>
+    <div class="table-wrap diligence-table-wrap">
+      <table class="customer-risk-table">
         <thead>
           <tr>
             <th>Customer</th>
@@ -32,7 +89,8 @@
             <th>Transactions</th>
             <th>Open Alerts</th>
             <th>Risk</th>
-            <th>Drivers</th>
+            <th>Main Risk Drivers</th>
+            <th>Action</th>
           </tr>
         </thead>
         <tbody id="customerRiskRows"></tbody>
@@ -45,7 +103,7 @@
       <div class="panel-header">
         <div>
           <h2>Customer Screening</h2>
-          <p>Screen onboarding or existing customers against configured watchlists.</p>
+          <p>Check an individual or organisation against configured watchlists.</p>
         </div>
       </div>
       <form id="customerScreeningForm" class="screening-form">
@@ -60,7 +118,7 @@
       <div class="panel-header">
         <div>
           <h2>Payment Screening</h2>
-          <p>Screen customer, counterparty, countries, and payment details before release.</p>
+          <p>Check transaction parties and payment details before release.</p>
         </div>
       </div>
       <form id="paymentScreeningForm" class="screening-form">
@@ -78,10 +136,10 @@
     <div class="panel-header">
       <div>
         <h2>Configured Watchlist Sources</h2>
-        <p>Demo data sources used by the screening engine.</p>
+        <p>Demo screening records used by the prototype.</p>
       </div>
     </div>
-    <div id="watchlistRows" class="analysis-list wide"></div>
+    <div id="watchlistRows" class="watchlist-table-slot"></div>
   </section>
 </main>
 

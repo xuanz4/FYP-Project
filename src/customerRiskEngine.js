@@ -11,6 +11,7 @@ function riskBand(score) {
   return 'Low';
 }
 
+// Builds the customer risk table by combining KYC, screening, alerts, and transaction history.
 function buildCustomerRiskProfiles(transactions = [], alerts = []) {
   const profiles = {};
 

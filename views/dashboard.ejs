@@ -6,8 +6,13 @@
         <h1>Compliance Dashboard</h1>
         <p>Screen payments, surface AML risk, and triage flagged activity as it happens.</p>
       </div>
-      <button id="simulateBtn" type="button">Simulate High-Risk Transaction</button>
+      <div class="simulate-control">
+        <button id="simulateBtn" type="button">Simulate High-Risk Transaction</button>
+        <p>Creates a demo transaction to test screening, alert and investigation workflows.</p>
+        <span id="simulateFeedback" class="muted"></span>
+      </div>
     </section>
+    <!-- Company filter lets the dashboard show all companies or one selected company. -->
     <section class="filter-bar">
       <label for="companyFilter">Company</label>
       <select id="companyFilter" aria-label="Company filter">
@@ -15,36 +20,71 @@
       </select>
     </section>
 
-    <section class="metrics" id="dashboard">
-      <article><span>Total Screened</span><strong id="totalMetric">0</strong></article>
-      <article><span>Flag Rate</span><strong id="flagRateMetric">0%</strong></article>
-      <article><span>Active Alerts</span><strong id="activeAlertsMetric">0</strong></article>
-      <article><span>Value Screened</span><strong id="valueMetric">SGD 0</strong></article>
+    <!-- Dashboard metric cards show total screened, flag rate, active alerts, and value screened. -->
+    <section class="metrics dashboard-kpi-grid" id="dashboard">
+      <article><span>Total Screened</span><strong id="totalMetric">0</strong><p>Current monitoring window.</p></article>
+      <article><span>Flagged Transactions</span><strong id="flaggedMetric">0</strong><p id="flagRateMetric">0% flag rate.</p></article>
+      <article><span>Cleared Transactions</span><strong id="clearedMetric">0</strong><p>Passed automated checks.</p></article>
+      <article><span>Active Assessments</span><strong id="activeAlertsMetric">0</strong><p>Open alert workload.</p></article>
+      <article><span>Waiting for Information</span><strong id="waitingInfoMetric">0</strong><p>Pending customer response.</p></article>
+      <article><span>Escalated Cases</span><strong id="escalatedCasesMetric">0</strong><p>Senior review queue.</p></article>
+      <article><span>Total Value Screened</span><strong id="valueMetric">SGD 0</strong><p>Screened transaction value.</p></article>
     </section>
 
+    <section class="dashboard-chart-grid">
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Risk Distribution</h2>
+            <p>Initial risk bands across screened transactions.</p>
+          </div>
+        </div>
+        <div id="dashboardRiskChart" class="analytics-donut-chart dashboard-donut"></div>
+      </section>
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Workflow Status</h2>
+            <p>Current assessment workload by status.</p>
+          </div>
+        </div>
+        <div id="dashboardWorkflowChart" class="bar-chart compact-chart"></div>
+      </section>
+    </section>
+
+    <!-- Operations queue shows the highest-risk transactions that officers should review first. -->
     <section class="panel single-panel">
       <div class="panel-header">
         <div>
           <h2>Operations Working Queue</h2>
-          <p>Critical flagged transactions, ordered oldest first, with immediate review actions.</p>
+          <p>Transactions requiring analyst attention, prioritised by urgency.</p>
         </div>
+        <a class="secondary-link" href="/investigations">View All</a>
       </div>
-      <div id="operationsQueue" class="queue-list"></div>
+      <div id="operationsQueue" class="operations-table-slot dashboard-queue"></div>
     </section>
 
+    <!-- Live transaction feed shows the newest screened transactions and their current risk status. -->
     <section class="panel transactions-panel">
       <div class="panel-header">
         <div>
           <h2>Live Transaction Feed</h2>
-          <p>Newest screened transactions appear first.</p>
+          <p>All newly screened transactions, including cleared and flagged activity.</p>
         </div>
-        <select id="riskFilter" aria-label="Risk filter">
-          <option value="All">All Risk Bands</option>
-          <option value="Critical">Critical</option>
-          <option value="High">High</option>
-          <option value="Medium">Medium</option>
-          <option value="Low">Low</option>
-        </select>
+        <div class="feed-filters">
+          <select id="riskFilter" aria-label="Risk filter">
+            <option value="All">All Risk Bands</option>
+            <option value="Critical">Critical</option>
+            <option value="High">High</option>
+            <option value="Medium">Medium</option>
+            <option value="Low">Low</option>
+          </select>
+          <select id="transactionStatusFilter" aria-label="Transaction status filter">
+            <option value="All">All Statuses</option>
+            <option value="Flagged">Flagged</option>
+            <option value="Cleared">Cleared</option>
+          </select>
+        </div>
       </div>
       <div class="table-wrap">
         <table>

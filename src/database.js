@@ -76,10 +76,14 @@ async function upsertCustomer(customer) {
   if (!enabled) return;
 
   await pool.execute(
-    `INSERT INTO customers (customer_id, customer_name, segment, kyc_status, customer_risk_level)
-     VALUES (:id, :name, :segment, :kyc, :customerRiskLevel)
+    `INSERT INTO customers (customer_id, customer_name, email, account_type, authorised_contact_name, authorised_contact_email, segment, kyc_status, customer_risk_level)
+     VALUES (:id, :name, :email, :accountType, :authorisedContactName, :authorisedContactEmail, :segment, :kyc, :customerRiskLevel)
      ON DUPLICATE KEY UPDATE
        customer_name = VALUES(customer_name),
+       email = VALUES(email),
+       account_type = VALUES(account_type),
+       authorised_contact_name = VALUES(authorised_contact_name),
+       authorised_contact_email = VALUES(authorised_contact_email),
        segment = VALUES(segment),
        kyc_status = VALUES(kyc_status),
        customer_risk_level = VALUES(customer_risk_level)`,
@@ -93,6 +97,10 @@ async function saveTransaction(transaction) {
   await upsertCustomer({
     id: transaction.customerId,
     name: transaction.customerName,
+    email: transaction.customerEmail,
+    accountType: transaction.accountType || 'Individual',
+    authorisedContactName: transaction.authorisedContactName || null,
+    authorisedContactEmail: transaction.authorisedContactEmail || null,
     segment: transaction.segment,
     kyc: transaction.kycStatus,
     customerRiskLevel: transaction.customerRiskLevel,
@@ -107,7 +115,8 @@ async function saveTransaction(transaction) {
       counterparty_country, payment_reference, screening_status, status,
       transaction_hour, operating_hours_triggered,
       mcc_risk_score, profile_risk_score, transaction_detection_score,
-      final_risk_score, risk_level, recommended_action, risk_score, risk_band, created_at
+      initial_risk_score, initial_risk_level, final_risk_score, final_risk_level,
+      risk_level, recommended_action, risk_score, risk_band, created_at
     ) VALUES (
       :id, :companyId, :customerId, :amount, :currency, :country,
       :merchantCategory, :recentCompanyTransactions, :cardSpend24h,
@@ -116,7 +125,8 @@ async function saveTransaction(transaction) {
       :counterpartyCountry, :paymentReference, :screeningStatus, :status,
       :transactionHour, :operatingHoursTriggered,
       :mccRiskScore, :profileRiskScore, :transactionDetectionScore,
-      :finalRiskScore, :riskLevel, :recommendedAction, :riskScore, :riskBand, :createdAt
+      :initialRiskScore, :initialRiskLevel, :finalRiskScore, :finalRiskLevel,
+      :riskLevel, :recommendedAction, :riskScore, :riskBand, :createdAt
     )
     ON DUPLICATE KEY UPDATE
       amount = VALUES(amount),
@@ -130,7 +140,10 @@ async function saveTransaction(transaction) {
       mcc_risk_score = VALUES(mcc_risk_score),
       profile_risk_score = VALUES(profile_risk_score),
       transaction_detection_score = VALUES(transaction_detection_score),
+      initial_risk_score = VALUES(initial_risk_score),
+      initial_risk_level = VALUES(initial_risk_level),
       final_risk_score = VALUES(final_risk_score),
+      final_risk_level = VALUES(final_risk_level),
       risk_level = VALUES(risk_level),
       recommended_action = VALUES(recommended_action),
       risk_score = VALUES(risk_score),
@@ -140,6 +153,10 @@ async function saveTransaction(transaction) {
       isNewCustomer: transaction.isNewCustomer ? 1 : 0,
       usualSpendBelow100: transaction.usualSpendBelow100 ? 1 : 0,
       operatingHoursTriggered: transaction.operatingHoursTriggered ? 1 : 0,
+      initialRiskScore: Number(transaction.initialRiskScore ?? transaction.riskScore) || 0,
+      initialRiskLevel: transaction.initialRiskLevel || transaction.riskBand || transaction.riskLevel || 'Low',
+      finalRiskScore: transaction.finalRiskScore ?? null,
+      finalRiskLevel: transaction.finalRiskLevel || null,
       createdAt: toDate(transaction.createdAt),
     },
   );
@@ -216,13 +233,15 @@ async function saveAlert(alert) {
     `INSERT INTO alerts (
       alert_id, transaction_id, primary_rule_id, grouped_count, company_id,
       customer_id, severity, risk_score, mcc_risk_score, profile_risk_score,
-      transaction_detection_score, final_risk_score, risk_level, recommended_action,
+      transaction_detection_score, initial_risk_score, initial_risk_level,
+      final_risk_score, final_risk_level, risk_level, recommended_action,
       alert_status, analyst, created_at,
       updated_at
     ) VALUES (
       :id, :transactionId, :primaryRuleId, :groupedCount, :companyId,
       :customerId, :severity, :riskScore, :mccRiskScore, :profileRiskScore,
-      :transactionDetectionScore, :finalRiskScore, :riskLevel, :recommendedAction,
+      :transactionDetectionScore, :initialRiskScore, :initialRiskLevel,
+      :finalRiskScore, :finalRiskLevel, :riskLevel, :recommendedAction,
       :status, :analyst, :createdAt,
       :updatedAt
     )
@@ -234,7 +253,10 @@ async function saveAlert(alert) {
       mcc_risk_score = VALUES(mcc_risk_score),
       profile_risk_score = VALUES(profile_risk_score),
       transaction_detection_score = VALUES(transaction_detection_score),
+      initial_risk_score = VALUES(initial_risk_score),
+      initial_risk_level = VALUES(initial_risk_level),
       final_risk_score = VALUES(final_risk_score),
+      final_risk_level = VALUES(final_risk_level),
       risk_level = VALUES(risk_level),
       recommended_action = VALUES(recommended_action),
       alert_status = VALUES(alert_status),
@@ -247,8 +269,11 @@ async function saveAlert(alert) {
       mccRiskScore: Number(alert.mccRiskScore) || 0,
       profileRiskScore: Number(alert.profileRiskScore) || 0,
       transactionDetectionScore: Number(alert.transactionDetectionScore) || 0,
-      finalRiskScore: Number(alert.finalRiskScore ?? alert.riskScore) || 0,
-      riskLevel: alert.riskLevel || alert.severity,
+      initialRiskScore: Number(alert.initialRiskScore ?? alert.riskScore) || 0,
+      initialRiskLevel: alert.initialRiskLevel || alert.severity || alert.riskLevel || 'Low',
+      finalRiskScore: alert.finalRiskScore ?? null,
+      finalRiskLevel: alert.finalRiskLevel || null,
+      riskLevel: alert.riskLevel || alert.initialRiskLevel || alert.severity,
       recommendedAction: alert.recommendedAction || 'Allow',
       createdAt: toDate(alert.createdAt),
       updatedAt: toDate(alert.updatedAt),
@@ -278,10 +303,13 @@ async function updateAlert(alert) {
          grouped_count = COALESCE(:groupedCount, grouped_count),
          risk_score = COALESCE(:riskScore, risk_score),
          mcc_risk_score = COALESCE(:mccRiskScore, mcc_risk_score),
-         profile_risk_score = COALESCE(:profileRiskScore, profile_risk_score),
-         transaction_detection_score = COALESCE(:transactionDetectionScore, transaction_detection_score),
-         final_risk_score = COALESCE(:finalRiskScore, final_risk_score),
-         risk_level = COALESCE(:riskLevel, risk_level),
+          profile_risk_score = COALESCE(:profileRiskScore, profile_risk_score),
+          transaction_detection_score = COALESCE(:transactionDetectionScore, transaction_detection_score),
+          initial_risk_score = COALESCE(:initialRiskScore, initial_risk_score),
+          initial_risk_level = COALESCE(:initialRiskLevel, initial_risk_level),
+          final_risk_score = COALESCE(:finalRiskScore, final_risk_score),
+          final_risk_level = COALESCE(:finalRiskLevel, final_risk_level),
+          risk_level = COALESCE(:riskLevel, risk_level),
          recommended_action = COALESCE(:recommendedAction, recommended_action),
          severity = COALESCE(:severity, severity),
          transaction_id = COALESCE(:transactionId, transaction_id),
@@ -313,20 +341,30 @@ async function saveCase(complianceCase) {
   await pool.execute(
     `INSERT INTO compliance_cases (
       case_id, alert_id, company_id, customer_id, summary, priority,
-      case_status, owner, due_at, updated_at
+      case_status, owner, due_at, decision, resolution_reason,
+      analyst_notes, resolved_at, updated_at
     ) VALUES (
       :id, :alertId, :companyId, :customerId, :summary, :priority,
-      :status, :owner, :dueAt, :updatedAt
+      :status, :owner, :dueAt, :decision, :resolutionReason,
+      :analystNotes, :resolvedAt, :updatedAt
     )
     ON DUPLICATE KEY UPDATE
       case_status = VALUES(case_status),
       owner = VALUES(owner),
       due_at = VALUES(due_at),
+      decision = VALUES(decision),
+      resolution_reason = VALUES(resolution_reason),
+      analyst_notes = VALUES(analyst_notes),
+      resolved_at = VALUES(resolved_at),
       updated_at = VALUES(updated_at)`,
     {
       ...complianceCase,
       owner: complianceCase.owner || 'Operations Team',
       dueAt: toDate(complianceCase.dueAt),
+      decision: complianceCase.decision || null,
+      resolutionReason: complianceCase.resolutionReason || null,
+      analystNotes: complianceCase.analystNotes || null,
+      resolvedAt: toDate(complianceCase.resolvedAt),
       updatedAt: toDate(complianceCase.updatedAt),
     },
   );
@@ -339,11 +377,19 @@ async function updateCase(complianceCase) {
     `UPDATE compliance_cases
      SET case_status = :status,
          owner = :owner,
+         decision = :decision,
+         resolution_reason = :resolutionReason,
+         analyst_notes = :analystNotes,
+         resolved_at = :resolvedAt,
          updated_at = :updatedAt
      WHERE case_id = :id`,
     {
       ...complianceCase,
       owner: complianceCase.owner || 'Operations Team',
+      decision: complianceCase.decision || null,
+      resolutionReason: complianceCase.resolutionReason || null,
+      analystNotes: complianceCase.analystNotes || null,
+      resolvedAt: toDate(complianceCase.resolvedAt),
       updatedAt: toDate(complianceCase.updatedAt),
     },
   );
@@ -354,15 +400,20 @@ async function saveAuditLog(entry) {
 
   await pool.execute(
     `INSERT INTO audit_logs (
-      audit_id, action, actor, entity_type, entity_id, company_id,
+      audit_id, action, actor, entity_type, entity_id,
+      transaction_id, alert_id, case_id, company_id,
       message, created_at
     ) VALUES (
-      :id, :action, :actor, :entityType, :entityId, :companyId,
+      :id, :action, :actor, :entityType, :entityId,
+      :transactionId, :alertId, :caseId, :companyId,
       :message, :createdAt
     )
     ON DUPLICATE KEY UPDATE message = VALUES(message)`,
     {
       ...entry,
+      transactionId: entry.transactionId || null,
+      alertId: entry.alertId || null,
+      caseId: entry.caseId || null,
       createdAt: toDate(entry.createdAt),
     },
   );
@@ -379,7 +430,7 @@ async function loadSnapshot() {
   }
 
   const [transactionRows] = await pool.query(
-    `SELECT t.*, c.company_name, c.merchant_type, c.mcc_code, c.industry, c.industry_risk_score, c.merchant_risk_level, cu.customer_name, cu.segment, cu.kyc_status, cu.customer_risk_level
+    `SELECT t.*, c.company_name, c.merchant_type, c.mcc_code, c.industry, c.industry_risk_score, c.merchant_risk_level, cu.customer_name, cu.email AS customer_email, cu.account_type, cu.authorised_contact_name, cu.authorised_contact_email, cu.segment, cu.kyc_status, cu.customer_risk_level
      FROM transactions t
      JOIN companies c ON t.company_id = c.company_id
      JOIN customers cu ON t.customer_id = cu.customer_id
@@ -389,7 +440,10 @@ async function loadSnapshot() {
   const transactionIds = transactionRows.map((row) => row.transaction_id);
   const matchedRules = await getMatchedRules(transactionIds);
   const screeningMatches = await getScreeningMatches(transactionIds);
-  const transactions = transactionRows.map((row) => ({
+  const transactionCaseOutcomes = await getCaseOutcomesByTransactionIds(transactionIds);
+  const transactions = transactionRows.map((row) => {
+    const caseOutcome = transactionCaseOutcomes[row.transaction_id] || {};
+    return ({
     id: row.transaction_id,
     companyId: row.company_id,
     companyName: row.company_name,
@@ -400,6 +454,10 @@ async function loadSnapshot() {
     merchantRiskLevel: normalizeRiskLevel(row.merchant_risk_level),
     customerId: row.customer_id,
     customerName: row.customer_name,
+    customerEmail: row.customer_email,
+    accountType: row.account_type || 'Individual',
+    authorisedContactName: row.authorised_contact_name,
+    authorisedContactEmail: row.authorised_contact_email,
     segment: row.segment,
     kycStatus: row.kyc_status,
     customerRiskLevel: normalizeRiskLevel(row.customer_risk_level),
@@ -429,15 +487,26 @@ async function loadSnapshot() {
     }),
     mccRiskScore: Number(row.mcc_risk_score ?? row.industry_risk_score ?? 0),
     transactionDetectionScore: Number(row.transaction_detection_score ?? 0),
-    finalRiskScore: Number(row.final_risk_score ?? row.risk_score ?? 0),
-    riskLevel: row.risk_level || row.risk_band,
+    initialRiskScore: Number(row.initial_risk_score ?? row.risk_score ?? row.final_risk_score ?? 0),
+    initialRiskLevel: row.initial_risk_level || row.risk_level || row.risk_band,
+    finalRiskScore: row.final_risk_score === null || row.final_risk_score === undefined ? null : Number(row.final_risk_score),
+    finalRiskLevel: row.final_risk_level || null,
+    decision: caseOutcome.decision || null,
+    resolutionReason: caseOutcome.resolutionReason || null,
+    analystNotes: caseOutcome.analystNotes || null,
+    resolvedAt: caseOutcome.resolvedAt || null,
+    caseId: caseOutcome.caseId || null,
+    caseStatus: caseOutcome.caseStatus || null,
+    assessmentStatus: caseOutcome.caseStatus || null,
+    riskLevel: row.risk_level || row.initial_risk_level || row.risk_band,
     recommendedAction: row.recommended_action,
     riskScore: Number(row.risk_score ?? row.final_risk_score ?? 0),
     riskBand: row.risk_band || row.risk_level,
     triggeredRules: matchedRules[row.transaction_id] || [],
     matchedRules: matchedRules[row.transaction_id] || [],
     createdAt: iso(row.created_at),
-  }));
+  });
+  });
 
   const [alertRows] = await pool.query(
     `SELECT a.*, c.company_name, cu.customer_name
@@ -464,7 +533,10 @@ async function loadSnapshot() {
     mccRiskScore: row.mcc_risk_score,
     profileRiskScore: row.profile_risk_score,
     transactionDetectionScore: row.transaction_detection_score,
+    initialRiskScore: row.initial_risk_score ?? row.risk_score,
+    initialRiskLevel: row.initial_risk_level ?? row.risk_level,
     finalRiskScore: row.final_risk_score,
+    finalRiskLevel: row.final_risk_level,
     riskLevel: row.risk_level,
     recommendedAction: row.recommended_action,
     rules: matchedRules[row.transaction_id] || [],
@@ -493,6 +565,10 @@ async function loadSnapshot() {
     priority: row.priority,
     status: row.case_status,
     owner: row.owner,
+    decision: row.decision,
+    resolutionReason: row.resolution_reason,
+    analystNotes: row.analyst_notes,
+    resolvedAt: iso(row.resolved_at),
     dueAt: iso(row.due_at),
     updatedAt: iso(row.updated_at),
   }));
@@ -510,6 +586,9 @@ async function loadSnapshot() {
     actor: row.actor,
     entityType: row.entity_type,
     entityId: row.entity_id,
+    transactionId: row.transaction_id,
+    alertId: row.alert_id,
+    caseId: row.case_id,
     companyId: row.company_id,
     companyName: row.company_name,
     message: row.message,
@@ -584,6 +663,31 @@ async function getAlertTransactionLinks(alertIds) {
   return rows.reduce((summary, row) => {
     if (!summary[row.alert_id]) summary[row.alert_id] = [];
     summary[row.alert_id].push(row.transaction_id);
+    return summary;
+  }, {});
+}
+
+async function getCaseOutcomesByTransactionIds(transactionIds) {
+  if (!transactionIds.length) return {};
+
+  const [rows] = await pool.query(
+    `SELECT atl.transaction_id, cc.case_id, cc.case_status, cc.decision, cc.resolution_reason,
+            cc.analyst_notes, cc.resolved_at
+     FROM alert_transaction_links atl
+     JOIN compliance_cases cc ON atl.alert_id = cc.alert_id
+     WHERE atl.transaction_id IN (?)`,
+    [transactionIds],
+  );
+
+  return rows.reduce((summary, row) => {
+    summary[row.transaction_id] = {
+      caseId: row.case_id,
+      caseStatus: row.case_status,
+      decision: row.decision,
+      resolutionReason: row.resolution_reason,
+      analystNotes: row.analyst_notes,
+      resolvedAt: iso(row.resolved_at),
+    };
     return summary;
   }, {});
 }

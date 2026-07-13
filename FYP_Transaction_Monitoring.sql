@@ -16,6 +16,10 @@ CREATE TABLE companies (
 CREATE TABLE customers (
     customer_id VARCHAR(30) PRIMARY KEY,
     customer_name VARCHAR(100) NOT NULL,
+    email VARCHAR(255) NULL,
+    account_type ENUM('Individual', 'Organisation') NOT NULL DEFAULT 'Individual',
+    authorised_contact_name VARCHAR(100) NULL,
+    authorised_contact_email VARCHAR(255) NULL,
     segment VARCHAR(80) NOT NULL,
     kyc_status VARCHAR(80) NOT NULL,
     customer_risk_level ENUM('LOW', 'MEDIUM', 'HIGH') NOT NULL DEFAULT 'LOW'
@@ -61,7 +65,10 @@ CREATE TABLE transactions (
     mcc_risk_score INT NOT NULL DEFAULT 0,
     profile_risk_score INT NOT NULL DEFAULT 0,
     transaction_detection_score INT NOT NULL DEFAULT 0,
-    final_risk_score INT NOT NULL DEFAULT 0,
+    initial_risk_score INT NOT NULL DEFAULT 0,
+    initial_risk_level ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL DEFAULT 'Low',
+    final_risk_score INT NULL,
+    final_risk_level ENUM('Low', 'Medium', 'High', 'Critical') NULL,
     risk_level ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL DEFAULT 'Low',
     recommended_action VARCHAR(80) NOT NULL DEFAULT 'Allow',
     risk_score INT NOT NULL DEFAULT 0,
@@ -111,7 +118,10 @@ CREATE TABLE alerts (
     mcc_risk_score INT NOT NULL DEFAULT 0,
     profile_risk_score INT NOT NULL DEFAULT 0,
     transaction_detection_score INT NOT NULL DEFAULT 0,
-    final_risk_score INT NOT NULL DEFAULT 0,
+    initial_risk_score INT NOT NULL DEFAULT 0,
+    initial_risk_level ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL DEFAULT 'Low',
+    final_risk_score INT NULL,
+    final_risk_level ENUM('Low', 'Medium', 'High', 'Critical') NULL,
     risk_level ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL DEFAULT 'Low',
     recommended_action VARCHAR(80) NOT NULL DEFAULT 'Allow',
     alert_status ENUM('New', 'Under Review', 'Escalated', 'Resolved', 'False Positive') NOT NULL DEFAULT 'New',
@@ -140,8 +150,12 @@ CREATE TABLE compliance_cases (
     customer_id VARCHAR(30) NOT NULL,
     summary VARCHAR(255) NOT NULL,
     priority ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL,
-    case_status ENUM('New', 'Under Review', 'Escalated', 'Resolved', 'False Positive') NOT NULL DEFAULT 'New',
+    case_status ENUM('New', 'Under Review', 'Waiting for Information', 'Escalated', 'Resolved', 'False Positive') NOT NULL DEFAULT 'New',
     owner VARCHAR(100) NOT NULL DEFAULT 'Operations Team',
+    decision ENUM('Accepted', 'Rejected', 'Escalated') NULL,
+    resolution_reason VARCHAR(80) NULL,
+    analyst_notes TEXT NULL,
+    resolved_at DATETIME NULL,
     due_at DATETIME NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NULL,
@@ -156,6 +170,9 @@ CREATE TABLE audit_logs (
     actor VARCHAR(100) NOT NULL DEFAULT 'System',
     entity_type VARCHAR(80) NOT NULL,
     entity_id VARCHAR(40),
+    transaction_id VARCHAR(40) NULL,
+    alert_id VARCHAR(40) NULL,
+    case_id VARCHAR(40) NULL,
     company_id VARCHAR(20),
     message VARCHAR(255),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -168,13 +185,13 @@ VALUES
     ('companyB', 'Company B', 'Footwear And Leather Goods', '5661', 'Shoe Stores', 12, 'MEDIUM', 'green'),
     ('companyC', 'Company C', 'Skincare And Makeup Merchant', '5977', 'Cosmetic Stores', 10, 'HIGH', 'purple');
 
-INSERT INTO customers (customer_id, customer_name, segment, kyc_status, customer_risk_level)
+INSERT INTO customers (customer_id, customer_name, email, account_type, authorised_contact_name, authorised_contact_email, segment, kyc_status, customer_risk_level)
 VALUES
-    ('CUS-1001', 'Ava Lim', 'Retail', 'Verified', 'LOW'),
-    ('CUS-1002', 'Noah Tan', 'SME', 'Verified', 'MEDIUM'),
-    ('CUS-1003', 'Maya Wong', 'Private Client', 'Enhanced Due Diligence', 'HIGH'),
-    ('CUS-1004', 'Ethan Koh', 'Retail', 'Pending Review', 'HIGH'),
-    ('CUS-1005', 'Sophia Chen', 'Corporate', 'Verified', 'LOW');
+    ('CUS-1001', 'Ava Lim', 'ava.lim@example.com', 'Individual', NULL, NULL, 'Retail', 'Verified', 'LOW'),
+    ('CUS-1002', 'Noah Tan', 'noah.tan@example.com', 'Individual', NULL, NULL, 'SME', 'Verified', 'MEDIUM'),
+    ('CUS-1003', 'Maya Wong', 'maya.wong@example.com', 'Individual', NULL, NULL, 'Private Client', 'Enhanced Due Diligence', 'HIGH'),
+    ('CUS-1004', 'Ethan Koh', 'ethan.koh@example.com', 'Individual', NULL, NULL, 'Retail', 'Pending Review', 'HIGH'),
+    ('CUS-1005', 'Sophia Chen Trading Pte Ltd', NULL, 'Organisation', 'Sophia Chen', 'sophia.chen@example.com', 'Corporate', 'Verified', 'LOW');
 
 INSERT INTO compliance_rules
     (rule_id, company_id, rule_name, risk_level, reason, weight, amount_threshold, count_threshold, rule_type)
@@ -208,12 +225,13 @@ INSERT INTO transactions
      is_new_customer, usual_spend_below_100, channel, direction, counterparty_name,
      counterparty_country, payment_reference, screening_status, status, transaction_hour,
      operating_hours_triggered, mcc_risk_score,
-     profile_risk_score, transaction_detection_score, final_risk_score, risk_level,
+     profile_risk_score, transaction_detection_score, initial_risk_score, initial_risk_level,
+     final_risk_score, final_risk_level, risk_level,
      recommended_action, risk_score, risk_band, created_at)
 VALUES
-    ('TXN-DEMO-001', 'companyA', 'CUS-1001', 95.00, 'SGD', 'Singapore', 'Fashion', 1, 180.00, 0, 0, 0, 0, 'Card Present', 'Inbound', 'Harbour Retail Pte Ltd', 'Singapore', 'Fashion purchase Harbour Retail Pte Ltd', 'Clear', 'Cleared', 14, 0, 8, 0, 0, 8, 'Low', 'Allow', 8, 'Low', '2026-06-03 14:00:00'),
-    ('TXN-DEMO-002', 'companyB', 'CUS-1003', 2150.00, 'SGD', 'Singapore', 'Leather Goods', 1, 2300.00, 0, 0, 0, 0, 'E-Commerce', 'Outbound', 'Orion Trade Holdings', 'Iran', 'Invoice payment to Orion Trade Holdings', 'Potential Match', 'Flagged', 2, 1, 12, 45, 220, 277, 'Critical', 'Manual Review or Hold Settlement', 277, 'Critical', '2026-06-03 02:00:00'),
-    ('TXN-DEMO-003', 'companyC', 'CUS-1004', 880.00, 'SGD', 'Malaysia', 'Skincare', 4, 950.00, 1, 0, 1, 0, 'Wallet', 'Outbound', 'Maple Distribution', 'Malaysia', 'Skincare purchase Maple Distribution', 'Clear', 'Flagged', 14, 0, 10, 60, 95, 165, 'Critical', 'Manual Review or Hold Settlement', 165, 'Critical', '2026-06-03 14:00:00');
+    ('TXN-DEMO-001', 'companyA', 'CUS-1001', 95.00, 'SGD', 'Singapore', 'Fashion', 1, 180.00, 0, 0, 0, 0, 'Card Present', 'Inbound', 'Harbour Retail Pte Ltd', 'Singapore', 'Fashion purchase Harbour Retail Pte Ltd', 'Clear', 'Cleared', 14, 0, 8, 0, 0, 8, 'Low', NULL, NULL, 'Low', 'Allow', 8, 'Low', '2026-06-03 14:00:00'),
+    ('TXN-DEMO-002', 'companyB', 'CUS-1003', 2150.00, 'SGD', 'Singapore', 'Leather Goods', 1, 2300.00, 0, 0, 0, 0, 'E-Commerce', 'Outbound', 'Orion Trade Holdings', 'Iran', 'Invoice payment to Orion Trade Holdings', 'Potential Match', 'Flagged', 2, 1, 12, 45, 220, 277, 'Critical', NULL, NULL, 'Critical', 'Manual Review or Hold Settlement', 277, 'Critical', '2026-06-03 02:00:00'),
+    ('TXN-DEMO-003', 'companyC', 'CUS-1004', 880.00, 'SGD', 'Malaysia', 'Skincare', 4, 950.00, 1, 0, 1, 0, 'Wallet', 'Outbound', 'Maple Distribution', 'Malaysia', 'Skincare purchase Maple Distribution', 'Clear', 'Flagged', 14, 0, 10, 60, 95, 165, 'Critical', NULL, NULL, 'Critical', 'Manual Review or Hold Settlement', 165, 'Critical', '2026-06-03 14:00:00');
 
 INSERT INTO transaction_screening_matches
     (transaction_id, watchlist_id, watchlist_name, match_type, match_field, input_value,
@@ -239,10 +257,10 @@ VALUES
     ('TXN-DEMO-003', 'PROFILE-MERCHANT-HIGH', 30);
 
 INSERT INTO alerts
-    (alert_id, transaction_id, primary_rule_id, grouped_count, company_id, customer_id, severity, risk_score, mcc_risk_score, profile_risk_score, transaction_detection_score, final_risk_score, risk_level, recommended_action, alert_status, analyst)
+    (alert_id, transaction_id, primary_rule_id, grouped_count, company_id, customer_id, severity, risk_score, mcc_risk_score, profile_risk_score, transaction_detection_score, initial_risk_score, initial_risk_level, final_risk_score, final_risk_level, risk_level, recommended_action, alert_status, analyst)
 VALUES
-    ('ALT-DEMO-001', 'TXN-DEMO-002', 'COM-B-001', 1, 'companyB', 'CUS-1003', 'Critical', 277, 12, 45, 220, 277, 'Critical', 'Manual Review or Hold Settlement', 'New', 'Unassigned'),
-    ('ALT-DEMO-002', 'TXN-DEMO-003', 'COM-C-001', 1, 'companyC', 'CUS-1004', 'Critical', 165, 10, 60, 95, 165, 'Critical', 'Manual Review or Hold Settlement', 'Under Review', 'Operations Team');
+    ('ALT-DEMO-001', 'TXN-DEMO-002', 'COM-B-001', 1, 'companyB', 'CUS-1003', 'Critical', 277, 12, 45, 220, 277, 'Critical', NULL, NULL, 'Critical', 'Manual Review or Hold Settlement', 'New', 'Unassigned'),
+    ('ALT-DEMO-002', 'TXN-DEMO-003', 'COM-C-001', 1, 'companyC', 'CUS-1004', 'Critical', 165, 10, 60, 95, 165, 'Critical', NULL, NULL, 'Critical', 'Manual Review or Hold Settlement', 'Under Review', 'Operations Team');
 
 INSERT INTO alert_transaction_links (alert_id, transaction_id)
 VALUES
@@ -250,17 +268,17 @@ VALUES
     ('ALT-DEMO-002', 'TXN-DEMO-003');
 
 INSERT INTO compliance_cases
-    (case_id, alert_id, company_id, customer_id, summary, priority, case_status, owner, due_at)
+    (case_id, alert_id, company_id, customer_id, summary, priority, case_status, owner, decision, resolution_reason, analyst_notes, resolved_at, due_at)
 VALUES
-    ('CASE-DEMO-001', 'ALT-DEMO-001', 'companyB', 'CUS-1003', 'SGD 2,150 outbound transaction flagged', 'Critical', 'New', 'Operations Team', DATE_ADD(NOW(), INTERVAL 2 DAY)),
-    ('CASE-DEMO-002', 'ALT-DEMO-002', 'companyC', 'CUS-1004', 'SGD 880 outbound transaction flagged', 'Critical', 'Under Review', 'Operations Team', DATE_ADD(NOW(), INTERVAL 2 DAY));
+    ('CASE-DEMO-001', 'ALT-DEMO-001', 'companyB', 'CUS-1003', 'SGD 2,150 outbound transaction flagged', 'Critical', 'New', 'Operations Team', NULL, NULL, NULL, NULL, DATE_ADD(NOW(), INTERVAL 2 DAY)),
+    ('CASE-DEMO-002', 'ALT-DEMO-002', 'companyC', 'CUS-1004', 'SGD 880 outbound transaction flagged', 'Critical', 'Under Review', 'Operations Team', NULL, NULL, NULL, NULL, DATE_ADD(NOW(), INTERVAL 2 DAY));
 
 INSERT INTO audit_logs
-    (audit_id, action, actor, entity_type, entity_id, company_id, message)
+    (audit_id, action, actor, entity_type, entity_id, transaction_id, alert_id, case_id, company_id, message)
 VALUES
-    ('AUD-DEMO-001', 'Alert Created', 'System', 'Alert', 'ALT-DEMO-001', 'companyB', 'Critical alert opened for Company B transaction'),
-    ('AUD-DEMO-002', 'Case Created', 'System', 'Case', 'CASE-DEMO-001', 'companyB', 'Case generated from alert ALT-DEMO-001'),
-    ('AUD-DEMO-003', 'Alert Status Changed', 'Operations Team', 'Alert', 'ALT-DEMO-002', 'companyC', 'ALT-DEMO-002 moved from New to Under Review');
+    ('AUD-DEMO-001', 'Alert Created', 'System', 'Alert', 'ALT-DEMO-001', 'TXN-DEMO-002', 'ALT-DEMO-001', NULL, 'companyB', 'Critical alert opened for Company B transaction'),
+    ('AUD-DEMO-002', 'Case Created', 'System', 'Case', 'CASE-DEMO-001', 'TXN-DEMO-002', 'ALT-DEMO-001', 'CASE-DEMO-001', 'companyB', 'Case generated from alert ALT-DEMO-001'),
+    ('AUD-DEMO-003', 'Alert Status Changed', 'Operations Team', 'Alert', 'ALT-DEMO-002', 'TXN-DEMO-003', 'ALT-DEMO-002', NULL, 'companyC', 'ALT-DEMO-002 moved from New to Under Review');
 
 CREATE INDEX idx_transactions_company ON transactions(company_id);
 CREATE INDEX idx_transactions_customer ON transactions(customer_id);
@@ -273,6 +291,9 @@ CREATE INDEX idx_alerts_severity ON alerts(severity);
 CREATE INDEX idx_alerts_grouping ON alerts(customer_id, company_id, primary_rule_id, alert_status);
 CREATE INDEX idx_cases_status ON compliance_cases(case_status);
 CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
+CREATE INDEX idx_audit_logs_transaction ON audit_logs(transaction_id);
+CREATE INDEX idx_audit_logs_alert ON audit_logs(alert_id);
+CREATE INDEX idx_audit_logs_case ON audit_logs(case_id);
 
 DELIMITER $$
 
@@ -283,7 +304,7 @@ BEGIN
     DECLARE v_mcc_risk_score INT DEFAULT 0;
     DECLARE v_profile_risk_score INT DEFAULT 0;
     DECLARE v_transaction_detection_score INT DEFAULT 0;
-    DECLARE v_final_risk_score INT DEFAULT 0;
+    DECLARE v_initial_risk_score INT DEFAULT 0;
 
     SELECT COALESCE(c.industry_risk_score, 0),
            CASE cu.customer_risk_level WHEN 'HIGH' THEN 30 WHEN 'MEDIUM' THEN 15 ELSE 0 END
@@ -300,7 +321,7 @@ BEGIN
     WHERE transaction_id = NEW.transaction_id
       AND rule_id NOT LIKE 'PROFILE-%';
 
-    SET v_final_risk_score = v_mcc_risk_score + v_profile_risk_score + v_transaction_detection_score;
+    SET v_initial_risk_score = v_mcc_risk_score + v_profile_risk_score + v_transaction_detection_score;
 
     UPDATE transactions t
     SET mcc_risk_score = v_mcc_risk_score,
@@ -308,24 +329,32 @@ BEGIN
         transaction_detection_score = v_transaction_detection_score,
         transaction_hour = HOUR(t.created_at),
         operating_hours_triggered = CASE WHEN HOUR(t.created_at) < 7 OR HOUR(t.created_at) >= 23 THEN 1 ELSE 0 END,
-        final_risk_score = v_final_risk_score,
-        risk_score = v_final_risk_score,
+        initial_risk_score = v_initial_risk_score,
+        initial_risk_level = CASE
+            WHEN v_initial_risk_score >= 70 THEN 'Critical'
+            WHEN v_initial_risk_score >= 50 THEN 'High'
+            WHEN v_initial_risk_score >= 30 THEN 'Medium'
+            ELSE 'Low'
+        END,
+        final_risk_score = NULL,
+        final_risk_level = NULL,
+        risk_score = v_initial_risk_score,
         risk_level = CASE
-            WHEN v_final_risk_score >= 70 THEN 'Critical'
-            WHEN v_final_risk_score >= 50 THEN 'High'
-            WHEN v_final_risk_score >= 30 THEN 'Medium'
+            WHEN v_initial_risk_score >= 70 THEN 'Critical'
+            WHEN v_initial_risk_score >= 50 THEN 'High'
+            WHEN v_initial_risk_score >= 30 THEN 'Medium'
             ELSE 'Low'
         END,
         risk_band = CASE
-            WHEN v_final_risk_score >= 70 THEN 'Critical'
-            WHEN v_final_risk_score >= 50 THEN 'High'
-            WHEN v_final_risk_score >= 30 THEN 'Medium'
+            WHEN v_initial_risk_score >= 70 THEN 'Critical'
+            WHEN v_initial_risk_score >= 50 THEN 'High'
+            WHEN v_initial_risk_score >= 30 THEN 'Medium'
             ELSE 'Low'
         END,
         recommended_action = CASE
-            WHEN v_final_risk_score >= 70 THEN 'Manual Review or Hold Settlement'
-            WHEN v_final_risk_score >= 50 THEN 'Request OTP'
-            WHEN v_final_risk_score >= 30 THEN 'Monitor'
+            WHEN v_initial_risk_score >= 70 THEN 'Manual Review or Hold Settlement'
+            WHEN v_initial_risk_score >= 50 THEN 'Request OTP'
+            WHEN v_initial_risk_score >= 30 THEN 'Monitor'
             ELSE 'Allow'
         END,
         status = 'Flagged'
@@ -347,7 +376,7 @@ BEGIN
 
     SET v_alert_id = CONCAT('ALT-', UNIX_TIMESTAMP(), '-', FLOOR(RAND() * 10000));
 
-    SELECT company_id, customer_id, final_risk_score, risk_level, mcc_risk_score,
+    SELECT company_id, customer_id, initial_risk_score, initial_risk_level, mcc_risk_score,
            profile_risk_score, transaction_detection_score, recommended_action
     INTO v_company_id, v_customer_id, v_risk_score, v_risk_band, v_mcc_risk_score,
          v_profile_risk_score, v_transaction_detection_score, v_recommended_action
@@ -364,11 +393,11 @@ BEGIN
     INSERT INTO alerts
         (alert_id, transaction_id, primary_rule_id, grouped_count, company_id, customer_id,
          severity, risk_score, mcc_risk_score, profile_risk_score, transaction_detection_score,
-         final_risk_score, risk_level, recommended_action)
+         initial_risk_score, initial_risk_level, final_risk_score, final_risk_level, risk_level, recommended_action)
     VALUES
         (v_alert_id, p_transaction_id, v_primary_rule_id, 1, v_company_id, v_customer_id,
          v_risk_band, v_risk_score, v_mcc_risk_score, v_profile_risk_score,
-         v_transaction_detection_score, v_risk_score, v_risk_band, v_recommended_action);
+         v_transaction_detection_score, v_risk_score, v_risk_band, NULL, NULL, v_risk_band, v_recommended_action);
 
     INSERT INTO alert_transaction_links (alert_id, transaction_id)
     VALUES (v_alert_id, p_transaction_id);

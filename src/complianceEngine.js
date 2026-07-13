@@ -36,12 +36,14 @@
   },
 ];
 
+// Converts customer and merchant risk levels into points for the profile risk score.
 const riskLevelPoints = {
   LOW: 0,
   MEDIUM: 15,
   HIGH: 30,
 };
 
+// Default merchant opening hours used to check if a transaction happened at an unusual time.
 const defaultOperatingHours = {
   openHour: 7,
   closeHour: 23,
@@ -56,6 +58,7 @@ function riskLevelToPoints(level) {
   return riskLevelPoints[normalizeRiskLevel(level)];
 }
 
+// Adds customer risk points and merchant risk points together.
 function calculateProfileRiskScore(transaction = {}) {
   return riskLevelToPoints(transaction.customerRiskLevel) + riskLevelToPoints(transaction.merchantRiskLevel);
 }
@@ -74,6 +77,7 @@ function recommendedAction(score) {
   return 'Allow';
 }
 
+// Reads the hour from the transaction timestamp so the operating-hours rule can check it.
 function getTransactionHour(transaction = {}) {
   if (Number.isInteger(transaction.transactionHour)) return transaction.transactionHour;
 
@@ -88,6 +92,7 @@ function isOutsideOperatingHours(transactionHour, operatingHours = defaultOperat
   return transactionHour < operatingHours.openHour || transactionHour >= operatingHours.closeHour;
 }
 
+// Creates the TIME-001 rule when the transaction happens outside normal operating hours.
 function buildOperatingHoursRule(transaction = {}, operatingHours = defaultOperatingHours) {
   const transactionHour = getTransactionHour(transaction);
   const operatingHoursTriggered = isOutsideOperatingHours(transactionHour, operatingHours);
@@ -108,6 +113,7 @@ function buildOperatingHoursRule(transaction = {}, operatingHours = defaultOpera
   };
 }
 
+// Creates profile risk rules when the customer or merchant is marked as high risk.
 function buildProfileRiskRules(transaction = {}) {
   const rules = [];
   const customerRiskLevel = normalizeRiskLevel(transaction.customerRiskLevel);
@@ -138,6 +144,7 @@ function buildProfileRiskRules(transaction = {}) {
   return rules;
 }
 
+// Company setup: each merchant has its own MCC, industry, risk level, and transaction rules.
 const companyRuleSets = {
   companyA: {
     id: 'companyA',
@@ -251,6 +258,8 @@ const companyRuleSets = {
   },
 };
 
+// Main risk calculator: combines MCC, profile, and detection points into the first automated risk score.
+// Final risk is intentionally left for a later officer assessment step.
 function evaluateTransaction(transaction, rules = defaultRules, additionalDetectionRules = []) {
   const mccRiskScore = Number(transaction.industryRiskScore) || Number(transaction.mccRiskScore) || 0;
   const profileRiskScore = calculateProfileRiskScore(transaction);
@@ -268,7 +277,7 @@ function evaluateTransaction(transaction, rules = defaultRules, additionalDetect
     }));
   const detectionRules = [...transactionRules, ...operatingHoursCheck.rules, ...additionalDetectionRules];
   const transactionDetectionScore = detectionRules.reduce((score, rule) => score + (Number(rule.weight) || 0), 0);
-  const finalRiskScore = mccRiskScore + profileRiskScore + transactionDetectionScore;
+  const initialRiskScore = mccRiskScore + profileRiskScore + transactionDetectionScore;
   const triggeredRules = [...profileRiskRules, ...detectionRules];
 
   return {
@@ -277,11 +286,11 @@ function evaluateTransaction(transaction, rules = defaultRules, additionalDetect
     transactionDetectionScore,
     transactionHour: operatingHoursCheck.transactionHour,
     operatingHoursTriggered: operatingHoursCheck.operatingHoursTriggered,
-    finalRiskScore,
-    riskLevel: riskLevel(finalRiskScore),
-    recommendedAction: recommendedAction(finalRiskScore),
+    initialRiskScore,
+    initialRiskLevel: riskLevel(initialRiskScore),
+    recommendedAction: recommendedAction(initialRiskScore),
     triggeredRules,
-    riskScore: finalRiskScore,
+    riskScore: initialRiskScore,
     matchedRules: triggeredRules,
   };
 }
