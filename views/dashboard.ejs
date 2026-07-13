@@ -4,19 +4,23 @@
     <section class="topbar">
       <div>
         <h1>Compliance Dashboard</h1>
-        <p>Screen payments, surface AML risk, and triage flagged activity as it happens.</p>
+        <p>Monitor UNIWEB local card payments for any Singapore merchant profile, using MCC-driven merchant risk and card-payment behavioural signals. Scope is limited to local card payments only.</p>
       </div>
+<<<<<<< HEAD
       <div class="simulate-control">
         <button id="simulateBtn" type="button">Simulate High-Risk Transaction</button>
         <p>Creates a demo transaction to test screening, alert and investigation workflows.</p>
         <span id="simulateFeedback" class="muted"></span>
       </div>
+=======
+      <button id="simulateBtn" type="button">Simulate High-Risk Card Transaction</button>
+>>>>>>> bacb1382aa2c1baa513dee4bc20ac5d3e8bef032
     </section>
     <!-- Company filter lets the dashboard show all companies or one selected company. -->
     <section class="filter-bar">
-      <label for="companyFilter">Company</label>
-      <select id="companyFilter" aria-label="Company filter">
-        <option value="All">All Companies</option>
+      <label for="companyFilter">Merchant Profile</label>
+      <select id="companyFilter" aria-label="Merchant profile filter">
+        <option value="All">All Merchant Profiles</option>
       </select>
     </section>
 
@@ -69,6 +73,7 @@
       <div class="panel-header">
         <div>
           <h2>Live Transaction Feed</h2>
+<<<<<<< HEAD
           <p>All newly screened transactions, including cleared and flagged activity.</p>
         </div>
         <div class="feed-filters">
@@ -84,6 +89,9 @@
             <option value="Flagged">Flagged</option>
             <option value="Cleared">Cleared</option>
           </select>
+=======
+          <p>Newest screened local card transactions appear first.</p>
+>>>>>>> bacb1382aa2c1baa513dee4bc20ac5d3e8bef032
         </div>
       </div>
       <div class="table-wrap">
@@ -91,10 +99,10 @@
           <thead>
             <tr>
               <th>Time</th>
-              <th>Customer</th>
-              <th>Company</th>
+              <th>Transaction Ref</th>
+              <th>Merchant Profile</th>
               <th>Amount</th>
-              <th>Country</th>
+              <th>Location</th>
               <th>Channel</th>
               <th>Risk</th>
               <th>Status</th>

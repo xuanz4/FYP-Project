@@ -5,7 +5,7 @@ const watchlist = [
     type: 'Sanctions',
     country: 'Iran',
     risk: 'Critical',
-    reason: 'Sanctions list match for trade-finance counterparty',
+    reason: 'Sanctions list match for contextual payment party',
   },
   {
     id: 'WL-SAN-002',
@@ -101,7 +101,7 @@ function screenPayment(payment) {
     ...screenName({
       name: payment.counterpartyName,
       country: payment.counterpartyCountry || payment.country,
-      field: 'Counterparty',
+      field: 'Context Party',
     }),
   ];
 

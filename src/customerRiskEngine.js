@@ -41,7 +41,7 @@ function buildCustomerRiskProfiles(transactions = [], alerts = []) {
     const profile = profiles[key];
     profile.transactionCount += 1;
     profile.flaggedCount += txn.status === 'Flagged' ? 1 : 0;
-    profile.highRiskCountryCount += highRiskCountries.includes(txn.country) ? 1 : 0;
+    profile.highRiskCountryCount += highRiskCountries.includes(txn.counterpartyCountry || txn.country) ? 1 : 0;
     profile.screeningMatchCount += (txn.screeningMatches || []).length;
     profile.totalValue += Number(txn.amount) || 0;
     profile.maxRiskScore = Math.max(profile.maxRiskScore, Number(txn.riskScore) || 0);
@@ -92,7 +92,7 @@ function buildCustomerRiskProfiles(transactions = [], alerts = []) {
       }
       if (profile.highRiskCountryCount) {
         score += 20;
-        drivers.push('High-risk geography exposure');
+        drivers.push('Contextual high-risk jurisdiction exposure');
       }
       if (screening.matches.length || profile.screeningMatchCount) {
         score += screening.matches.some((match) => match.type === 'Sanctions') ? 45 : 25;

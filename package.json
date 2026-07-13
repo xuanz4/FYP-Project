@@ -1,7 +1,7 @@
 {
     "name": "transaction-compliance-monitor",
     "version": "1.0.0",
-    "description": "Real-time transaction compliance monitoring dashboard.",
+    "description": "UNIWEB local (domestic) card-payment monitoring for any Singapore merchant profile, using MCC-based merchant risk classification.",
     "main": "app.js",
     "scripts": {
         "start": "node app.js",

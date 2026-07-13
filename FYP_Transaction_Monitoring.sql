@@ -1,3 +1,7 @@
+-- UNIWEB local (domestic) card-payment monitoring schema for Singapore merchants.
+-- Merchant risk is assessed via MCC code (industry_risk_score) and merchant_risk_level;
+-- monitoring rules are merchant-agnostic and apply to any merchant profile, not just the
+-- example companyA/B/C rows seeded below. Scope is local card payments only.
 DROP DATABASE IF EXISTS fyp_transaction_monitoring;
 CREATE DATABASE fyp_transaction_monitoring;
 USE fyp_transaction_monitoring;
@@ -41,6 +45,7 @@ CREATE TABLE compliance_rules (
 
 CREATE TABLE transactions (
     transaction_id VARCHAR(40) PRIMARY KEY,
+    unique_transaction_id CHAR(6) NULL,
     company_id VARCHAR(20) NOT NULL,
     customer_id VARCHAR(30) NOT NULL,
     amount DECIMAL(10,2) NOT NULL,
@@ -54,7 +59,7 @@ CREATE TABLE transactions (
     is_new_customer TINYINT(1) NOT NULL DEFAULT 0,
     usual_spend_below_100 TINYINT(1) NOT NULL DEFAULT 0,
     channel VARCHAR(50) NOT NULL,
-    direction ENUM('Inbound', 'Outbound') NOT NULL,
+    direction ENUM('Sale', 'Refund') NOT NULL,
     counterparty_name VARCHAR(120) NULL,
     counterparty_country VARCHAR(80) NULL,
     payment_reference VARCHAR(255) NULL,
@@ -179,11 +184,13 @@ CREATE TABLE audit_logs (
     FOREIGN KEY (company_id) REFERENCES companies(company_id)
 );
 
+-- Example merchant profiles only. Any Singapore merchant, regardless of industry, can be
+-- onboarded the same way with its own MCC code, industry_risk_score, and merchant_risk_level.
 INSERT INTO companies (company_id, company_name, merchant_type, mcc_code, industry, industry_risk_score, merchant_risk_level, accent)
 VALUES
-    ('companyA', 'Company A', 'Fashion Merchant', '5651', 'Family Clothing Stores', 8, 'LOW', 'blue'),
-    ('companyB', 'Company B', 'Footwear And Leather Goods', '5661', 'Shoe Stores', 12, 'MEDIUM', 'green'),
-    ('companyC', 'Company C', 'Skincare And Makeup Merchant', '5977', 'Cosmetic Stores', 10, 'HIGH', 'purple');
+    ('companyA', 'Merchant Profile 5651', 'MCC 5651 - Family Clothing Stores', '5651', 'Family Clothing Stores', 8, 'LOW', 'blue'),
+    ('companyB', 'Merchant Profile 5661', 'MCC 5661 - Shoe Stores', '5661', 'Shoe Stores', 12, 'MEDIUM', 'green'),
+    ('companyC', 'Merchant Profile 5977', 'MCC 5977 - Cosmetic Stores', '5977', 'Cosmetic Stores', 10, 'HIGH', 'purple');
 
 INSERT INTO customers (customer_id, customer_name, email, account_type, authorised_contact_name, authorised_contact_email, segment, kyc_status, customer_risk_level)
 VALUES
@@ -196,31 +203,36 @@ VALUES
 INSERT INTO compliance_rules
     (rule_id, company_id, rule_name, risk_level, reason, weight, amount_threshold, count_threshold, rule_type)
 VALUES
-    ('COM-A-001', 'companyA', 'Single transaction above S$700', 'Medium', 'Above expected clothing basket', 30, 700.00, NULL, 'amount'),
-    ('COM-A-002', 'companyA', 'Single transaction above S$1,200', 'High', 'Unusual for ordinary fashion purchase', 55, 1200.00, NULL, 'amount'),
-    ('COM-A-003', 'companyA', '4+ Company A transactions within 30 min', 'Medium', 'Possible split payment or repeated attempts', 30, NULL, 4, 'recent_company_transactions'),
-    ('COM-A-004', 'companyA', 'Same card spends above S$1,500 within 24h', 'High', 'Unusual cumulative fashion spend', 55, 1500.00, NULL, 'card_spend_24h'),
+    ('COM-A-001', 'companyA', 'Single transaction above S$700', 'Medium', 'Above this merchant profile''s typical basket size', 30, 700.00, NULL, 'amount'),
+    ('COM-A-002', 'companyA', 'Single transaction above S$1,200', 'High', 'Far above this merchant profile''s typical basket size', 55, 1200.00, NULL, 'amount'),
+    ('COM-A-003', 'companyA', '4+ merchant transactions within 30 min', 'Medium', 'Possible split payment or repeated card attempts', 30, NULL, 4, 'recent_company_transactions'),
+    ('COM-A-004', 'companyA', 'Same card spends above S$1,500 within 24h', 'High', 'Unusual cumulative same-card spend for this merchant profile', 55, 1500.00, NULL, 'card_spend_24h'),
     ('COM-A-005', 'companyA', 'Several amounts just below S$700', 'Medium', 'Possible threshold avoidance', 30, 700.00, 3, 'near_threshold'),
-    ('COM-A-006', 'companyA', 'New customer first purchase above S$800', 'Medium', 'New card/account plus high-value spend', 35, 800.00, NULL, 'new_customer_amount'),
-    ('COM-B-001', 'companyB', 'Single transaction above S$1,000', 'Medium', 'Likely multiple pairs or leather goods', 30, 1000.00, NULL, 'amount'),
-    ('COM-B-002', 'companyB', 'Single transaction above S$2,000', 'High', 'Far above normal footwear basket', 60, 2000.00, NULL, 'amount'),
-    ('COM-B-003', 'companyB', '3+ Company B purchases within 30 min', 'Medium', 'Repeated attempts, split purchase, or card testing', 35, NULL, 3, 'recent_company_transactions'),
-    ('COM-B-004', 'companyB', 'Same card spends above S$1,500 within 24h', 'High', 'Unusual same-day cumulative spending', 55, 1500.00, NULL, 'card_spend_24h'),
-    ('COM-B-005', 'companyB', 'Many amounts just below S$1,000', 'Medium', 'Possible threshold avoidance', 30, 1000.00, 3, 'near_threshold'),
-    ('COM-B-006', 'companyB', 'Customer usually below S$100, suddenly above S$800', 'Medium', 'Possible account takeover or stolen card use', 35, 800.00, NULL, 'usual_spend_jump'),
-    ('COM-C-001', 'companyC', 'Single transaction above S$700', 'Medium', 'Higher than normal skincare/makeup basket', 30, 700.00, NULL, 'amount'),
-    ('COM-C-002', 'companyC', 'Single transaction above S$1,000', 'High', 'Unusual unless buying many premium items', 55, 1000.00, NULL, 'amount'),
-    ('COM-C-003', 'companyC', '4+ Company C purchases within 30 min', 'Medium', 'Possible split purchase or repeated attempts', 30, NULL, 4, 'recent_company_transactions'),
-    ('COM-C-004', 'companyC', 'Same card spends above S$1,500 within 24h', 'High', 'Unusual same-day cumulative spend', 55, 1500.00, NULL, 'card_spend_24h'),
-    ('COM-C-005', 'companyC', '5+ low-value transactions below S$20 in 10 min', 'High', 'Possible card testing', 55, 20.00, 5, 'low_value_burst'),
-    ('COM-C-006', 'companyC', 'New customer first purchase above S$800', 'Medium', 'New card/account plus high-value spend', 35, 800.00, NULL, 'new_customer_amount'),
+    ('COM-A-006', 'companyA', 'New or usually low-spend customer above S$800', 'Medium', 'New card/account, or a sudden spend jump, plus a high-value purchase', 35, 800.00, NULL, 'new_or_deviating_customer'),
+    ('COM-B-001', 'companyB', 'Single transaction above S$1,000', 'Medium', 'Above this merchant profile''s typical basket size', 30, 1000.00, NULL, 'amount'),
+    ('COM-B-002', 'companyB', 'Single transaction above S$2,000', 'High', 'Far above this merchant profile''s typical basket size', 55, 2000.00, NULL, 'amount'),
+    ('COM-B-003', 'companyB', '3+ merchant transactions within 30 min', 'Medium', 'Possible split payment or repeated card attempts', 30, NULL, 3, 'recent_company_transactions'),
+    ('COM-B-004', 'companyB', 'Same card spends above S$1,500 within 24h', 'High', 'Unusual cumulative same-card spend for this merchant profile', 55, 1500.00, NULL, 'card_spend_24h'),
+    ('COM-B-005', 'companyB', 'Several amounts just below S$1,000', 'Medium', 'Possible threshold avoidance', 30, 1000.00, 3, 'near_threshold'),
+    ('COM-B-006', 'companyB', 'New or usually low-spend customer above S$800', 'Medium', 'New card/account, or a sudden spend jump, plus a high-value purchase', 35, 800.00, NULL, 'new_or_deviating_customer'),
+    ('COM-C-001', 'companyC', 'Single transaction above S$700', 'Medium', 'Above this merchant profile''s typical basket size', 30, 700.00, NULL, 'amount'),
+    ('COM-C-002', 'companyC', 'Single transaction above S$1,000', 'High', 'Far above this merchant profile''s typical basket size', 55, 1000.00, NULL, 'amount'),
+    ('COM-C-003', 'companyC', '4+ merchant transactions within 30 min', 'Medium', 'Possible split payment or repeated card attempts', 30, NULL, 4, 'recent_company_transactions'),
+    ('COM-C-004', 'companyC', 'Same card spends above S$1,500 within 24h', 'High', 'Unusual cumulative same-card spend for this merchant profile', 55, 1500.00, NULL, 'card_spend_24h'),
+    ('COM-C-005', 'companyC', 'Several amounts just below S$700', 'Medium', 'Possible threshold avoidance', 30, 700.00, 3, 'near_threshold'),
+    ('COM-C-006', 'companyC', 'New or usually low-spend customer above S$800', 'Medium', 'New card/account, or a sudden spend jump, plus a high-value purchase', 35, 800.00, NULL, 'new_or_deviating_customer'),
     ('TIME-001', 'companyA', 'Transaction Outside Operating Hours', 'Medium', 'Transaction occurred outside normal merchant operating hours.', 10, NULL, NULL, 'operating_hours'),
     ('SCR-001', 'companyA', 'Payment or customer screening match', 'High', 'Sanctions, PEP, watchlist, or adverse-media screening match', 65, NULL, NULL, 'screening_match'),
     ('PROFILE-CUSTOMER-HIGH', 'companyA', 'High-risk customer profile', 'High', 'Customer KYC risk level is HIGH', 30, NULL, NULL, 'profile_risk'),
-    ('PROFILE-MERCHANT-HIGH', 'companyA', 'High-risk merchant profile', 'High', 'Merchant risk level is HIGH', 30, NULL, NULL, 'profile_risk');
+    ('PROFILE-MERCHANT-HIGH', 'companyA', 'High-risk merchant profile', 'High', 'Merchant risk level is HIGH', 30, NULL, NULL, 'profile_risk'),
+    ('RULE-001', 'companyA', 'Large local card transaction', 'High', 'Local card transaction equal to or above SGD 10,000.', 35, 10000.00, NULL, 'amount'),
+    ('RULE-002', 'companyA', 'Contextual jurisdiction escalation', 'High', 'Customer, issuer, or counterparty data references a high-risk jurisdiction.', 20, NULL, NULL, 'jurisdiction'),
+    ('RULE-003', 'companyA', 'Elevated same-card spend', 'Medium', 'Unusual cumulative spend on the same card within 24 hours.', 35, 3000.00, NULL, 'card_spend_24h'),
+    ('RULE-004', 'companyA', 'Incomplete customer diligence', 'Medium', 'Customer KYC profile is pending review.', 25, NULL, NULL, 'kyc_pending'),
+    ('RULE-005', 'companyA', 'Low-value card testing burst', 'High', 'Repeated low-value card payments may indicate card testing.', 30, 20.00, 5, 'low_value_burst');
 
 INSERT INTO transactions
-    (transaction_id, company_id, customer_id, amount, currency, country, merchant_category,
+    (transaction_id, unique_transaction_id, company_id, customer_id, amount, currency, country, merchant_category,
      recent_company_transactions, card_spend_24h, near_threshold_count, low_value_burst_count,
      is_new_customer, usual_spend_below_100, channel, direction, counterparty_name,
      counterparty_country, payment_reference, screening_status, status, transaction_hour,
@@ -229,18 +241,24 @@ INSERT INTO transactions
      final_risk_score, final_risk_level, risk_level,
      recommended_action, risk_score, risk_band, created_at)
 VALUES
+<<<<<<< HEAD
     ('TXN-DEMO-001', 'companyA', 'CUS-1001', 95.00, 'SGD', 'Singapore', 'Fashion', 1, 180.00, 0, 0, 0, 0, 'Card Present', 'Inbound', 'Harbour Retail Pte Ltd', 'Singapore', 'Fashion purchase Harbour Retail Pte Ltd', 'Clear', 'Cleared', 14, 0, 8, 0, 0, 8, 'Low', NULL, NULL, 'Low', 'Allow', 8, 'Low', '2026-06-03 14:00:00'),
     ('TXN-DEMO-002', 'companyB', 'CUS-1003', 2150.00, 'SGD', 'Singapore', 'Leather Goods', 1, 2300.00, 0, 0, 0, 0, 'E-Commerce', 'Outbound', 'Orion Trade Holdings', 'Iran', 'Invoice payment to Orion Trade Holdings', 'Potential Match', 'Flagged', 2, 1, 12, 45, 220, 277, 'Critical', NULL, NULL, 'Critical', 'Manual Review or Hold Settlement', 277, 'Critical', '2026-06-03 02:00:00'),
     ('TXN-DEMO-003', 'companyC', 'CUS-1004', 880.00, 'SGD', 'Malaysia', 'Skincare', 4, 950.00, 1, 0, 1, 0, 'Wallet', 'Outbound', 'Maple Distribution', 'Malaysia', 'Skincare purchase Maple Distribution', 'Clear', 'Flagged', 14, 0, 10, 60, 95, 165, 'Critical', NULL, NULL, 'Critical', 'Manual Review or Hold Settlement', 165, 'Critical', '2026-06-03 14:00:00');
+=======
+    ('TXN-DEMO-001', '100001', 'companyA', 'CUS-1001', 95.00, 'SGD', 'Singapore', 'Apparel', 1, 180.00, 0, 0, 0, 0, 'Card Present', 'Sale', 'Harbour Retail Pte Ltd', 'Singapore', 'Local card purchase Harbour Retail Pte Ltd', 'Clear', 'Cleared', 14, 0, 8, 0, 0, 8, 'Low', 'Allow', 8, 'Low', '2026-06-03 14:00:00'),
+    ('TXN-DEMO-002', '100002', 'companyB', 'CUS-1003', 2150.00, 'SGD', 'Singapore', 'Footwear', 1, 2300.00, 0, 0, 0, 0, 'E-Commerce Card', 'Sale', 'Orion Trade Holdings', 'Iran', 'Card payment linked to Orion Trade Holdings', 'Potential Match', 'Flagged', 2, 1, 12, 45, 220, 277, 'Critical', 'Manual Review or Hold Settlement', 277, 'Critical', '2026-06-03 02:00:00'),
+    ('TXN-DEMO-003', '100003', 'companyC', 'CUS-1004', 880.00, 'SGD', 'Singapore', 'Cosmetics', 4, 950.00, 1, 0, 1, 0, 'Card Not Present', 'Sale', 'Maple Distribution', 'Singapore', 'Local card purchase Maple Distribution', 'Clear', 'Flagged', 14, 0, 10, 60, 95, 165, 'Critical', 'Manual Review or Hold Settlement', 165, 'Critical', '2026-06-03 14:00:00');
+>>>>>>> bacb1382aa2c1baa513dee4bc20ac5d3e8bef032
 
 INSERT INTO transaction_screening_matches
     (transaction_id, watchlist_id, watchlist_name, match_type, match_field, input_value,
      match_country, risk_level, match_score, reason)
 VALUES
-    ('TXN-DEMO-002', 'WL-SAN-001', 'Orion Trade Holdings', 'Sanctions', 'Counterparty',
-     'Orion Trade Holdings', 'Iran', 'Critical', 100, 'Sanctions list match for trade-finance counterparty'),
+    ('TXN-DEMO-002', 'WL-SAN-001', 'Orion Trade Holdings', 'Sanctions', 'Context Party',
+     'Orion Trade Holdings', 'Iran', 'Critical', 100, 'Sanctions list match for contextual payment party'),
     ('TXN-DEMO-002', 'WL-SAN-001', 'Orion Trade Holdings', 'Sanctions', 'Payment Details',
-     'Invoice payment to Orion Trade Holdings', 'Iran', 'Critical', 88, 'Sanctions list match for trade-finance counterparty');
+     'Card payment linked to Orion Trade Holdings', 'Iran', 'Critical', 88, 'Sanctions list match for contextual payment party');
 
 INSERT INTO transaction_matched_rules (transaction_id, rule_id, rule_weight)
 VALUES
@@ -270,21 +288,33 @@ VALUES
 INSERT INTO compliance_cases
     (case_id, alert_id, company_id, customer_id, summary, priority, case_status, owner, decision, resolution_reason, analyst_notes, resolved_at, due_at)
 VALUES
+<<<<<<< HEAD
     ('CASE-DEMO-001', 'ALT-DEMO-001', 'companyB', 'CUS-1003', 'SGD 2,150 outbound transaction flagged', 'Critical', 'New', 'Operations Team', NULL, NULL, NULL, NULL, DATE_ADD(NOW(), INTERVAL 2 DAY)),
     ('CASE-DEMO-002', 'ALT-DEMO-002', 'companyC', 'CUS-1004', 'SGD 880 outbound transaction flagged', 'Critical', 'Under Review', 'Operations Team', NULL, NULL, NULL, NULL, DATE_ADD(NOW(), INTERVAL 2 DAY));
+=======
+    ('CASE-DEMO-001', 'ALT-DEMO-001', 'companyB', 'CUS-1003', 'SGD 2,150 sale card transaction flagged', 'Critical', 'New', 'Operations Team', DATE_ADD(NOW(), INTERVAL 2 DAY)),
+    ('CASE-DEMO-002', 'ALT-DEMO-002', 'companyC', 'CUS-1004', 'SGD 880 sale card transaction flagged', 'Critical', 'Under Review', 'Operations Team', DATE_ADD(NOW(), INTERVAL 2 DAY));
+>>>>>>> bacb1382aa2c1baa513dee4bc20ac5d3e8bef032
 
 INSERT INTO audit_logs
     (audit_id, action, actor, entity_type, entity_id, transaction_id, alert_id, case_id, company_id, message)
 VALUES
+<<<<<<< HEAD
     ('AUD-DEMO-001', 'Alert Created', 'System', 'Alert', 'ALT-DEMO-001', 'TXN-DEMO-002', 'ALT-DEMO-001', NULL, 'companyB', 'Critical alert opened for Company B transaction'),
     ('AUD-DEMO-002', 'Case Created', 'System', 'Case', 'CASE-DEMO-001', 'TXN-DEMO-002', 'ALT-DEMO-001', 'CASE-DEMO-001', 'companyB', 'Case generated from alert ALT-DEMO-001'),
     ('AUD-DEMO-003', 'Alert Status Changed', 'Operations Team', 'Alert', 'ALT-DEMO-002', 'TXN-DEMO-003', 'ALT-DEMO-002', NULL, 'companyC', 'ALT-DEMO-002 moved from New to Under Review');
+=======
+    ('AUD-DEMO-001', 'Alert Created', 'System', 'Alert', 'ALT-DEMO-001', 'companyB', 'Critical alert opened for Merchant Profile 5661 transaction'),
+    ('AUD-DEMO-002', 'Case Created', 'System', 'Case', 'CASE-DEMO-001', 'companyB', 'Case generated from alert ALT-DEMO-001'),
+    ('AUD-DEMO-003', 'Alert Status Changed', 'Operations Team', 'Alert', 'ALT-DEMO-002', 'companyC', 'ALT-DEMO-002 moved from New to Under Review');
+>>>>>>> bacb1382aa2c1baa513dee4bc20ac5d3e8bef032
 
 CREATE INDEX idx_transactions_company ON transactions(company_id);
 CREATE INDEX idx_transactions_customer ON transactions(customer_id);
 CREATE INDEX idx_transactions_status ON transactions(status);
 CREATE INDEX idx_transactions_risk_band ON transactions(risk_band);
 CREATE INDEX idx_transactions_created_at ON transactions(created_at);
+CREATE INDEX idx_transactions_unique_transaction_id ON transactions(unique_transaction_id);
 CREATE INDEX idx_screening_matches_transaction ON transaction_screening_matches(transaction_id);
 CREATE INDEX idx_alerts_status ON alerts(alert_status);
 CREATE INDEX idx_alerts_severity ON alerts(severity);
