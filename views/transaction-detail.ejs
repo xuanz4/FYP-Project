@@ -15,7 +15,6 @@
                 <div>
                     <a class="back-link" href="/dashboard">&larr; Back to Dashboard</a>
                     <h1>Transaction Review</h1>
-<<<<<<< HEAD
                     <% if (hasTransaction) { %>
                         <p>
                             <%= transaction.id %>
@@ -23,9 +22,6 @@
                         <% } else { %>
                             <p>Review a flagged transaction and complete the assessment.</p>
                             <% } %>
-=======
-                    <p>Review the flagged local card transaction, its triggered rules, and the available investigation actions.</p>
->>>>>>> bacb1382aa2c1baa513dee4bc20ac5d3e8bef032
                 </div>
                 <% if (hasTransaction) { %>
                     <div class="detail-status-panel">
@@ -72,7 +68,6 @@
                     <script id="transactionDetailData"
                         type="application/json"><%- JSON.stringify(transaction) %></script>
 
-<<<<<<< HEAD
                     <section class="panel detail-section">
                         <div class="panel-header">
                             <div>
@@ -106,84 +101,12 @@
                                     <%= transaction.recommendedAction || 'Allow' %>
                                 </strong></article>
                         </div>
-=======
-                    <section class="detail-summary-grid">
-                        <article class="panel detail-hero-card">
-                            <div class="panel-header detail-card-header">
-                                <div>
-                                    <h2>
-                                        <%= transaction.customerName %>
-                                    </h2>
-                                    <p>
-                                        <%= transaction.companyName || 'Merchant Profile' %> &middot; <%= transaction.customerId
-                                                %>
-                                    </p>
-                                    <p>
-                                        MCC <%= transaction.mccCode || 'N/A' %> &middot; <%= transaction.industry || 'Industry N/A' %>
-                                    </p>
-                                </div>
-                                <span class="badge risk-<%= (transaction.riskLevel || transaction.riskBand).toLowerCase() %>">
-                                    <%= transaction.riskLevel || transaction.riskBand %>
-                                        <%= transaction.finalRiskScore || transaction.riskScore %>
-                                </span>
-                            </div>
-                            <div class="detail-hero-body">
-                                <p class="detail-eyebrow">Flagged transaction <%= transaction.id %> &middot; STAN <%= transaction.uniqueTransactionId %>
-                                </p>
-                                <p>Created <%= new Date(transaction.createdAt).toLocaleString('en-SG') %>
-                                </p>
-                                <p class="detail-amount">
-                                    <%= moneyFormatter.format(transaction.amount) %>
-                                </p>
-                                <p>
-                                    <%= transaction.country %> &middot; <%= transaction.channel %> &middot; <%=
-                                                transaction.direction %>
-                                </p>
-                            </div>
-                        </article>
-
-                        <article class="panel detail-summary-card">
-                            <div class="panel-header">
-                                <div>
-                                    <h2>Risk Snapshot</h2>
-                                    <p>Current screening and transaction review position.</p>
-                                </div>
-                            </div>
-                            <div class="detail-stat-grid">
-                                <article><span>Final Risk Score</span><strong>
-                                        <%= transaction.finalRiskScore || transaction.riskScore %>
-                                    </strong></article>
-                                <article><span>Risk Level</span><strong>
-                                        <%= transaction.riskLevel || transaction.riskBand %>
-                                    </strong></article>
-                                <article><span>Recommended Action</span><strong>
-                                        <%= transaction.recommendedAction || 'Allow' %>
-                                    </strong></article>
-                                <article><span>Status</span><strong class="transaction-status status-<%= statusSlug %>">
-                                        <%= transaction.status %>
-                                    </strong></article>
-                                <article><span>Screening</span><strong>
-                                        <%= transaction.screeningStatus || 'Pending' %>
-                                    </strong></article>
-                                <article><span>MCC Risk</span><strong>
-                                        <%= transaction.mccRiskScore ?? transaction.industryRiskScore ?? 0 %>
-                                    </strong></article>
-                                <article><span>Profile Risk</span><strong>
-                                        <%= transaction.profileRiskScore || 0 %>
-                                    </strong></article>
-                                <article><span>Detection Risk</span><strong>
-                                        <%= transaction.transactionDetectionScore || 0 %>
-                                    </strong></article>
-                            </div>
-                        </article>
->>>>>>> bacb1382aa2c1baa513dee4bc20ac5d3e8bef032
                     </section>
 
                     <section class="detail-two-column">
                         <article class="panel detail-section">
                             <div class="panel-header">
                                 <div>
-<<<<<<< HEAD
                                     <h2>Transaction Information</h2>
                                     <p>Core payment and customer details.</p>
                                 </div>
@@ -203,214 +126,6 @@
                                 <div><dt>KYC Status</dt><dd><%= transaction.kycStatus %></dd></div>
                                 <div><dt>Customer Risk</dt><dd><%= transaction.customerRiskLevel || 'LOW' %></dd></div>
                                 <div><dt>Merchant Risk</dt><dd><%= transaction.merchantRiskLevel || 'LOW' %></dd></div>
-=======
-                                    <h2>Transaction Details</h2>
-                                    <p>Full local card-payment record details for the review case.</p>
-                                </div>
-                            </div>
-                            <dl class="detail-definition-list">
-                                <div>
-                                    <dt>Name</dt>
-                                    <dd>
-                                        <%= transaction.customerName %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Customer ID</dt>
-                                    <dd>
-                                        <%= transaction.customerId %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Unique Transaction ID</dt>
-                                    <dd>
-                                        <%= transaction.uniqueTransactionId %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Merchant Profile</dt>
-                                    <dd>
-                                        <%= transaction.companyName || 'Merchant Profile' %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Amount</dt>
-                                    <dd>
-                                        <%= moneyFormatter.format(transaction.amount) %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Date</dt>
-                                    <dd>
-                                        <%= new Date(transaction.createdAt).toLocaleString('en-SG') %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Transaction Time</dt>
-                                    <dd>
-                                        <%= new Date(transaction.createdAt).toLocaleTimeString('en-SG') %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Operating Hours Check</dt>
-                                    <dd>
-                                        <%= transaction.operatingHoursTriggered ? 'Outside operating hours' : 'Within operating hours' %>
-                                        <% if (transaction.transactionHour !== null && transaction.transactionHour !== undefined) { %>
-                                            (hour <%= transaction.transactionHour %>)
-                                        <% } %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Transaction Location</dt>
-                                    <dd>
-                                        <%= transaction.country %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Merchant Category</dt>
-                                    <dd>
-                                        <%= transaction.merchantCategory %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Merchant Type</dt>
-                                    <dd>
-                                        <%= transaction.merchantType || 'N/A' %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>MCC Code</dt>
-                                    <dd>
-                                        <%= transaction.mccCode || 'N/A' %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Industry</dt>
-                                    <dd>
-                                        <%= transaction.industry || 'N/A' %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>MCC Risk Score</dt>
-                                    <dd>
-                                        <%= transaction.mccRiskScore ?? transaction.industryRiskScore ?? 0 %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Channel</dt>
-                                    <dd>
-                                        <%= transaction.channel %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Card Transaction Type</dt>
-                                    <dd>
-                                        <%= transaction.direction %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Context Party</dt>
-                                    <dd>
-                                        <%= transaction.counterpartyName %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Context Country</dt>
-                                    <dd>
-                                        <%= transaction.counterpartyCountry %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Payment Reference</dt>
-                                    <dd>
-                                        <%= transaction.paymentReference %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>KYC Status</dt>
-                                    <dd>
-                                        <%= transaction.kycStatus %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Customer Risk Level</dt>
-                                    <dd>
-                                        <%= transaction.customerRiskLevel || 'LOW' %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Merchant Risk Level</dt>
-                                    <dd>
-                                        <%= transaction.merchantRiskLevel || 'LOW' %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Profile Risk Score</dt>
-                                    <dd>
-                                        <%= transaction.profileRiskScore || 0 %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Transaction Detection Score</dt>
-                                    <dd>
-                                        <%= transaction.transactionDetectionScore || 0 %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Final Risk Score</dt>
-                                    <dd>
-                                        <%= transaction.finalRiskScore || transaction.riskScore %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Risk Level</dt>
-                                    <dd>
-                                        <%= transaction.riskLevel || transaction.riskBand %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Recommended Action</dt>
-                                    <dd>
-                                        <%= transaction.recommendedAction || 'Allow' %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Recent Merchant Txns</dt>
-                                    <dd>
-                                        <%= transaction.recentCompanyTransactions %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Card Spend 24h</dt>
-                                    <dd>
-                                        <%= moneyFormatter.format(transaction.cardSpend24h || 0) %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Near Threshold Count</dt>
-                                    <dd>
-                                        <%= transaction.nearThresholdCount %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Low Value Burst Count</dt>
-                                    <dd>
-                                        <%= transaction.lowValueBurstCount %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>New Customer</dt>
-                                    <dd>
-                                        <%= transaction.isNewCustomer ? 'Yes' : 'No' %>
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt>Usual Spend Below 100</dt>
-                                    <dd>
-                                        <%= transaction.usualSpendBelow100 ? 'Yes' : 'No' %>
-                                    </dd>
-                                </div>
->>>>>>> bacb1382aa2c1baa513dee4bc20ac5d3e8bef032
                             </dl>
                         </article>
 

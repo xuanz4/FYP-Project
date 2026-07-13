@@ -149,9 +149,7 @@ function buildProfileRiskRules(transaction = {}) {
   return rules;
 }
 
-<<<<<<< HEAD
 // Company setup: each merchant has its own MCC, industry, risk level, and transaction rules.
-=======
 // Merchant-agnostic rule template: local card-payment monitoring for UNIWEB is not tied to
 // any fixed set of example industries. Any merchant profile - regardless of MCC/industry -
 // plugs its own typical-basket thresholds into this same template, so the detection logic
@@ -244,7 +242,6 @@ function buildMerchantCards(merchant) {
 // Singapore merchant profile, not just the ones configured below. Onboarding a new merchant
 // means adding another entry here with its own MCC code and thresholds; buildMerchantRules
 // and buildMerchantCards above apply identically regardless of industry.
->>>>>>> bacb1382aa2c1baa513dee4bc20ac5d3e8bef032
 const companyRuleSets = {
   companyA: {
     id: 'companyA',
@@ -293,16 +290,13 @@ const companyRuleSets = {
   },
 };
 
-<<<<<<< HEAD
 // Main risk calculator: combines MCC, profile, and detection points into the first automated risk score.
 // Final risk is intentionally left for a later officer assessment step.
-=======
 Object.values(companyRuleSets).forEach((merchant) => {
   merchant.cards = buildMerchantCards(merchant);
   merchant.rules = buildMerchantRules(merchant);
 });
 
->>>>>>> bacb1382aa2c1baa513dee4bc20ac5d3e8bef032
 function evaluateTransaction(transaction, rules = defaultRules, additionalDetectionRules = []) {
   const mccRiskScore = Number(transaction.industryRiskScore) || Number(transaction.mccRiskScore) || 0;
   const profileRiskScore = calculateProfileRiskScore(transaction);

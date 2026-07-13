@@ -1,9 +1,5 @@
-<<<<<<< HEAD
-﻿const express = require('express');
-require('dotenv').config();
-=======
 const express = require('express');
->>>>>>> bacb1382aa2c1baa513dee4bc20ac5d3e8bef032
+require('dotenv').config();
 const path = require('path');
 const {
   evaluateTransaction,
@@ -223,13 +219,9 @@ function createTransaction(overrides = {}) {
       weight: screening.matches.some((match) => match.type === 'Sanctions') ? 65 : 40,
     });
   }
-<<<<<<< HEAD
   // Sends the transaction to src/complianceEngine.js to calculate the automated initial risk score.
   // Final risk stays empty until a future assessment/decision workflow assigns it.
-  const result = evaluateTransaction(transaction, company.rules, screeningRules);
-=======
   const result = evaluateTransaction(transaction, [...defaultRules, ...company.rules], screeningRules);
->>>>>>> bacb1382aa2c1baa513dee4bc20ac5d3e8bef032
   const matchedRules = [...result.triggeredRules];
 
   transaction.screeningStatus = screening.status;
@@ -303,30 +295,18 @@ function createTransaction(overrides = {}) {
         companyName: transaction.companyName,
         customerId: transaction.customerId,
         customerName: transaction.customerName,
-<<<<<<< HEAD
-      severity: transaction.riskBand,
-      riskScore: transaction.riskScore,
-      mccRiskScore: transaction.mccRiskScore,
-      profileRiskScore: transaction.profileRiskScore,
-      transactionDetectionScore: transaction.transactionDetectionScore,
-      initialRiskScore: transaction.initialRiskScore,
-      initialRiskLevel: transaction.initialRiskLevel,
-      finalRiskScore: transaction.finalRiskScore,
-      finalRiskLevel: transaction.finalRiskLevel,
-      riskLevel: transaction.initialRiskLevel,
-      recommendedAction: transaction.recommendedAction,
-      rules: matchedRules,
-=======
         severity: transaction.riskBand,
         riskScore: transaction.riskScore,
         mccRiskScore: transaction.mccRiskScore,
         profileRiskScore: transaction.profileRiskScore,
         transactionDetectionScore: transaction.transactionDetectionScore,
+        initialRiskScore: transaction.initialRiskScore,
+        initialRiskLevel: transaction.initialRiskLevel,
         finalRiskScore: transaction.finalRiskScore,
+        finalRiskLevel: transaction.finalRiskLevel,
         riskLevel: transaction.riskLevel,
         recommendedAction: transaction.recommendedAction,
         rules: matchedRules,
->>>>>>> bacb1382aa2c1baa513dee4bc20ac5d3e8bef032
         primaryRuleId: primaryRule.id,
         status: 'New',
         analyst: 'Unassigned',
@@ -452,7 +432,6 @@ function findTransactionById(transactionId) {
   return transactions.find((transaction) => transaction.id === transactionId) || null;
 }
 
-<<<<<<< HEAD
 function findAlertForTransaction(transactionId) {
   return alerts.find((item) => (
     item.transactionId === transactionId
@@ -563,8 +542,6 @@ function getTransactionActivityLogs(transactionId) {
 }
 
 
-=======
->>>>>>> bacb1382aa2c1baa513dee4bc20ac5d3e8bef032
 function renderPage(view, title, activePage) {
   return (req, res) => {
     res.render(view, { title, activePage });
@@ -657,6 +634,20 @@ function clientApp() {
 
   function statusClass(value) {
     return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  }
+
+  function displayCustomerName(...sources) {
+    for (const source of sources) {
+      if (!source) continue;
+      if (typeof source === 'string' && source.trim()) return source.trim();
+      const value = source.customerName || source.name || source.accountName || source.organisationName;
+      if (value && String(value).trim()) return String(value).trim();
+      if (source.transaction) {
+        const nested = displayCustomerName(source.transaction);
+        if (nested !== 'Unknown Customer') return nested;
+      }
+    }
+    return 'Unknown Customer';
   }
 
   function applyTransactionOverride(transaction) {
@@ -1049,7 +1040,7 @@ function clientApp() {
       .map((profile) => `
         <tr>
           <td>
-            <strong>${escapeHtml(profile.customerName)}</strong>
+            <strong>${escapeHtml(displayCustomerName(profile))}</strong>
             <div class="muted">${escapeHtml(profile.customerId)}</div>
           </td>
           <td>${escapeHtml(profile.companyName || 'Merchant Profile')}</td>
@@ -1130,7 +1121,7 @@ function clientApp() {
     elements.alertList.innerHTML = getFilteredAlerts().slice(0, 30).map((alert) => `
       <article class="alert">
         <div class="alert-top">
-          <strong>${escapeHtml(alert.customerName)}</strong>
+          <strong>${escapeHtml(displayCustomerName(alert))}</strong>
           <span class="badge risk-${alert.severity.toLowerCase()}">${alert.severity}</span>
         </div>
         <p>${alert.rules.map((rule) => escapeHtml(rule.name)).join(', ')}</p>
@@ -1153,7 +1144,7 @@ function clientApp() {
           <span class="badge risk-${item.priority.toLowerCase()}">${item.priority}</span>
         </div>
         <p>${escapeHtml(item.summary)}</p>
-        <div class="meta">${escapeHtml(item.companyName || 'Merchant Profile')} &middot; ${escapeHtml(item.customerName)} &middot; ${escapeHtml(item.status)} &middot; ${escapeHtml(item.owner || 'Operations Team')} &middot; Due ${new Date(item.dueAt).toLocaleDateString('en-SG')}</div>
+        <div class="meta">${escapeHtml(item.companyName || 'Merchant Profile')} &middot; ${escapeHtml(displayCustomerName(item))} &middot; ${escapeHtml(item.status)} &middot; ${escapeHtml(item.owner || 'Operations Team')} &middot; Due ${new Date(item.dueAt).toLocaleDateString('en-SG')}</div>
         <div class="alert-actions">
           ${workflowStatuses.map((status) => `
             <button type="button" class="secondary-btn" data-case-id="${escapeHtml(item.id)}" data-status="${escapeHtml(status)}" ${item.status === status ? 'disabled' : ''}>${escapeHtml(status)}</button>

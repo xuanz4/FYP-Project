@@ -52,21 +52,13 @@ const highProfileRiskResult = evaluateTransaction({
   merchantRiskLevel: 'HIGH',
 });
 
-<<<<<<< HEAD
-assert.strictEqual(highRiskResult.transactionDetectionScore, 150);
-assert.strictEqual(highRiskResult.initialRiskScore, 150);
-assert.strictEqual(highRiskResult.riskScore, 150);
-assert.strictEqual(riskBands(highRiskResult.riskScore), 'Critical');
-assert.strictEqual(highRiskResult.matchedRules.length, 5);
-assert.strictEqual(Object.hasOwn(highRiskResult, 'finalRiskScore'), false);
-assert.strictEqual(Object.hasOwn(highRiskResult, 'finalRiskLevel'), false);
-=======
 assert.strictEqual(highRiskResult.transactionDetectionScore, 115);
-assert.strictEqual(highRiskResult.finalRiskScore, 115);
+assert.strictEqual(highRiskResult.initialRiskScore, 115);
 assert.strictEqual(highRiskResult.riskScore, 115);
 assert.strictEqual(riskBands(highRiskResult.riskScore), 'Critical');
 assert.strictEqual(highRiskResult.matchedRules.length, 4);
->>>>>>> bacb1382aa2c1baa513dee4bc20ac5d3e8bef032
+assert.strictEqual(Object.hasOwn(highRiskResult, 'finalRiskScore'), false);
+assert.strictEqual(Object.hasOwn(highRiskResult, 'finalRiskLevel'), false);
 
 assert.strictEqual(lowRiskResult.riskScore, 0);
 assert.strictEqual(lowRiskResult.mccRiskScore, 0);

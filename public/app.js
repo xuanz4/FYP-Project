@@ -71,6 +71,20 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function displayCustomerName(...sources) {
+  for (const source of sources) {
+    if (!source) continue;
+    if (typeof source === 'string' && source.trim()) return source.trim();
+    const value = source.customerName || source.name || source.accountName || source.organisationName;
+    if (value && String(value).trim()) return String(value).trim();
+    if (source.transaction) {
+      const nested = displayCustomerName(source.transaction);
+      if (nested !== 'Unknown Customer') return nested;
+    }
+  }
+  return 'Unknown Customer';
+}
+
 // Prototype safeguard only. This keyword check does not replace legal or compliance review.
 function findRfiRestrictedPhrase(...values) {
   const text = values.filter(Boolean).join(' ');
@@ -926,7 +940,7 @@ function renderCustomerRisk() {
     .map((profile) => `
       <tr>
         <td>
-          <strong>${escapeHtml(profile.customerName)}</strong>
+          <strong>${escapeHtml(displayCustomerName(profile))}</strong>
           <div class="muted">${escapeHtml(profile.customerId)}</div>
         </td>
         <td>${escapeHtml(profile.companyName || 'Company')}</td>
@@ -1051,7 +1065,7 @@ function renderTransactions() {
       <tr class="transaction-row" data-transaction-id="${escapeHtml(txn.id)}">
         <td>${time.format(new Date(txn.createdAt))}</td>
         <td>
-          <strong>${escapeHtml(txn.customerName)}</strong>
+          <strong>${escapeHtml(displayCustomerName(txn))}</strong>
           <div class="muted">${escapeHtml(txn.customerId)}</div>
         </td>
         <td><strong>${escapeHtml(txn.companyName || 'Company')}</strong><div class="muted">${escapeHtml(txn.merchantType || txn.merchantCategory)}</div></td>
@@ -1101,7 +1115,7 @@ function renderAlerts() {
           ${alerts.map((alert) => `
             <tr>
               <td>
-                <strong>${escapeHtml(alert.customerName)}</strong>
+                <strong>${escapeHtml(displayCustomerName(alert))}</strong>
                 <div class="muted">${escapeHtml(alert.id)}</div>
               </td>
               <td>${renderRuleSummary(alert.rules || [])}</td>
@@ -1146,7 +1160,7 @@ function renderCases() {
             return `
               <tr>
                 <td><strong>${escapeHtml(item.id)}</strong><div class="muted">${escapeHtml(item.alertId)}</div></td>
-                <td>${escapeHtml(item.customerName)}</td>
+                <td>${escapeHtml(displayCustomerName(item))}</td>
                 <td>${amount === null ? 'Not available' : money.format(amount)}</td>
                 <td>${escapeHtml(direction)}</td>
                 <td>${renderWeightedRisk(item.priority, alert?.riskScore)}</td>
@@ -1257,7 +1271,7 @@ function renderOperationsQueue() {
               <tr class="transaction-row" data-queue-transaction-id="${escapeHtml(txn.id)}">
                 <td>${new Date(txn.createdAt).toLocaleString('en-SG')}</td>
                 <td>
-                  <strong>${escapeHtml(txn.customerName)}</strong>
+                  <strong>${escapeHtml(displayCustomerName(txn))}</strong>
                   <div class="muted">${escapeHtml(txn.customerId)}</div>
                 </td>
                 <td>

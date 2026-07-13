@@ -241,15 +241,9 @@ INSERT INTO transactions
      final_risk_score, final_risk_level, risk_level,
      recommended_action, risk_score, risk_band, created_at)
 VALUES
-<<<<<<< HEAD
-    ('TXN-DEMO-001', 'companyA', 'CUS-1001', 95.00, 'SGD', 'Singapore', 'Fashion', 1, 180.00, 0, 0, 0, 0, 'Card Present', 'Inbound', 'Harbour Retail Pte Ltd', 'Singapore', 'Fashion purchase Harbour Retail Pte Ltd', 'Clear', 'Cleared', 14, 0, 8, 0, 0, 8, 'Low', NULL, NULL, 'Low', 'Allow', 8, 'Low', '2026-06-03 14:00:00'),
-    ('TXN-DEMO-002', 'companyB', 'CUS-1003', 2150.00, 'SGD', 'Singapore', 'Leather Goods', 1, 2300.00, 0, 0, 0, 0, 'E-Commerce', 'Outbound', 'Orion Trade Holdings', 'Iran', 'Invoice payment to Orion Trade Holdings', 'Potential Match', 'Flagged', 2, 1, 12, 45, 220, 277, 'Critical', NULL, NULL, 'Critical', 'Manual Review or Hold Settlement', 277, 'Critical', '2026-06-03 02:00:00'),
-    ('TXN-DEMO-003', 'companyC', 'CUS-1004', 880.00, 'SGD', 'Malaysia', 'Skincare', 4, 950.00, 1, 0, 1, 0, 'Wallet', 'Outbound', 'Maple Distribution', 'Malaysia', 'Skincare purchase Maple Distribution', 'Clear', 'Flagged', 14, 0, 10, 60, 95, 165, 'Critical', NULL, NULL, 'Critical', 'Manual Review or Hold Settlement', 165, 'Critical', '2026-06-03 14:00:00');
-=======
-    ('TXN-DEMO-001', '100001', 'companyA', 'CUS-1001', 95.00, 'SGD', 'Singapore', 'Apparel', 1, 180.00, 0, 0, 0, 0, 'Card Present', 'Sale', 'Harbour Retail Pte Ltd', 'Singapore', 'Local card purchase Harbour Retail Pte Ltd', 'Clear', 'Cleared', 14, 0, 8, 0, 0, 8, 'Low', 'Allow', 8, 'Low', '2026-06-03 14:00:00'),
-    ('TXN-DEMO-002', '100002', 'companyB', 'CUS-1003', 2150.00, 'SGD', 'Singapore', 'Footwear', 1, 2300.00, 0, 0, 0, 0, 'E-Commerce Card', 'Sale', 'Orion Trade Holdings', 'Iran', 'Card payment linked to Orion Trade Holdings', 'Potential Match', 'Flagged', 2, 1, 12, 45, 220, 277, 'Critical', 'Manual Review or Hold Settlement', 277, 'Critical', '2026-06-03 02:00:00'),
-    ('TXN-DEMO-003', '100003', 'companyC', 'CUS-1004', 880.00, 'SGD', 'Singapore', 'Cosmetics', 4, 950.00, 1, 0, 1, 0, 'Card Not Present', 'Sale', 'Maple Distribution', 'Singapore', 'Local card purchase Maple Distribution', 'Clear', 'Flagged', 14, 0, 10, 60, 95, 165, 'Critical', 'Manual Review or Hold Settlement', 165, 'Critical', '2026-06-03 14:00:00');
->>>>>>> bacb1382aa2c1baa513dee4bc20ac5d3e8bef032
+    ('TXN-DEMO-001', '100001', 'companyA', 'CUS-1001', 95.00, 'SGD', 'Singapore', 'Apparel', 1, 180.00, 0, 0, 0, 0, 'Card Present', 'Sale', 'Harbour Retail Pte Ltd', 'Singapore', 'Local card purchase Harbour Retail Pte Ltd', 'Clear', 'Cleared', 14, 0, 8, 0, 0, 8, 'Low', NULL, NULL, 'Low', 'Allow', 8, 'Low', '2026-06-03 14:00:00'),
+    ('TXN-DEMO-002', '100002', 'companyB', 'CUS-1003', 2150.00, 'SGD', 'Singapore', 'Footwear', 1, 2300.00, 0, 0, 0, 0, 'E-Commerce Card', 'Sale', 'Orion Trade Holdings', 'Iran', 'Card payment linked to Orion Trade Holdings', 'Potential Match', 'Flagged', 2, 1, 12, 45, 220, 277, 'Critical', NULL, NULL, 'Critical', 'Manual Review or Hold Settlement', 277, 'Critical', '2026-06-03 02:00:00'),
+    ('TXN-DEMO-003', '100003', 'companyC', 'CUS-1004', 880.00, 'SGD', 'Singapore', 'Cosmetics', 4, 950.00, 1, 0, 1, 0, 'Card Not Present', 'Sale', 'Maple Distribution', 'Singapore', 'Local card purchase Maple Distribution', 'Clear', 'Flagged', 14, 0, 10, 60, 95, 165, 'Critical', NULL, NULL, 'Critical', 'Manual Review or Hold Settlement', 165, 'Critical', '2026-06-03 14:00:00');
 
 INSERT INTO transaction_screening_matches
     (transaction_id, watchlist_id, watchlist_name, match_type, match_field, input_value,
@@ -288,26 +282,15 @@ VALUES
 INSERT INTO compliance_cases
     (case_id, alert_id, company_id, customer_id, summary, priority, case_status, owner, decision, resolution_reason, analyst_notes, resolved_at, due_at)
 VALUES
-<<<<<<< HEAD
-    ('CASE-DEMO-001', 'ALT-DEMO-001', 'companyB', 'CUS-1003', 'SGD 2,150 outbound transaction flagged', 'Critical', 'New', 'Operations Team', NULL, NULL, NULL, NULL, DATE_ADD(NOW(), INTERVAL 2 DAY)),
-    ('CASE-DEMO-002', 'ALT-DEMO-002', 'companyC', 'CUS-1004', 'SGD 880 outbound transaction flagged', 'Critical', 'Under Review', 'Operations Team', NULL, NULL, NULL, NULL, DATE_ADD(NOW(), INTERVAL 2 DAY));
-=======
-    ('CASE-DEMO-001', 'ALT-DEMO-001', 'companyB', 'CUS-1003', 'SGD 2,150 sale card transaction flagged', 'Critical', 'New', 'Operations Team', DATE_ADD(NOW(), INTERVAL 2 DAY)),
-    ('CASE-DEMO-002', 'ALT-DEMO-002', 'companyC', 'CUS-1004', 'SGD 880 sale card transaction flagged', 'Critical', 'Under Review', 'Operations Team', DATE_ADD(NOW(), INTERVAL 2 DAY));
->>>>>>> bacb1382aa2c1baa513dee4bc20ac5d3e8bef032
+    ('CASE-DEMO-001', 'ALT-DEMO-001', 'companyB', 'CUS-1003', 'SGD 2,150 sale card transaction flagged', 'Critical', 'New', 'Operations Team', NULL, NULL, NULL, NULL, DATE_ADD(NOW(), INTERVAL 2 DAY)),
+    ('CASE-DEMO-002', 'ALT-DEMO-002', 'companyC', 'CUS-1004', 'SGD 880 sale card transaction flagged', 'Critical', 'Under Review', 'Operations Team', NULL, NULL, NULL, NULL, DATE_ADD(NOW(), INTERVAL 2 DAY));
 
 INSERT INTO audit_logs
     (audit_id, action, actor, entity_type, entity_id, transaction_id, alert_id, case_id, company_id, message)
 VALUES
-<<<<<<< HEAD
-    ('AUD-DEMO-001', 'Alert Created', 'System', 'Alert', 'ALT-DEMO-001', 'TXN-DEMO-002', 'ALT-DEMO-001', NULL, 'companyB', 'Critical alert opened for Company B transaction'),
+    ('AUD-DEMO-001', 'Alert Created', 'System', 'Alert', 'ALT-DEMO-001', 'TXN-DEMO-002', 'ALT-DEMO-001', NULL, 'companyB', 'Critical alert opened for Merchant Profile 5661 transaction'),
     ('AUD-DEMO-002', 'Case Created', 'System', 'Case', 'CASE-DEMO-001', 'TXN-DEMO-002', 'ALT-DEMO-001', 'CASE-DEMO-001', 'companyB', 'Case generated from alert ALT-DEMO-001'),
     ('AUD-DEMO-003', 'Alert Status Changed', 'Operations Team', 'Alert', 'ALT-DEMO-002', 'TXN-DEMO-003', 'ALT-DEMO-002', NULL, 'companyC', 'ALT-DEMO-002 moved from New to Under Review');
-=======
-    ('AUD-DEMO-001', 'Alert Created', 'System', 'Alert', 'ALT-DEMO-001', 'companyB', 'Critical alert opened for Merchant Profile 5661 transaction'),
-    ('AUD-DEMO-002', 'Case Created', 'System', 'Case', 'CASE-DEMO-001', 'companyB', 'Case generated from alert ALT-DEMO-001'),
-    ('AUD-DEMO-003', 'Alert Status Changed', 'Operations Team', 'Alert', 'ALT-DEMO-002', 'companyC', 'ALT-DEMO-002 moved from New to Under Review');
->>>>>>> bacb1382aa2c1baa513dee4bc20ac5d3e8bef032
 
 CREATE INDEX idx_transactions_company ON transactions(company_id);
 CREATE INDEX idx_transactions_customer ON transactions(customer_id);

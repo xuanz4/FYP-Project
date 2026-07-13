@@ -337,6 +337,10 @@ select {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-bottom: 16px;
 }
+
+.chart-grid.page-grid {
+  grid-template-columns: repeat(2, minmax(280px, 1fr));
+}
 .single-panel {
   margin-top: 16px;
 }
