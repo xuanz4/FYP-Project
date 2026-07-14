@@ -1,124 +1,137 @@
 <%- include('partials/head', { title, activePage }) %>
 
-<main>
-  <section class="topbar">
-    <div>
-      <h1>Investigations</h1>
-      <p>Review flagged local card-payment alerts, generated cases, and the compliance audit trail in one workspace.</p>
-    </div>
-  </section>
-  <section class="filter-bar investigations-filter-bar">
-    <label>
-      <span>Company</span>
-      <select id="companyFilter" aria-label="Company filter">
-        <option value="All">All Companies</option>
-      </select>
-    </label>
-    <label>
-      <span>Assessment Status</span>
-      <select id="investigationStatusFilter" aria-label="Assessment status filter">
-        <option value="All">All Statuses</option>
-        <option value="New">New</option>
-        <option value="Under Review">Under Review</option>
-        <option value="Waiting for Information">Waiting for Information</option>
-        <option value="Escalated">Escalated</option>
-        <option value="Resolved">Resolved</option>
-        <option value="False Positive">False Positive</option>
-      </select>
-    </label>
-    <label>
-      <span>Risk Level</span>
-      <select id="investigationRiskFilter" aria-label="Investigation risk filter">
-        <option value="All">All Risk Levels</option>
-        <option value="Critical">Critical</option>
-        <option value="High">High</option>
-        <option value="Medium">Medium</option>
-        <option value="Low">Low</option>
-      </select>
-    </label>
-    <label>
-      <span>Assigned Analyst</span>
-      <select id="investigationAnalystFilter" aria-label="Assigned analyst filter">
-        <option value="All">All Analysts</option>
-      </select>
-    </label>
-    <label>
-      <span>Date Range</span>
-      <select id="investigationDateFilter" aria-label="Investigation date range filter">
-        <option value="All">All Dates</option>
-        <option value="24h">Last 24 hours</option>
-        <option value="7d">Last 7 days</option>
-        <option value="30d">Last 30 days</option>
-      </select>
-    </label>
-    <label class="investigation-search">
-      <span>Search</span>
-      <input id="investigationSearchInput" type="search" placeholder="Customer, transaction, alert or case ID">
-    </label>
-  </section>
-
-  <section class="investigation-summary-grid">
-    <article><span>New</span><strong id="investigationSummaryNew">0</strong><p>Awaiting first review.</p></article>
-    <article><span>Under Review</span><strong id="investigationSummaryUnderReview">0</strong><p>Currently assigned.</p></article>
-    <article><span>Waiting for Information</span><strong id="investigationSummaryWaiting">0</strong><p>Pending customer response.</p></article>
-    <article><span>Escalated</span><strong id="investigationSummaryEscalated">0</strong><p>Senior review queue.</p></article>
-    <article><span>Overdue</span><strong id="investigationSummaryOverdue">0</strong><p>Past due date.</p></article>
-    <article><span>Resolved Today</span><strong id="investigationSummaryResolvedToday">0</strong><p>Closed today.</p></article>
-  </section>
-
-  <section class="panel">
-    <div class="panel-header">
+  <main>
+    <section class="topbar">
       <div>
-        <h2>Operations Working Queue</h2>
-        <p>Prioritized New, Under Review, and Escalated alerts and cases.</p>
+        <h1>Investigations</h1>
+        <p>Review flagged local card-payment alerts, generated cases, and the compliance audit trail in one workspace.
+        </p>
       </div>
-    </div>
-    <div id="operationsQueue" class="operations-table-slot"></div>
-  </section>
-
-  <section class="workspace">
-    <section class="panel" id="alerts">
-      <div class="panel-header">
-        <div>
-          <h2>Alert Queue</h2>
-          <p>Assign and update compliance alert status.</p>
-        </div>
-      </div>
-      <div id="alertList" class="investigation-table-slot"></div>
+    </section>
+    <section class="filter-bar investigations-filter-bar">
+      <label>
+        <span>Company</span>
+        <select id="companyFilter" aria-label="Company filter">
+          <option value="All">All Merchant Profiles</option>
+        </select>
+      </label>
+      <label>
+        <span>Assessment Status</span>
+        <select id="investigationStatusFilter" aria-label="Assessment status filter">
+          <option value="All">All Statuses</option>
+          <option value="New">New</option>
+          <option value="Under Review">Under Review</option>
+          <option value="Waiting for Information">Waiting for Information</option>
+          <option value="Escalated">Escalated</option>
+          <option value="Resolved">Resolved</option>
+          <option value="False Positive">False Positive</option>
+        </select>
+      </label>
+      <label>
+        <span>Risk Level</span>
+        <select id="investigationRiskFilter" aria-label="Investigation risk filter">
+          <option value="All">All Risk Levels</option>
+          <option value="Critical">Critical</option>
+          <option value="High">High</option>
+          <option value="Medium">Medium</option>
+          <option value="Low">Low</option>
+        </select>
+      </label>
+      <label>
+        <span>Assigned Analyst</span>
+        <select id="investigationAnalystFilter" aria-label="Assigned analyst filter">
+          <option value="All">All Analysts</option>
+        </select>
+      </label>
+      <label>
+        <span>Date Range</span>
+        <select id="investigationDateFilter" aria-label="Investigation date range filter">
+          <option value="All">All Dates</option>
+          <option value="24h">Last 24 hours</option>
+          <option value="7d">Last 7 days</option>
+          <option value="30d">Last 30 days</option>
+        </select>
+      </label>
+      <label class="investigation-search">
+        <span>Search</span>
+        <input id="investigationSearchInput" type="search" placeholder="Customer, transaction, alert or case ID">
+      </label>
     </section>
 
-    <section class="panel" id="cases">
+    <section class="investigation-summary-grid">
+      <article><span>New</span><strong id="investigationSummaryNew">0</strong>
+        <p>Awaiting first review.</p>
+      </article>
+      <article><span>Under Review</span><strong id="investigationSummaryUnderReview">0</strong>
+        <p>Currently assigned.</p>
+      </article>
+      <article><span>Waiting for Information</span><strong id="investigationSummaryWaiting">0</strong>
+        <p>Pending customer response.</p>
+      </article>
+      <article><span>Escalated</span><strong id="investigationSummaryEscalated">0</strong>
+        <p>Senior review queue.</p>
+      </article>
+      <article><span>Overdue</span><strong id="investigationSummaryOverdue">0</strong>
+        <p>Past due date.</p>
+      </article>
+      <article><span>Resolved Today</span><strong id="investigationSummaryResolvedToday">0</strong>
+        <p>Closed today.</p>
+      </article>
+    </section>
+
+    <section class="panel">
       <div class="panel-header">
         <div>
-          <h2>Investigation Cases</h2>
-          <p>Generated from flagged transaction alerts.</p>
+          <h2>Operations Working Queue</h2>
+          <p>Prioritized New, Under Review, and Escalated alerts and cases.</p>
         </div>
       </div>
-      <div id="caseList" class="investigation-table-slot"></div>
+      <div id="operationsQueue" class="operations-table-slot"></div>
     </section>
-  </section>
 
-  <section class="panel single-panel" id="audit">
-    <div class="panel-header">
-      <div>
-        <h2>Audit Log</h2>
-        <p>Immutable activity trail for monitoring and analyst actions.</p>
-      </div>
-      <div class="audit-controls">
-        <select id="auditActionFilter" aria-label="Audit action filter">
-          <option value="All">All Actions</option>
-        </select>
-        <select id="auditActorFilter" aria-label="Audit actor filter">
-          <option value="All">All Actors</option>
-        </select>
-      </div>
-    </div>
-    <div id="auditList" class="audit-list page-list"></div>
-    <div class="audit-pagination">
-      <button id="auditViewMore" type="button" class="secondary-btn">View More</button>
-      <button id="auditViewAll" type="button" class="secondary-btn">View All</button>
-    </div>
-  </section>
-</main>
+    <section class="workspace">
+      <section class="panel" id="alerts">
+        <div class="panel-header">
+          <div>
+            <h2>Alert Queue</h2>
+            <p>Assign and update compliance alert status.</p>
+          </div>
+        </div>
+        <div id="alertList" class="investigation-table-slot"></div>
+      </section>
 
-<%- include('partials/footer') %>
+      <section class="panel" id="cases">
+        <div class="panel-header">
+          <div>
+            <h2>Investigation Cases</h2>
+            <p>Generated from flagged transaction alerts.</p>
+          </div>
+        </div>
+        <div id="caseList" class="investigation-table-slot"></div>
+      </section>
+    </section>
+
+    <section class="panel single-panel" id="audit">
+      <div class="panel-header">
+        <div>
+          <h2>Audit Log</h2>
+          <p>Immutable activity trail for monitoring and analyst actions.</p>
+        </div>
+        <div class="audit-controls">
+          <select id="auditActionFilter" aria-label="Audit action filter">
+            <option value="All">All Actions</option>
+          </select>
+          <select id="auditActorFilter" aria-label="Audit actor filter">
+            <option value="All">All Actors</option>
+          </select>
+        </div>
+      </div>
+      <div id="auditList" class="audit-list page-list"></div>
+      <div class="audit-pagination">
+        <button id="auditViewMore" type="button" class="secondary-btn">View More</button>
+        <button id="auditViewAll" type="button" class="secondary-btn">View All</button>
+      </div>
+    </section>
+  </main>
+
+  <%- include('partials/footer') %>

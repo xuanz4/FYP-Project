@@ -4,7 +4,8 @@
     <section class="topbar">
       <div>
         <h1>Compliance Dashboard</h1>
-        <p>Monitor UNIWEB local card payments for any Singapore merchant profile, using MCC-driven merchant risk and card-payment behavioural signals. Scope is limited to local card payments only.</p>
+        <p>Monitor UNIWEB local card payments for any Singapore merchant profile, using MCC-driven merchant risk and
+          card-payment behavioural signals. Scope is limited to local card payments only.</p>
       </div>
       <div class="simulate-control">
         <button id="simulateBtn" type="button">Simulate High-Risk Transaction</button>
@@ -12,7 +13,7 @@
         <span id="simulateFeedback" class="muted"></span>
       </div>
     </section>
-    <!-- Company filter lets the dashboard show all companies or one selected company. -->
+    <!-- Merchant filter lets the dashboard show all merchant profiles or one selected profile. -->
     <section class="filter-bar">
       <label for="companyFilter">Merchant Profile</label>
       <select id="companyFilter" aria-label="Merchant profile filter">
@@ -22,13 +23,27 @@
 
     <!-- Dashboard metric cards show total screened, flag rate, active alerts, and value screened. -->
     <section class="metrics dashboard-kpi-grid" id="dashboard">
-      <article><span>Total Screened</span><strong id="totalMetric">0</strong><p>Current monitoring window.</p></article>
-      <article><span>Flagged Transactions</span><strong id="flaggedMetric">0</strong><p id="flagRateMetric">0% flag rate.</p></article>
-      <article><span>Cleared Transactions</span><strong id="clearedMetric">0</strong><p>Passed automated checks.</p></article>
-      <article><span>Active Assessments</span><strong id="activeAlertsMetric">0</strong><p>Open alert workload.</p></article>
-      <article><span>Waiting for Information</span><strong id="waitingInfoMetric">0</strong><p>Pending customer response.</p></article>
-      <article><span>Escalated Cases</span><strong id="escalatedCasesMetric">0</strong><p>Senior review queue.</p></article>
-      <article><span>Total Value Screened</span><strong id="valueMetric">SGD 0</strong><p>Screened transaction value.</p></article>
+      <article><span>Total Screened</span><strong id="totalMetric">0</strong>
+        <p>Current monitoring window.</p>
+      </article>
+      <article><span>Flagged Transactions</span><strong id="flaggedMetric">0</strong>
+        <p id="flagRateMetric">0% flag rate.</p>
+      </article>
+      <article><span>Cleared Transactions</span><strong id="clearedMetric">0</strong>
+        <p>Passed automated checks.</p>
+      </article>
+      <article><span>Active Assessments</span><strong id="activeAlertsMetric">0</strong>
+        <p>Open alert workload.</p>
+      </article>
+      <article><span>Waiting for Information</span><strong id="waitingInfoMetric">0</strong>
+        <p>Pending customer response.</p>
+      </article>
+      <article><span>Escalated Cases</span><strong id="escalatedCasesMetric">0</strong>
+        <p>Senior review queue.</p>
+      </article>
+      <article><span>Total Value Screened</span><strong id="valueMetric">SGD 0</strong>
+        <p>Screened transaction value.</p>
+      </article>
     </section>
 
     <section class="dashboard-chart-grid">

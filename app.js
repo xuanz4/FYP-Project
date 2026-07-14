@@ -1,6 +1,7 @@
 const express = require('express');
 require('dotenv').config();
 const path = require('path');
+const session = require('express-session');
 const {
   evaluateTransaction,
   companyRuleSets,
@@ -25,7 +26,23 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'transaction-monitor-session-secret',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    sameSite: 'lax',
+  },
+}));
 app.use(express.static(path.join(__dirname, 'public')));
+
+app.use((req, res, next) => {
+  res.locals.currentUser = req.session.user || null;
+  res.locals.currentRole = req.session.user?.role || null;
+  next();
+});
 
 const clients = new Set();
 const companies = Object.values(companyRuleSets);
@@ -59,6 +76,9 @@ const normalCustomerPool = [customers[0], customers[0], customers[1], customers[
 function queueDbWrite(action) {
   if (!database.isEnabled()) return;
   action().catch((error) => {
+    if (/Unknown table|doesn't exist|unknown column/i.test(error.message)) {
+      return;
+    }
     console.error(`Database write failed: ${error.message}`);
   });
 }
@@ -540,6 +560,482 @@ function getTransactionActivityLogs(transactionId) {
     ))
     .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
 }
+
+function roleHomePath(role) {
+  return {
+    Admin: '/admin',
+    Analyst: '/analyst',
+    STRO: '/stro',
+  }[role] || '/login';
+}
+
+function authRedirect(req, res, next) {
+  const publicPaths = [
+    '/login',
+    '/auth/login',
+    '/logout',
+    '/styles.css',
+    '/app.js',
+    '/images',
+  ];
+
+  if (req.path.startsWith('/api/')) {
+    return next();
+  }
+
+  if (publicPaths.some((pathPrefix) => req.path === pathPrefix || req.path.startsWith(`${pathPrefix}/`))) {
+    return next();
+  }
+
+  if (!req.session.user) {
+    return res.redirect('/login');
+  }
+
+  return next();
+}
+
+function requireRole(...roles) {
+  return (req, res, next) => {
+    if (!req.session.user) return res.redirect('/login');
+    if (!roles.includes(req.session.user.role)) {
+      return res.status(403).send('Forbidden');
+    }
+    return next();
+  };
+}
+
+function requireAuth(req, res, next) {
+  if (!req.session.user) {
+    return res.redirect('/login');
+  }
+
+  return next();
+}
+
+function renderLogin(req, res, error = null) {
+  if (req.session.user) {
+    return res.redirect(roleHomePath(req.session.user.role));
+  }
+
+  return res.render('login', {
+    title: 'Login',
+    layout: 'login',
+    error,
+  });
+}
+
+app.use(authRedirect);
+
+app.get('/login', (req, res) => renderLogin(req, res));
+
+app.post('/auth/login', async (req, res) => {
+  try {
+    const userId = String(req.body.userId || '').trim();
+    const password = String(req.body.password || '');
+    if (!userId || !password) {
+      return renderLogin(req, res, 'User ID and password are required.');
+    }
+
+    const [rows] = await database.query(
+      `SELECT user_id, user_name, user_role, is_active
+       FROM users
+       WHERE user_id = ?
+         AND password = SHA2(?, 256)
+         AND is_active = 1
+       LIMIT 1`,
+      [userId, password],
+    );
+
+    const user = rows[0];
+    if (!user) {
+      return renderLogin(req, res, 'Invalid credentials or inactive account.');
+    }
+
+    req.session.user = {
+      id: user.user_id,
+      name: user.user_name,
+      role: user.user_role,
+    };
+
+    return res.redirect(roleHomePath(user.user_role));
+  } catch (error) {
+    console.error('Login failed', error);
+    return renderLogin(req, res, 'Unable to sign in right now.');
+  }
+});
+
+app.get('/logout', (req, res) => {
+  req.session.destroy(() => {
+    res.redirect('/login');
+  });
+});
+
+app.get('/', requireAuth, (req, res) => res.redirect(roleHomePath(req.session.user.role)));
+app.get('/dashboard', requireAuth, (req, res) => res.redirect(roleHomePath(req.session.user.role)));
+
+app.get('/admin', requireRole('Admin'), async (req, res) => {
+  const [users, merchants, rules, transactions, auditLogs] = await Promise.all([
+    database.query('SELECT user_id, user_name, user_role, is_active FROM users ORDER BY user_name ASC').then(([rows]) => rows),
+    database.query('SELECT merchant_id, merchant_name, mcc_code, industry, mcc_risk_score, is_active FROM merchants ORDER BY merchant_name ASC').then(([rows]) => rows),
+    database.query('SELECT rule_id, merchant_id, rule_name, risk_level, reason, weight, amount_threshold, count_threshold, rule_type, is_active FROM compliance_rules ORDER BY rule_name ASC').then(([rows]) => rows),
+    database.query('SELECT t.transaction_id, t.merchant_id, m.merchant_name, t.amount, t.risk_level, t.status, t.action_status, t.created_at FROM transactions t LEFT JOIN merchants m ON t.merchant_id = m.merchant_id ORDER BY t.created_at DESC').then(([rows]) => rows),
+    database.query('SELECT audit_id, transaction_id, action, user_id, notes, created_at FROM audit_logs ORDER BY created_at DESC LIMIT 100').then(([rows]) => rows),
+  ]);
+
+  return res.render('role-dashboard', {
+    title: 'Admin Dashboard',
+    activePage: 'admin',
+    role: 'Admin',
+    users,
+    merchants,
+    rules,
+    transactions,
+    auditLogs,
+    cases: [],
+    filters: {},
+  });
+});
+
+app.get('/analyst', requireRole('Analyst'), async (req, res) => {
+  const [transactions, cases, auditLogs] = await Promise.all([
+    database.query('SELECT t.transaction_id, t.merchant_id, m.merchant_name, t.amount, t.risk_level, t.status, t.action_status, t.created_at FROM transactions t LEFT JOIN merchants m ON t.merchant_id = m.merchant_id ORDER BY t.created_at DESC').then(([rows]) => rows),
+    database.query('SELECT case_id, transaction_id, created_by, assigned_to, status, notes, created_at, updated_at FROM cases WHERE created_by = ? ORDER BY created_at DESC', [req.session.user.id]).then(([rows]) => rows),
+    database.query('SELECT audit_id, transaction_id, action, user_id, notes, created_at FROM audit_logs WHERE user_id = ? ORDER BY created_at DESC LIMIT 60', [req.session.user.id]).then(([rows]) => rows),
+  ]);
+
+  return res.render('role-dashboard', {
+    title: 'Analyst Dashboard',
+    activePage: 'analyst',
+    role: 'Analyst',
+    users: [],
+    merchants: [],
+    rules: [],
+    transactions,
+    auditLogs,
+    cases,
+    filters: {},
+  });
+});
+
+app.get('/stro', requireRole('STRO'), async (req, res) => {
+  const [cases, auditLogs] = await Promise.all([
+    database.query('SELECT case_id, transaction_id, created_by, assigned_to, status, notes, created_at, updated_at FROM cases WHERE status = ? OR assigned_to = ? ORDER BY created_at DESC', ['Escalated', req.session.user.id]).then(([rows]) => rows),
+    database.query('SELECT audit_id, transaction_id, action, user_id, notes, created_at FROM audit_logs ORDER BY created_at DESC LIMIT 60').then(([rows]) => rows),
+  ]);
+
+  return res.render('role-dashboard', {
+    title: 'STRO Dashboard',
+    activePage: 'stro',
+    role: 'STRO',
+    users: [],
+    merchants: [],
+    rules: [],
+    transactions: [],
+    auditLogs,
+    cases,
+    filters: {},
+  });
+});
+
+app.get('/transactions/:id', requireAuth, async (req, res) => {
+  const [transactionRows, caseRows] = await Promise.all([
+    database.query(
+      `SELECT t.*, m.merchant_name
+       FROM transactions t
+       LEFT JOIN merchants m ON t.merchant_id = m.merchant_id
+       WHERE t.transaction_id = ?
+       LIMIT 1`,
+      [req.params.id],
+    ).then(([rows]) => rows),
+    database.query('SELECT case_id, transaction_id, created_by, assigned_to, status, notes, created_at, updated_at FROM cases WHERE transaction_id = ? ORDER BY created_at DESC', [req.params.id]).then(([rows]) => rows),
+  ]);
+
+  const transaction = transactionRows[0] || null;
+  if (!transaction) {
+    return res.status(404).render('transaction-detail', {
+      title: 'Transaction Not Found',
+      activePage: req.session.user.role === 'Admin' ? 'admin' : req.session.user.role === 'STRO' ? 'stro' : 'analyst',
+      transaction: null,
+      currentUser: req.session.user,
+      currentRole: req.session.user.role,
+      caseRecord: null,
+    });
+  }
+
+  const caseRecord = caseRows[0] || null;
+  return res.render('transaction-detail', {
+    title: `Transaction ${transaction.transaction_id}`,
+    activePage: req.session.user.role === 'Admin' ? 'admin' : req.session.user.role === 'STRO' ? 'stro' : 'analyst',
+    transaction,
+    caseRecord,
+    currentUser: req.session.user,
+    currentRole: req.session.user.role,
+  });
+});
+
+function backPath(req, fallback) {
+  return req.body.returnTo || req.get('referer') || fallback;
+}
+
+function auditEntryForAction(userId, transactionId, action, notes) {
+  return {
+    auditId: id('AUD'),
+    transactionId,
+    action,
+    userId,
+    notes,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+app.post('/admin/users', requireRole('Admin'), async (req, res) => {
+  const userId = String(req.body.userId || '').trim();
+  const userName = String(req.body.userName || '').trim();
+  const userRole = String(req.body.userRole || '').trim();
+  const password = String(req.body.password || '12345678');
+  const isActive = req.body.isActive !== '0';
+  if (!userId || !userName || !userRole) return res.redirect('/admin#users');
+
+  await database.execute(
+    `INSERT INTO users (user_id, user_name, user_role, password, is_active)
+     VALUES (?, ?, ?, SHA2(?, 256), ?)
+     ON DUPLICATE KEY UPDATE
+       user_name = VALUES(user_name),
+       user_role = VALUES(user_role),
+       password = VALUES(password),
+       is_active = VALUES(is_active)`,
+    [userId, userName, userRole, password, isActive ? 1 : 0],
+  );
+
+  return res.redirect('/admin#users');
+});
+
+app.post('/admin/users/:id', requireRole('Admin'), async (req, res) => {
+  const updates = [];
+  const values = [];
+  if (req.body.userName) { updates.push('user_name = ?'); values.push(String(req.body.userName).trim()); }
+  if (req.body.userRole) { updates.push('user_role = ?'); values.push(String(req.body.userRole).trim()); }
+  if (req.body.password) { updates.push('password = SHA2(?, 256)'); values.push(String(req.body.password)); }
+  if (typeof req.body.isActive !== 'undefined') { updates.push('is_active = ?'); values.push(req.body.isActive === '1' || req.body.isActive === 'true' ? 1 : 0); }
+  if (updates.length) {
+    values.push(req.params.id);
+    await database.execute(`UPDATE users SET ${updates.join(', ')} WHERE user_id = ?`, values);
+  }
+  return res.redirect('/admin#users');
+});
+
+app.post('/admin/users/:id/toggle', requireRole('Admin'), async (req, res) => {
+  const [rows] = await database.query('SELECT is_active FROM users WHERE user_id = ? LIMIT 1', [req.params.id]);
+  const current = rows[0];
+  if (current) {
+    await database.execute('UPDATE users SET is_active = ? WHERE user_id = ?', [current.is_active ? 0 : 1, req.params.id]);
+  }
+  return res.redirect('/admin#users');
+});
+
+app.post('/admin/users/:id/delete', requireRole('Admin'), async (req, res) => {
+  await database.execute('DELETE FROM users WHERE user_id = ?', [req.params.id]);
+  return res.redirect('/admin#users');
+});
+
+app.post('/admin/merchants', requireRole('Admin'), async (req, res) => {
+  const merchantId = String(req.body.merchantId || '').trim();
+  const merchantName = String(req.body.merchantName || '').trim();
+  const mccCode = String(req.body.mccCode || '').trim();
+  const industry = String(req.body.industry || '').trim();
+  const mccRiskScore = Number(req.body.mccRiskScore || 0);
+  const isActive = req.body.isActive !== '0';
+  if (!merchantId || !merchantName || !mccCode || !industry) return res.redirect('/admin#merchants');
+
+  await database.execute(
+    `INSERT INTO merchants (merchant_id, merchant_name, mcc_code, industry, mcc_risk_score, is_active)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       merchant_name = VALUES(merchant_name),
+       mcc_code = VALUES(mcc_code),
+       industry = VALUES(industry),
+       mcc_risk_score = VALUES(mcc_risk_score),
+       is_active = VALUES(is_active)`,
+    [merchantId, merchantName, mccCode, industry, mccRiskScore, isActive ? 1 : 0],
+  );
+
+  return res.redirect('/admin#merchants');
+});
+
+app.post('/admin/merchants/:id', requireRole('Admin'), async (req, res) => {
+  const updates = [];
+  const values = [];
+  if (req.body.merchantName) { updates.push('merchant_name = ?'); values.push(String(req.body.merchantName).trim()); }
+  if (req.body.mccCode) { updates.push('mcc_code = ?'); values.push(String(req.body.mccCode).trim()); }
+  if (req.body.industry) { updates.push('industry = ?'); values.push(String(req.body.industry).trim()); }
+  if (req.body.mccRiskScore !== undefined) { updates.push('mcc_risk_score = ?'); values.push(Number(req.body.mccRiskScore || 0)); }
+  if (typeof req.body.isActive !== 'undefined') { updates.push('is_active = ?'); values.push(req.body.isActive === '1' || req.body.isActive === 'true' ? 1 : 0); }
+  if (updates.length) {
+    values.push(req.params.id);
+    await database.execute(`UPDATE merchants SET ${updates.join(', ')} WHERE merchant_id = ?`, values);
+  }
+  return res.redirect('/admin#merchants');
+});
+
+app.post('/admin/merchants/:id/delete', requireRole('Admin'), async (req, res) => {
+  await database.execute('DELETE FROM merchants WHERE merchant_id = ?', [req.params.id]);
+  return res.redirect('/admin#merchants');
+});
+
+app.post('/admin/rules', requireRole('Admin'), async (req, res) => {
+  const payload = {
+    ruleId: String(req.body.ruleId || '').trim(),
+    merchantId: req.body.merchantId ? String(req.body.merchantId).trim() : null,
+    ruleName: String(req.body.ruleName || '').trim(),
+    riskLevel: String(req.body.riskLevel || 'Low').trim(),
+    reason: String(req.body.reason || '').trim(),
+    weight: Number(req.body.weight || 0),
+    amountThreshold: req.body.amountThreshold ? Number(req.body.amountThreshold) : null,
+    countThreshold: req.body.countThreshold ? Number(req.body.countThreshold) : null,
+    ruleType: String(req.body.ruleType || 'runtime_rule').trim(),
+    isActive: req.body.isActive !== '0',
+  };
+
+  if (!payload.ruleId || !payload.ruleName || !payload.reason) return res.redirect('/admin#rules');
+
+  await database.execute(
+    `INSERT INTO compliance_rules (rule_id, merchant_id, rule_name, risk_level, reason, weight, amount_threshold, count_threshold, rule_type, is_active)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       merchant_id = VALUES(merchant_id),
+       rule_name = VALUES(rule_name),
+       risk_level = VALUES(risk_level),
+       reason = VALUES(reason),
+       weight = VALUES(weight),
+       amount_threshold = VALUES(amount_threshold),
+       count_threshold = VALUES(count_threshold),
+       rule_type = VALUES(rule_type),
+       is_active = VALUES(is_active)`,
+    [payload.ruleId, payload.merchantId, payload.ruleName, payload.riskLevel, payload.reason, payload.weight, payload.amountThreshold, payload.countThreshold, payload.ruleType, payload.isActive ? 1 : 0],
+  );
+
+  return res.redirect('/admin#rules');
+});
+
+app.post('/admin/rules/:id', requireRole('Admin'), async (req, res) => {
+  const updates = [];
+  const values = [];
+  if (req.body.merchantId !== undefined) { updates.push('merchant_id = ?'); values.push(req.body.merchantId ? String(req.body.merchantId).trim() : null); }
+  if (req.body.ruleName) { updates.push('rule_name = ?'); values.push(String(req.body.ruleName).trim()); }
+  if (req.body.riskLevel) { updates.push('risk_level = ?'); values.push(String(req.body.riskLevel).trim()); }
+  if (req.body.reason) { updates.push('reason = ?'); values.push(String(req.body.reason).trim()); }
+  if (req.body.weight !== undefined) { updates.push('weight = ?'); values.push(Number(req.body.weight || 0)); }
+  if (req.body.amountThreshold !== undefined) { updates.push('amount_threshold = ?'); values.push(req.body.amountThreshold === '' ? null : Number(req.body.amountThreshold)); }
+  if (req.body.countThreshold !== undefined) { updates.push('count_threshold = ?'); values.push(req.body.countThreshold === '' ? null : Number(req.body.countThreshold)); }
+  if (req.body.ruleType) { updates.push('rule_type = ?'); values.push(String(req.body.ruleType).trim()); }
+  if (typeof req.body.isActive !== 'undefined') { updates.push('is_active = ?'); values.push(req.body.isActive === '1' || req.body.isActive === 'true' ? 1 : 0); }
+  if (updates.length) {
+    values.push(req.params.id);
+    await database.execute(`UPDATE compliance_rules SET ${updates.join(', ')} WHERE rule_id = ?`, values);
+  }
+  return res.redirect('/admin#rules');
+});
+
+app.post('/admin/rules/:id/delete', requireRole('Admin'), async (req, res) => {
+  await database.execute('DELETE FROM compliance_rules WHERE rule_id = ?', [req.params.id]);
+  return res.redirect('/admin#rules');
+});
+
+app.post('/admin/transactions/:id', requireRole('Admin'), async (req, res) => {
+  const updates = [];
+  const values = [];
+  if (req.body.merchantId) { updates.push('merchant_id = ?'); values.push(String(req.body.merchantId).trim()); }
+  if (req.body.amount) { updates.push('amount = ?'); values.push(Number(req.body.amount)); }
+  if (req.body.status) { updates.push('status = ?'); values.push(String(req.body.status).trim()); }
+  if (req.body.actionStatus) { updates.push('action_status = ?'); values.push(String(req.body.actionStatus).trim()); }
+  if (req.body.riskLevel) { updates.push('risk_level = ?'); values.push(String(req.body.riskLevel).trim()); }
+  if (req.body.riskScore) { updates.push('risk_score = ?'); values.push(Number(req.body.riskScore)); }
+  if (req.body.transactionCode) { updates.push('transaction_code = ?'); values.push(String(req.body.transactionCode).trim()); }
+  if (req.body.bankIssuer) { updates.push('bank_issuer = ?'); values.push(String(req.body.bankIssuer).trim()); }
+  if (updates.length) {
+    values.push(req.params.id);
+    await database.execute(`UPDATE transactions SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE transaction_id = ?`, values);
+  }
+  return res.redirect('/admin#transactions');
+});
+
+app.post('/admin/transactions/:id/delete', requireRole('Admin'), async (req, res) => {
+  await database.execute('DELETE FROM transactions WHERE transaction_id = ?', [req.params.id]);
+  return res.redirect('/admin#transactions');
+});
+
+app.post('/analyst/cases', requireRole('Analyst'), async (req, res) => {
+  const transactionId = String(req.body.transactionId || '').trim();
+  const notes = String(req.body.notes || '').trim();
+  const assignedTo = req.body.assignedTo ? String(req.body.assignedTo).trim() : null;
+  if (!transactionId) return res.redirect('/analyst#cases');
+
+  const caseId = id('CASE');
+  await database.execute(
+    `INSERT INTO cases (case_id, transaction_id, created_by, assigned_to, status, notes)
+     VALUES (?, ?, ?, ?, 'Open', ?)`,
+    [caseId, transactionId, req.session.user.id, assignedTo, notes || null],
+  );
+  await database.execute('UPDATE transactions SET action_status = ? WHERE transaction_id = ?', ['None', transactionId]);
+  await database.execute(
+    `INSERT INTO audit_logs (audit_id, transaction_id, action, user_id, notes, created_at)
+     VALUES (?, ?, ?, ?, ?, NOW())`,
+    [id('AUD'), transactionId, 'Case Opened', req.session.user.id, notes || 'Analyst opened a case'],
+  );
+
+  return res.redirect('/analyst#cases');
+});
+
+app.post('/analyst/cases/:id/action', requireRole('Analyst'), async (req, res) => {
+  const action = String(req.body.action || '').trim();
+  const notes = String(req.body.notes || '').trim();
+  const [rows] = await database.query('SELECT transaction_id FROM cases WHERE case_id = ? LIMIT 1', [req.params.id]);
+  const caseRow = rows[0];
+  if (!caseRow) return res.redirect('/analyst#cases');
+
+  const actionMap = {
+    rfi: { status: 'Pending RFI', actionStatus: 'Pending RFI', label: 'Request RFI' },
+    escalate: { status: 'Escalated', actionStatus: 'Escalated', label: 'Escalated case' },
+    dismiss: { status: 'Dismissed as False Positive', actionStatus: 'Dismissed as False Positive', label: 'Dismissed as False Positive' },
+  };
+  const selected = actionMap[action];
+  if (!selected) return res.redirect('/analyst#cases');
+
+  await database.execute('UPDATE cases SET status = ?, notes = COALESCE(?, notes), updated_at = CURRENT_TIMESTAMP WHERE case_id = ?', [selected.status, notes || null, req.params.id]);
+  await database.execute('UPDATE transactions SET action_status = ?, updated_at = CURRENT_TIMESTAMP WHERE transaction_id = ?', [selected.actionStatus, caseRow.transaction_id]);
+  await database.execute(
+    `INSERT INTO audit_logs (audit_id, transaction_id, action, user_id, notes, created_at)
+     VALUES (?, ?, ?, ?, ?, NOW())`,
+    [id('AUD'), caseRow.transaction_id, selected.label, req.session.user.id, notes || selected.label],
+  );
+
+  return res.redirect('/analyst#cases');
+});
+
+app.post('/stro/cases/:id/action', requireRole('STRO'), async (req, res) => {
+  const action = String(req.body.action || '').trim();
+  const notes = String(req.body.notes || '').trim();
+  const [rows] = await database.query('SELECT transaction_id FROM cases WHERE case_id = ? LIMIT 1', [req.params.id]);
+  const caseRow = rows[0];
+  if (!caseRow) return res.redirect('/stro#cases');
+
+  const actionMap = {
+    dismiss: { status: 'Dismissed as False Positive', actionStatus: 'Dismissed as False Positive', label: 'Dismissed as False Positive' },
+    str: { status: 'STR Filed', actionStatus: 'STR Filed', label: 'STR Filed' },
+  };
+  const selected = actionMap[action];
+  if (!selected) return res.redirect('/stro#cases');
+
+  await database.execute('UPDATE cases SET status = ?, notes = COALESCE(?, notes), updated_at = CURRENT_TIMESTAMP WHERE case_id = ?', [selected.status, notes || null, req.params.id]);
+  await database.execute('UPDATE transactions SET action_status = ?, updated_at = CURRENT_TIMESTAMP WHERE transaction_id = ?', [selected.actionStatus, caseRow.transaction_id]);
+  await database.execute(
+    `INSERT INTO audit_logs (audit_id, transaction_id, action, user_id, notes, created_at)
+     VALUES (?, ?, ?, ?, ?, NOW())`,
+    [id('AUD'), caseRow.transaction_id, selected.label, req.session.user.id, notes || selected.label],
+  );
+
+  return res.redirect('/stro#cases');
+});
 
 
 function renderPage(view, title, activePage) {
@@ -1901,8 +2397,8 @@ app.post('/api/transactions/:id/rfi', async (req, res) => {
     message: delivery?.etherealMode
       ? 'Test email created successfully. This message was not delivered to the customer.'
       : delivery?.testMode
-      ? 'RFI email accepted for delivery.'
-      : 'RFI email accepted for delivery.',
+        ? 'RFI email accepted for delivery.'
+        : 'RFI email accepted for delivery.',
     transaction,
     case: complianceCase,
     auditEntry,

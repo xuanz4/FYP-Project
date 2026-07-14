@@ -1,0 +1,636 @@
+<%- include('partials/head', { title, activePage }) %>
+
+    <main class="role-dashboard role-<%= role.toLowerCase() %>">
+        <section class="topbar">
+            <div>
+                <h1>
+                    <%= role %> Dashboard
+                </h1>
+                <p>Signed in as <strong>
+                        <%= currentUser.name %>
+                    </strong> (<%= currentUser.id %>)</p>
+            </div>
+            <a class="secondary-link" href="/logout">Logout</a>
+        </section>
+
+        <% if (role==='Admin' ) { %>
+            <section class="dashboard-tabs" id="admin-tabs">
+                <a href="#users">User Management</a>
+                <a href="#transactions">Transaction Management</a>
+                <a href="#audit">Audit Log</a>
+                <a href="#merchants">Merchant Management</a>
+                <a href="#rules">Rule Management</a>
+            </section>
+
+            <section class="panel" id="users">
+                <div class="panel-header">
+                    <div>
+                        <h2>User Management</h2>
+                        <p>Create, edit, disable, or remove users.</p>
+                    </div>
+                </div>
+                <form method="post" action="/admin/users" class="grid-form compact-form">
+                    <label><span>User ID</span><input name="userId" required></label>
+                    <label><span>User Name</span><input name="userName" required></label>
+                    <label><span>Role</span><select name="userRole" required>
+                            <option>Analyst</option>
+                            <option>STRO</option>
+                            <option>Admin</option>
+                        </select></label>
+                    <label><span>Password</span><input name="password" value="12345678"></label>
+                    <label><span>Active</span><select name="isActive">
+                            <option value="1">Active</option>
+                            <option value="0">Inactive</option>
+                        </select></label>
+                    <button class="primary-btn" type="submit">Create User</button>
+                </form>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>User ID</th>
+                                <th>Name</th>
+                                <th>Role</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <% users.forEach((user)=> { %>
+                                <tr>
+                                    <td>
+                                        <%= user.user_id %>
+                                    </td>
+                                    <td>
+                                        <%= user.user_name %>
+                                    </td>
+                                    <td>
+                                        <%= user.user_role %>
+                                    </td>
+                                    <td>
+                                        <%= user.is_active ? 'Active' : 'Inactive' %>
+                                    </td>
+                                    <td class="table-actions">
+                                        <form method="post" action="/admin/users/<%= user.user_id %>"
+                                            class="inline-edit-form">
+                                            <input name="userName" value="<%= user.user_name %>">
+                                            <select name="userRole">
+                                                <option value="Analyst" <%=user.user_role==='Analyst' ? 'selected' : ''
+                                                    %>>Analyst</option>
+                                                <option value="STRO" <%=user.user_role==='STRO' ? 'selected' : '' %>
+                                                    >STRO</option>
+                                                <option value="Admin" <%=user.user_role==='Admin' ? 'selected' : '' %>
+                                                    >Admin</option>
+                                            </select>
+                                            <input name="password" placeholder="New password">
+                                            <select name="isActive">
+                                                <option value="1" <%=user.is_active ? 'selected' : '' %>>Active</option>
+                                                <option value="0" <%=!user.is_active ? 'selected' : '' %>>Inactive
+                                                </option>
+                                            </select>
+                                            <button type="submit" class="secondary-btn">Save</button>
+                                        </form>
+                                        <form method="post" action="/admin/users/<%= user.user_id %>/toggle"><button
+                                                type="submit" class="secondary-btn">Toggle</button></form>
+                                        <form method="post" action="/admin/users/<%= user.user_id %>/delete"><button
+                                                type="submit" class="secondary-btn danger"
+                                                data-confirm="true">Delete</button></form>
+                                    </td>
+                                </tr>
+                                <% }) %>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="panel" id="transactions">
+                <div class="panel-header">
+                    <div>
+                        <h2>Transaction Management</h2>
+                        <p>Edit or delete transactions.</p>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Transaction</th>
+                                <th>Merchant</th>
+                                <th>Amount</th>
+                                <th>Risk</th>
+                                <th>Status</th>
+                                <th>Action Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <% transactions.forEach((transaction)=> { %>
+                                <tr>
+                                    <td><a href="/transactions/<%= transaction.transaction_id %>">
+                                            <%= transaction.transaction_id %>
+                                        </a></td>
+                                    <td>
+                                        <%= transaction.merchant_name || transaction.merchant_id %>
+                                    </td>
+                                    <td>
+                                        <%= Number(transaction.amount).toFixed(2) %>
+                                    </td>
+                                    <td>
+                                        <%= transaction.risk_level %>
+                                    </td>
+                                    <td>
+                                        <%= transaction.status %>
+                                    </td>
+                                    <td>
+                                        <%= transaction.action_status %>
+                                    </td>
+                                    <td class="table-actions">
+                                        <form method="post"
+                                            action="/admin/transactions/<%= transaction.transaction_id %>"
+                                            class="inline-edit-form">
+                                            <input name="merchantId" value="<%= transaction.merchant_id %>">
+                                            <input name="amount" type="number" step="0.01"
+                                                value="<%= transaction.amount %>">
+                                            <select name="status">
+                                                <option value="Cleared" <%=transaction.status==='Cleared' ? 'selected'
+                                                    : '' %>>Cleared</option>
+                                                <option value="Flagged" <%=transaction.status==='Flagged' ? 'selected'
+                                                    : '' %>>Flagged</option>
+                                            </select>
+                                            <input name="actionStatus" value="<%= transaction.action_status %>">
+                                            <select name="riskLevel">
+                                                <option value="Low" <%=transaction.risk_level==='Low' ? 'selected' : ''
+                                                    %>>Low</option>
+                                                <option value="Medium" <%=transaction.risk_level==='Medium' ? 'selected'
+                                                    : '' %>>Medium</option>
+                                                <option value="High" <%=transaction.risk_level==='High' ? 'selected'
+                                                    : '' %>>High</option>
+                                                <option value="Critical" <%=transaction.risk_level==='Critical'
+                                                    ? 'selected' : '' %>>Critical</option>
+                                            </select>
+                                            <input name="riskScore" type="number"
+                                                value="<%= transaction.risk_score || 0 %>">
+                                            <input name="transactionCode"
+                                                value="<%= transaction.transaction_code || '' %>">
+                                            <input name="bankIssuer" value="<%= transaction.bank_issuer || '' %>">
+                                            <button type="submit" class="secondary-btn">Save</button>
+                                        </form>
+                                        <form method="post"
+                                            action="/admin/transactions/<%= transaction.transaction_id %>/delete">
+                                            <button type="submit" class="secondary-btn danger"
+                                                data-confirm="true">Delete</button></form>
+                                    </td>
+                                </tr>
+                                <% }) %>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="panel" id="audit">
+                <div class="panel-header">
+                    <div>
+                        <h2>Audit Log</h2>
+                        <p>Filter by transaction, user, or date range.</p>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Action</th>
+                                <th>User</th>
+                                <th>Transaction</th>
+                                <th>Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <% auditLogs.forEach((entry)=> { %>
+                                <tr>
+                                    <td>
+                                        <%= new Date(entry.created_at).toLocaleString('en-SG') %>
+                                    </td>
+                                    <td>
+                                        <%= entry.action %>
+                                    </td>
+                                    <td>
+                                        <%= entry.user_id %>
+                                    </td>
+                                    <td>
+                                        <%= entry.transaction_id %>
+                                    </td>
+                                    <td>
+                                        <%= entry.notes || '' %>
+                                    </td>
+                                </tr>
+                                <% }) %>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="panel" id="merchants">
+                <div class="panel-header">
+                    <div>
+                        <h2>Merchant Management</h2>
+                        <p>Create, edit, or retire merchants.</p>
+                    </div>
+                </div>
+                <form method="post" action="/admin/merchants" class="grid-form compact-form">
+                    <label><span>Merchant ID</span><input name="merchantId" required></label>
+                    <label><span>Merchant Name</span><input name="merchantName" required></label>
+                    <label><span>MCC Code</span><input name="mccCode" required></label>
+                    <label><span>Industry</span><input name="industry" required></label>
+                    <label><span>MCC Risk Score</span><input name="mccRiskScore" type="number" min="0"
+                            value="0"></label>
+                    <label><span>Active</span><select name="isActive">
+                            <option value="1">Active</option>
+                            <option value="0">Inactive</option>
+                        </select></label>
+                    <button class="primary-btn" type="submit">Create Merchant</button>
+                </form>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Merchant ID</th>
+                                <th>Name</th>
+                                <th>MCC</th>
+                                <th>Industry</th>
+                                <th>Risk</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <% merchants.forEach((merchant)=> { %>
+                                <tr>
+                                    <td>
+                                        <%= merchant.merchant_id %>
+                                    </td>
+                                    <td>
+                                        <%= merchant.merchant_name %>
+                                    </td>
+                                    <td>
+                                        <%= merchant.mcc_code %>
+                                    </td>
+                                    <td>
+                                        <%= merchant.industry %>
+                                    </td>
+                                    <td>
+                                        <%= merchant.mcc_risk_score %>
+                                    </td>
+                                    <td>
+                                        <%= merchant.is_active ? 'Active' : 'Inactive' %>
+                                    </td>
+                                    <td class="table-actions">
+                                        <form method="post" action="/admin/merchants/<%= merchant.merchant_id %>"
+                                            class="inline-edit-form">
+                                            <input name="merchantName" value="<%= merchant.merchant_name %>">
+                                            <input name="mccCode" value="<%= merchant.mcc_code %>">
+                                            <input name="industry" value="<%= merchant.industry %>">
+                                            <input name="mccRiskScore" type="number"
+                                                value="<%= merchant.mcc_risk_score %>">
+                                            <select name="isActive">
+                                                <option value="1" <%=merchant.is_active ? 'selected' : '' %>>Active
+                                                </option>
+                                                <option value="0" <%=!merchant.is_active ? 'selected' : '' %>>Inactive
+                                                </option>
+                                            </select>
+                                            <button type="submit" class="secondary-btn">Save</button>
+                                        </form>
+                                        <form method="post"
+                                            action="/admin/merchants/<%= merchant.merchant_id %>/delete"><button
+                                                type="submit" class="secondary-btn danger"
+                                                data-confirm="true">Delete</button></form>
+                                    </td>
+                                </tr>
+                                <% }) %>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="panel" id="rules">
+                <div class="panel-header">
+                    <div>
+                        <h2>Rule Management</h2>
+                        <p>Manage merchant rules and thresholds.</p>
+                    </div>
+                </div>
+                <form method="post" action="/admin/rules" class="grid-form compact-form">
+                    <label><span>Rule ID</span><input name="ruleId" required></label>
+                    <label><span>Merchant ID</span><input name="merchantId"></label>
+                    <label><span>Rule Name</span><input name="ruleName" required></label>
+                    <label><span>Risk Level</span><select name="riskLevel">
+                            <option>Low</option>
+                            <option>Medium</option>
+                            <option>High</option>
+                            <option>Critical</option>
+                        </select></label>
+                    <label><span>Reason</span><input name="reason" required></label>
+                    <label><span>Weight</span><input name="weight" type="number" min="0" value="0"></label>
+                    <label><span>Amount Threshold</span><input name="amountThreshold" type="number" step="0.01"></label>
+                    <label><span>Count Threshold</span><input name="countThreshold" type="number"></label>
+                    <label><span>Rule Type</span><input name="ruleType" value="runtime_rule"></label>
+                    <label><span>Active</span><select name="isActive">
+                            <option value="1">Active</option>
+                            <option value="0">Inactive</option>
+                        </select></label>
+                    <button class="primary-btn" type="submit">Create Rule</button>
+                </form>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Rule ID</th>
+                                <th>Merchant</th>
+                                <th>Rule</th>
+                                <th>Risk</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <% rules.forEach((rule)=> { %>
+                                <tr>
+                                    <td>
+                                        <%= rule.rule_id %>
+                                    </td>
+                                    <td>
+                                        <%= rule.merchant_id || 'All' %>
+                                    </td>
+                                    <td>
+                                        <%= rule.rule_name %>
+                                    </td>
+                                    <td>
+                                        <%= rule.risk_level %>
+                                    </td>
+                                    <td class="table-actions">
+                                        <form method="post" action="/admin/rules/<%= rule.rule_id %>"
+                                            class="inline-edit-form">
+                                            <input name="merchantId" value="<%= rule.merchant_id || '' %>">
+                                            <input name="ruleName" value="<%= rule.rule_name %>">
+                                            <select name="riskLevel">
+                                                <option value="Low" <%=rule.risk_level==='Low' ? 'selected' : '' %>>Low
+                                                </option>
+                                                <option value="Medium" <%=rule.risk_level==='Medium' ? 'selected' : ''
+                                                    %>>Medium</option>
+                                                <option value="High" <%=rule.risk_level==='High' ? 'selected' : '' %>
+                                                    >High</option>
+                                                <option value="Critical" <%=rule.risk_level==='Critical' ? 'selected'
+                                                    : '' %>>Critical</option>
+                                            </select>
+                                            <input name="reason" value="<%= rule.reason %>">
+                                            <input name="weight" type="number" value="<%= rule.weight %>">
+                                            <input name="amountThreshold" type="number" step="0.01"
+                                                value="<%= rule.amount_threshold ?? '' %>">
+                                            <input name="countThreshold" type="number"
+                                                value="<%= rule.count_threshold ?? '' %>">
+                                            <input name="ruleType" value="<%= rule.rule_type %>">
+                                            <select name="isActive">
+                                                <option value="1" <%=rule.is_active ? 'selected' : '' %>>Active</option>
+                                                <option value="0" <%=!rule.is_active ? 'selected' : '' %>>Inactive
+                                                </option>
+                                            </select>
+                                            <button type="submit" class="secondary-btn">Save</button>
+                                        </form>
+                                        <form method="post" action="/admin/rules/<%= rule.rule_id %>/delete"><button
+                                                type="submit" class="secondary-btn danger"
+                                                data-confirm="true">Delete</button></form>
+                                    </td>
+                                </tr>
+                                <% }) %>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+            <% } else if (role==='Analyst' ) { %>
+                <section class="dashboard-tabs">
+                    <a href="#live-feed">Live Transaction Feed</a>
+                    <a href="#queue">Operations Working Queue</a>
+                    <a href="#cases">Cases</a>
+                </section>
+
+                <section class="panel" id="live-feed">
+                    <div class="panel-header">
+                        <div>
+                            <h2>Live Transaction Feed</h2>
+                            <p>All transactions visible to analysts.</p>
+                        </div>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Transaction</th>
+                                    <th>Merchant</th>
+                                    <th>Amount</th>
+                                    <th>Risk</th>
+                                    <th>Status</th>
+                                    <th>Action Status</th>
+                                    <th>Review</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <% transactions.forEach((transaction)=> { %>
+                                    <tr>
+                                        <td>
+                                            <%= transaction.transaction_id %>
+                                        </td>
+                                        <td>
+                                            <%= transaction.merchant_name || transaction.merchant_id %>
+                                        </td>
+                                        <td>
+                                            <%= Number(transaction.amount).toFixed(2) %>
+                                        </td>
+                                        <td>
+                                            <%= transaction.risk_level %>
+                                        </td>
+                                        <td>
+                                            <%= transaction.status %>
+                                        </td>
+                                        <td>
+                                            <%= transaction.action_status %>
+                                        </td>
+                                        <td><a class="secondary-btn"
+                                                href="/transactions/<%= transaction.transaction_id %>">Review</a></td>
+                                    </tr>
+                                    <% }) %>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="panel" id="queue">
+                    <div class="panel-header">
+                        <div>
+                            <h2>Operations Working Queue</h2>
+                            <p>Critical-level transactions ordered oldest first.</p>
+                        </div>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Transaction</th>
+                                    <th>Merchant</th>
+                                    <th>Amount</th>
+                                    <th>Created</th>
+                                    <th>Review</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <% transactions.filter((transaction)=> transaction.risk_level ===
+                                    'Critical').sort((left, right) => new Date(left.created_at) - new
+                                    Date(right.created_at)).forEach((transaction) => { %>
+                                    <tr>
+                                        <td>
+                                            <%= transaction.transaction_id %>
+                                        </td>
+                                        <td>
+                                            <%= transaction.merchant_name || transaction.merchant_id %>
+                                        </td>
+                                        <td>
+                                            <%= Number(transaction.amount).toFixed(2) %>
+                                        </td>
+                                        <td>
+                                            <%= new Date(transaction.created_at).toLocaleString('en-SG') %>
+                                        </td>
+                                        <td><a class="secondary-btn"
+                                                href="/transactions/<%= transaction.transaction_id %>">Review</a></td>
+                                    </tr>
+                                    <% }) %>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="panel" id="cases">
+                    <div class="panel-header">
+                        <div>
+                            <h2>Cases</h2>
+                            <p>Your created cases and their current status.</p>
+                        </div>
+                    </div>
+                    <form method="post" action="/analyst/cases" class="grid-form compact-form">
+                        <label><span>Transaction ID</span><input name="transactionId" required></label>
+                        <label><span>Assigned To</span><input name="assignedTo"></label>
+                        <label><span>Notes</span><input name="notes"></label>
+                        <button class="primary-btn" type="submit">Open Case</button>
+                    </form>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Case</th>
+                                    <th>Transaction</th>
+                                    <th>Status</th>
+                                    <th>Notes</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <% cases.forEach((item)=> { %>
+                                    <tr>
+                                        <td>
+                                            <%= item.case_id %>
+                                        </td>
+                                        <td><a href="/transactions/<%= item.transaction_id %>">
+                                                <%= item.transaction_id %>
+                                            </a></td>
+                                        <td>
+                                            <%= item.status %>
+                                        </td>
+                                        <td>
+                                            <%= item.notes || '' %>
+                                        </td>
+                                        <td class="table-actions">
+                                            <form method="post" action="/analyst/cases/<%= item.case_id %>/action">
+                                                <input type="hidden" name="action" value="rfi">
+                                                <button type="submit" class="secondary-btn">Request RFI</button>
+                                            </form>
+                                            <form method="post" action="/analyst/cases/<%= item.case_id %>/action">
+                                                <input type="hidden" name="action" value="escalate">
+                                                <button type="submit" class="secondary-btn">Escalate</button>
+                                            </form>
+                                            <form method="post" action="/analyst/cases/<%= item.case_id %>/action">
+                                                <input type="hidden" name="action" value="dismiss">
+                                                <button type="submit" class="secondary-btn danger">Dismiss</button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                    <% }) %>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+                <% } else { %>
+                    <section class="dashboard-tabs">
+                        <a href="#cases">Cases</a>
+                    </section>
+
+                    <section class="panel" id="cases">
+                        <div class="panel-header">
+                            <div>
+                                <h2>Cases</h2>
+                                <p>Escalated or assigned cases visible to STRO users.</p>
+                            </div>
+                        </div>
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Case</th>
+                                        <th>Transaction</th>
+                                        <th>Status</th>
+                                        <th>Notes</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <% cases.forEach((item)=> { %>
+                                        <tr>
+                                            <td>
+                                                <%= item.case_id %>
+                                            </td>
+                                            <td><a href="/transactions/<%= item.transaction_id %>">
+                                                    <%= item.transaction_id %>
+                                                </a></td>
+                                            <td>
+                                                <%= item.status %>
+                                            </td>
+                                            <td>
+                                                <%= item.notes || '' %>
+                                            </td>
+                                            <td class="table-actions">
+                                                <form method="post" action="/stro/cases/<%= item.case_id %>/action">
+                                                    <input type="hidden" name="action" value="dismiss">
+                                                    <button type="submit" class="secondary-btn danger">Dismiss False
+                                                        Positive</button>
+                                                </form>
+                                                <form method="post" action="/stro/cases/<%= item.case_id %>/action">
+                                                    <input type="hidden" name="action" value="str">
+                                                    <button type="submit" class="secondary-btn">File STR</button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                        <% }) %>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                    <% } %>
+    </main>
+
+    <script>
+        document.querySelectorAll('[data-confirm="true"]').forEach((button) => {
+            button.addEventListener('click', (event) => {
+                if (!window.confirm('Are you sure?')) {
+                    event.preventDefault();
+                }
+            });
+        });
+    </script>
+
+    <%- include('partials/footer', { includeClientScript: false }) %>

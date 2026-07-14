@@ -3,15 +3,33 @@
     <div class="brand-mark">TC</div>
     <div>
       <strong>UNIWEB</strong>
-      <span>Local Card Monitoring</span>
+      <span>Transaction Monitor</span>
     </div>
   </div>
   <nav>
-    <a class="<%= activePage === 'dashboard' ? 'active' : '' %>" href="/">Dashboard</a>
-    <a class="<%= activePage === 'analytics' ? 'active' : '' %>" href="/analytics">Analytics</a>
-    <a class="<%= activePage === 'diligence' ? 'active' : '' %>" href="/diligence">Due Diligence</a>
-    <a class="<%= activePage === 'investigations' ? 'active' : '' %>" href="/investigations">Investigations</a>
-    <a class="<%= activePage === 'rules' ? 'active' : '' %>" href="/rules">Rules</a>
+    <% if (currentRole==='Admin' ) { %>
+      <a class="<%= activePage === 'admin' ? 'active' : '' %>" href="/admin">Admin Dashboard</a>
+      <a href="/admin#users">User Management</a>
+      <a href="/admin#transactions">Transaction Management</a>
+      <a href="/admin#audit">Audit Log</a>
+      <a href="/admin#merchants">Merchant Management</a>
+      <a href="/admin#rules">Rule Management</a>
+      <% } else if (currentRole==='Analyst' ) { %>
+        <a class="<%= activePage === 'analyst' ? 'active' : '' %>" href="/analyst">Analyst Dashboard</a>
+        <a href="/analyst#live-feed">Live Transaction Feed</a>
+        <a href="/analyst#queue">Operations Working Queue</a>
+        <a href="/analyst#cases">Cases</a>
+        <% } else if (currentRole==='STRO' ) { %>
+          <a class="<%= activePage === 'stro' ? 'active' : '' %>" href="/stro">STRO Dashboard</a>
+          <a href="/stro#cases">Cases</a>
+          <% } else { %>
+            <a class="<%= activePage === 'dashboard' ? 'active' : '' %>" href="/dashboard">Dashboard</a>
+            <a class="<%= activePage === 'analytics' ? 'active' : '' %>" href="/analytics">Analytics</a>
+            <a class="<%= activePage === 'diligence' ? 'active' : '' %>" href="/diligence">Due Diligence</a>
+            <a class="<%= activePage === 'investigations' ? 'active' : '' %>" href="/investigations">Investigations</a>
+            <a class="<%= activePage === 'rules' ? 'active' : '' %>" href="/rules">Rules</a>
+            <% } %>
+              <a href="/logout">Logout</a>
   </nav>
   <div class="connection">
     <span id="connectionDot"></span>

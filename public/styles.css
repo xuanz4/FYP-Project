@@ -1829,6 +1829,258 @@ body.modal-open {
   min-width: 170px;
 }
 
+.login-page {
+  background:
+    radial-gradient(
+      circle at top left,
+      rgba(15, 118, 110, 0.18),
+      transparent 30%
+    ),
+    radial-gradient(
+      circle at top right,
+      rgba(37, 99, 168, 0.14),
+      transparent 26%
+    ),
+    linear-gradient(160deg, #eff4f6 0%, #f8fbfc 44%, #eef4f2 100%);
+}
+
+.login-shell {
+  min-height: 100vh;
+  padding: 36px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(340px, 420px);
+  align-items: start;
+  gap: 36px;
+}
+
+.login-hero {
+  padding: 28px;
+  max-width: 620px;
+}
+
+.login-hero h1 {
+  margin-top: 20px;
+  font-size: clamp(2.5rem, 4vw, 4.6rem);
+  line-height: 0.95;
+}
+
+.login-hero p {
+  margin-top: 16px;
+  color: var(--muted);
+  font-size: 1.05rem;
+  max-width: 56ch;
+}
+
+.login-brand-mark {
+  width: 72px;
+  height: 72px;
+  border-radius: 18px;
+  font-size: 1.5rem;
+}
+
+.login-card {
+  justify-self: end;
+  width: 100%;
+  margin-top: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(220, 227, 234, 0.8);
+  border-radius: 24px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
+  padding: 28px;
+}
+
+.login-card h2 {
+  font-size: 1.4rem;
+}
+
+.login-card p {
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+.login-form {
+  display: grid;
+  gap: 16px;
+  margin-top: 22px;
+}
+
+.login-form label,
+.grid-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.login-form span,
+.grid-form span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.login-form input,
+.grid-form input,
+.grid-form select,
+.grid-form textarea {
+  width: 100%;
+  min-width: 0;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #ffffff;
+  padding: 12px 14px;
+}
+
+.login-form input:focus,
+.grid-form input:focus,
+.grid-form select:focus,
+.grid-form textarea:focus {
+  outline: 2px solid rgba(15, 118, 110, 0.22);
+  border-color: var(--accent);
+}
+
+.primary-btn {
+  background: linear-gradient(135deg, #0f766e, #145e57);
+  border-color: #0f766e;
+  border-radius: 12px;
+  min-height: 44px;
+}
+
+.primary-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #0c625c, #114d47);
+}
+
+.alert-banner {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #fff2f4;
+  color: var(--red);
+  border: 1px solid #f1c7cf;
+  font-weight: 700;
+}
+
+.dashboard-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.dashboard-tabs a {
+  text-decoration: none;
+  color: var(--ink);
+  background: #ffffff;
+  border: 1px solid var(--line);
+  padding: 10px 14px;
+  border-radius: 999px;
+  font-weight: 800;
+}
+
+.dashboard-tabs a:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.grid-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.compact-form {
+  align-items: end;
+}
+
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.table-actions form {
+  margin: 0;
+}
+
+.inline-edit-form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 8px;
+  min-width: 680px;
+}
+
+.inline-edit-form input,
+.inline-edit-form select {
+  width: 100%;
+  min-width: 0;
+}
+
+.secondary-btn,
+.secondary-link {
+  background: #ffffff;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+.secondary-btn:hover:not(:disabled),
+.secondary-link:hover {
+  background: #f3f7fa;
+  border-color: #b9c7d4;
+}
+
+.secondary-btn.danger {
+  color: var(--red);
+  border-color: #f0c6ce;
+}
+
+.secondary-btn.danger:hover:not(:disabled) {
+  background: #fff4f6;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.detail-grid article {
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.detail-grid article span {
+  display: block;
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: 0.76rem;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+
+.detail-grid article strong {
+  display: block;
+  line-height: 1.35;
+}
+
+.detail-grid article.wide {
+  grid-column: span 2;
+}
+
+@media (max-width: 1100px) {
+  .login-shell,
+  .grid-form,
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .login-card {
+    justify-self: stretch;
+  }
+}
+
 .analytics-kpi-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));

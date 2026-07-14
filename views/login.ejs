@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>
+        <%= title %>
+    </title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+
+<body class="login-page">
+    <main class="login-shell">
+        <section class="login-hero">
+            <div class="brand-mark login-brand-mark">TM</div>
+            <h1>Transaction Monitor</h1>
+            <p>Sign in to manage merchants, transactions, cases, and audit activity.</p>
+        </section>
+        <section class="login-card">
+            <h2>Secure Sign In</h2>
+            <p>Use your assigned User ID and password.</p>
+            <% if (error) { %>
+                <div class="alert-banner">
+                    <%= error %>
+                </div>
+                <% } %>
+                    <form method="post" action="/auth/login" class="login-form">
+                        <label>
+                            <span>User ID</span>
+                            <input type="text" name="userId" autocomplete="username" required>
+                        </label>
+                        <label>
+                            <span>Password</span>
+                            <input type="password" name="password" autocomplete="current-password" required>
+                        </label>
+                        <button type="submit" class="primary-btn">Sign In</button>
+                    </form>
+        </section>
+    </main>
+</body>
+
+</html>

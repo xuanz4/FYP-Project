@@ -22,6 +22,22 @@ const config = {
 let pool = null;
 let enabled = false;
 
+async function query(sql, params = []) {
+  if (!enabled) {
+    throw new Error('Database is not enabled');
+  }
+
+  return pool.query(sql, params);
+}
+
+async function execute(sql, params = []) {
+  if (!enabled) {
+    throw new Error('Database is not enabled');
+  }
+
+  return pool.execute(sql, params);
+}
+
 function isEnabled() {
   return enabled;
 }
@@ -57,7 +73,16 @@ async function initDatabase() {
 async function upsertCompany(company) {
   if (!enabled) return;
 
-  await pool.execute(
+  const payload = { ...company, merchantRiskLevel: normalizeRiskLevel(company.merchantRiskLevel) };
+  const statements = [
+    `INSERT INTO merchants (merchant_id, merchant_name, mcc_code, industry, mcc_risk_score, is_active)
+     VALUES (:id, :name, :mccCode, :industry, :industryRiskScore, 1)
+     ON DUPLICATE KEY UPDATE
+       merchant_name = VALUES(merchant_name),
+       mcc_code = VALUES(mcc_code),
+       industry = VALUES(industry),
+       mcc_risk_score = VALUES(mcc_risk_score),
+       is_active = VALUES(is_active)`,
     `INSERT INTO companies (company_id, company_name, merchant_type, mcc_code, industry, industry_risk_score, merchant_risk_level, accent)
      VALUES (:id, :name, :merchantType, :mccCode, :industry, :industryRiskScore, :merchantRiskLevel, :accent)
      ON DUPLICATE KEY UPDATE
@@ -68,8 +93,18 @@ async function upsertCompany(company) {
        industry_risk_score = VALUES(industry_risk_score),
        merchant_risk_level = VALUES(merchant_risk_level),
        accent = VALUES(accent)`,
-    { ...company, merchantRiskLevel: normalizeRiskLevel(company.merchantRiskLevel) },
-  );
+  ];
+
+  for (const sql of statements) {
+    try {
+      await pool.execute(sql, payload);
+      return;
+    } catch (error) {
+      if (!/Unknown table|doesn't exist|unknown column/i.test(error.message)) {
+        throw error;
+      }
+    }
+  }
 }
 
 async function upsertCustomer(customer) {
@@ -429,174 +464,187 @@ async function loadSnapshot() {
     };
   }
 
-  const [transactionRows] = await pool.query(
-    `SELECT t.*, c.company_name, c.merchant_type, c.mcc_code, c.industry, c.industry_risk_score, c.merchant_risk_level, cu.customer_name, cu.email AS customer_email, cu.account_type, cu.authorised_contact_name, cu.authorised_contact_email, cu.segment, cu.kyc_status, cu.customer_risk_level
-     FROM transactions t
-     JOIN companies c ON t.company_id = c.company_id
-     JOIN customers cu ON t.customer_id = cu.customer_id
-     ORDER BY t.created_at DESC
-     LIMIT 250`,
-  );
-  const transactionIds = transactionRows.map((row) => row.transaction_id);
-  const matchedRules = await getMatchedRules(transactionIds);
-  const screeningMatches = await getScreeningMatches(transactionIds);
-  const transactionCaseOutcomes = await getCaseOutcomesByTransactionIds(transactionIds);
-  const transactions = transactionRows.map((row) => {
-    const caseOutcome = transactionCaseOutcomes[row.transaction_id] || {};
-    return ({
-    id: row.transaction_id,
-    uniqueTransactionId: row.unique_transaction_id,
-    companyId: row.company_id,
-    companyName: row.company_name,
-    merchantType: row.merchant_type,
-    mccCode: row.mcc_code,
-    industry: row.industry,
-    industryRiskScore: row.industry_risk_score,
-    merchantRiskLevel: normalizeRiskLevel(row.merchant_risk_level),
-    customerId: row.customer_id,
-    customerName: row.customer_name,
-    customerEmail: row.customer_email,
-    accountType: row.account_type || 'Individual',
-    authorisedContactName: row.authorised_contact_name,
-    authorisedContactEmail: row.authorised_contact_email,
-    segment: row.segment,
-    kycStatus: row.kyc_status,
-    customerRiskLevel: normalizeRiskLevel(row.customer_risk_level),
-    amount: Number(row.amount),
-    currency: row.currency,
-    country: row.country,
-    merchantCategory: row.merchant_category,
-    recentCompanyTransactions: row.recent_company_transactions,
-    cardSpend24h: Number(row.card_spend_24h),
-    nearThresholdCount: row.near_threshold_count,
-    lowValueBurstCount: row.low_value_burst_count,
-    isNewCustomer: Boolean(row.is_new_customer),
-    usualSpendBelow100: Boolean(row.usual_spend_below_100),
-    transactionHour: row.transaction_hour,
-    operatingHoursTriggered: Boolean(row.operating_hours_triggered),
-    channel: row.channel,
-    direction: row.direction,
-    counterpartyName: row.counterparty_name,
-    counterpartyCountry: row.counterparty_country,
-    paymentReference: row.payment_reference,
-    screeningStatus: row.screening_status,
-    screeningMatches: screeningMatches[row.transaction_id] || [],
-    status: row.status,
-    profileRiskScore: calculateProfileRiskScore({
-      customerRiskLevel: row.customer_risk_level,
-      merchantRiskLevel: row.merchant_risk_level,
-    }),
-    mccRiskScore: Number(row.mcc_risk_score ?? row.industry_risk_score ?? 0),
-    transactionDetectionScore: Number(row.transaction_detection_score ?? 0),
-    initialRiskScore: Number(row.initial_risk_score ?? row.risk_score ?? row.final_risk_score ?? 0),
-    initialRiskLevel: row.initial_risk_level || row.risk_level || row.risk_band,
-    finalRiskScore: row.final_risk_score === null || row.final_risk_score === undefined ? null : Number(row.final_risk_score),
-    finalRiskLevel: row.final_risk_level || null,
-    decision: caseOutcome.decision || null,
-    resolutionReason: caseOutcome.resolutionReason || null,
-    analystNotes: caseOutcome.analystNotes || null,
-    resolvedAt: caseOutcome.resolvedAt || null,
-    caseId: caseOutcome.caseId || null,
-    caseStatus: caseOutcome.caseStatus || null,
-    assessmentStatus: caseOutcome.caseStatus || null,
-    riskLevel: row.risk_level || row.initial_risk_level || row.risk_band,
-    recommendedAction: row.recommended_action,
-    riskScore: Number(row.risk_score ?? row.final_risk_score ?? 0),
-    riskBand: row.risk_band || row.risk_level,
-    triggeredRules: matchedRules[row.transaction_id] || [],
-    matchedRules: matchedRules[row.transaction_id] || [],
-    createdAt: iso(row.created_at),
-  });
-  });
+  try {
+    const [transactionRows] = await pool.query(
+      `SELECT t.*, c.company_name, c.merchant_type, c.mcc_code, c.industry, c.industry_risk_score, c.merchant_risk_level, cu.customer_name, cu.email AS customer_email, cu.account_type, cu.authorised_contact_name, cu.authorised_contact_email, cu.segment, cu.kyc_status, cu.customer_risk_level
+       FROM transactions t
+       JOIN companies c ON t.company_id = c.company_id
+       JOIN customers cu ON t.customer_id = cu.customer_id
+       ORDER BY t.created_at DESC
+       LIMIT 250`,
+    );
+    const transactionIds = transactionRows.map((row) => row.transaction_id);
+    const matchedRules = await getMatchedRules(transactionIds);
+    const screeningMatches = await getScreeningMatches(transactionIds);
+    const transactionCaseOutcomes = await getCaseOutcomesByTransactionIds(transactionIds);
+    const transactions = transactionRows.map((row) => {
+      const caseOutcome = transactionCaseOutcomes[row.transaction_id] || {};
+      return ({
+        id: row.transaction_id,
+        uniqueTransactionId: row.unique_transaction_id,
+        companyId: row.company_id,
+        companyName: row.company_name,
+        merchantType: row.merchant_type,
+        mccCode: row.mcc_code,
+        industry: row.industry,
+        industryRiskScore: row.industry_risk_score,
+        merchantRiskLevel: normalizeRiskLevel(row.merchant_risk_level),
+        customerId: row.customer_id,
+        customerName: row.customer_name,
+        customerEmail: row.customer_email,
+        accountType: row.account_type || 'Individual',
+        authorisedContactName: row.authorised_contact_name,
+        authorisedContactEmail: row.authorised_contact_email,
+        segment: row.segment,
+        kycStatus: row.kyc_status,
+        customerRiskLevel: normalizeRiskLevel(row.customer_risk_level),
+        amount: Number(row.amount),
+        currency: row.currency,
+        country: row.country,
+        merchantCategory: row.merchant_category,
+        recentCompanyTransactions: row.recent_company_transactions,
+        cardSpend24h: Number(row.card_spend_24h),
+        nearThresholdCount: row.near_threshold_count,
+        lowValueBurstCount: row.low_value_burst_count,
+        isNewCustomer: Boolean(row.is_new_customer),
+        usualSpendBelow100: Boolean(row.usual_spend_below_100),
+        transactionHour: row.transaction_hour,
+        operatingHoursTriggered: Boolean(row.operating_hours_triggered),
+        channel: row.channel,
+        direction: row.direction,
+        counterpartyName: row.counterparty_name,
+        counterpartyCountry: row.counterparty_country,
+        paymentReference: row.payment_reference,
+        screeningStatus: row.screening_status,
+        screeningMatches: screeningMatches[row.transaction_id] || [],
+        status: row.status,
+        profileRiskScore: calculateProfileRiskScore({
+          customerRiskLevel: row.customer_risk_level,
+          merchantRiskLevel: row.merchant_risk_level,
+        }),
+        mccRiskScore: Number(row.mcc_risk_score ?? row.industry_risk_score ?? 0),
+        transactionDetectionScore: Number(row.transaction_detection_score ?? 0),
+        initialRiskScore: Number(row.initial_risk_score ?? row.risk_score ?? row.final_risk_score ?? 0),
+        initialRiskLevel: row.initial_risk_level || row.risk_level || row.risk_band,
+        finalRiskScore: row.final_risk_score === null || row.final_risk_score === undefined ? null : Number(row.final_risk_score),
+        finalRiskLevel: row.final_risk_level || null,
+        decision: caseOutcome.decision || null,
+        resolutionReason: caseOutcome.resolutionReason || null,
+        analystNotes: caseOutcome.analystNotes || null,
+        resolvedAt: caseOutcome.resolvedAt || null,
+        caseId: caseOutcome.caseId || null,
+        caseStatus: caseOutcome.caseStatus || null,
+        assessmentStatus: caseOutcome.caseStatus || null,
+        riskLevel: row.risk_level || row.initial_risk_level || row.risk_band,
+        recommendedAction: row.recommended_action,
+        riskScore: Number(row.risk_score ?? row.final_risk_score ?? 0),
+        riskBand: row.risk_band || row.risk_level,
+        triggeredRules: matchedRules[row.transaction_id] || [],
+        matchedRules: matchedRules[row.transaction_id] || [],
+        createdAt: iso(row.created_at),
+      });
+    });
 
-  const [alertRows] = await pool.query(
-    `SELECT a.*, c.company_name, cu.customer_name
-     FROM alerts a
-     JOIN companies c ON a.company_id = c.company_id
-     JOIN customers cu ON a.customer_id = cu.customer_id
-     ORDER BY a.created_at DESC
-    LIMIT 120`,
-  );
-  const alertIds = alertRows.map((row) => row.alert_id);
-  const alertTransactionLinks = await getAlertTransactionLinks(alertIds);
-  const alerts = alertRows.map((row) => ({
-    id: row.alert_id,
-    transactionId: row.transaction_id,
-    transactionIds: alertTransactionLinks[row.alert_id] || [row.transaction_id],
-    primaryRuleId: row.primary_rule_id,
-    groupedCount: row.grouped_count,
-    companyId: row.company_id,
-    companyName: row.company_name,
-    customerId: row.customer_id,
-    customerName: row.customer_name,
-    severity: row.severity,
-    riskScore: row.risk_score,
-    mccRiskScore: row.mcc_risk_score,
-    profileRiskScore: row.profile_risk_score,
-    transactionDetectionScore: row.transaction_detection_score,
-    initialRiskScore: row.initial_risk_score ?? row.risk_score,
-    initialRiskLevel: row.initial_risk_level ?? row.risk_level,
-    finalRiskScore: row.final_risk_score,
-    finalRiskLevel: row.final_risk_level,
-    riskLevel: row.risk_level,
-    recommendedAction: row.recommended_action,
-    rules: matchedRules[row.transaction_id] || [],
-    status: row.alert_status,
-    analyst: row.analyst,
-    createdAt: iso(row.created_at),
-    updatedAt: iso(row.updated_at),
-  }));
+    const [alertRows] = await pool.query(
+      `SELECT a.*, c.company_name, cu.customer_name
+       FROM alerts a
+       JOIN companies c ON a.company_id = c.company_id
+       JOIN customers cu ON a.customer_id = cu.customer_id
+       ORDER BY a.created_at DESC
+      LIMIT 120`,
+    );
+    const alertIds = alertRows.map((row) => row.alert_id);
+    const alertTransactionLinks = await getAlertTransactionLinks(alertIds);
+    const alerts = alertRows.map((row) => ({
+      id: row.alert_id,
+      transactionId: row.transaction_id,
+      transactionIds: alertTransactionLinks[row.alert_id] || [row.transaction_id],
+      primaryRuleId: row.primary_rule_id,
+      groupedCount: row.grouped_count,
+      companyId: row.company_id,
+      companyName: row.company_name,
+      customerId: row.customer_id,
+      customerName: row.customer_name,
+      severity: row.severity,
+      riskScore: row.risk_score,
+      mccRiskScore: row.mcc_risk_score,
+      profileRiskScore: row.profile_risk_score,
+      transactionDetectionScore: row.transaction_detection_score,
+      initialRiskScore: row.initial_risk_score ?? row.risk_score,
+      initialRiskLevel: row.initial_risk_level ?? row.risk_level,
+      finalRiskScore: row.final_risk_score,
+      finalRiskLevel: row.final_risk_level,
+      riskLevel: row.risk_level,
+      recommendedAction: row.recommended_action,
+      rules: matchedRules[row.transaction_id] || [],
+      status: row.alert_status,
+      analyst: row.analyst,
+      createdAt: iso(row.created_at),
+      updatedAt: iso(row.updated_at),
+    }));
 
-  const [caseRows] = await pool.query(
-    `SELECT cc.*, c.company_name, cu.customer_name
-     FROM compliance_cases cc
-     JOIN companies c ON cc.company_id = c.company_id
-     JOIN customers cu ON cc.customer_id = cu.customer_id
-     ORDER BY cc.created_at DESC
-     LIMIT 80`,
-  );
-  const cases = caseRows.map((row) => ({
-    id: row.case_id,
-    alertId: row.alert_id,
-    companyId: row.company_id,
-    companyName: row.company_name,
-    customerId: row.customer_id,
-    customerName: row.customer_name,
-    summary: row.summary,
-    priority: row.priority,
-    status: row.case_status,
-    owner: row.owner,
-    decision: row.decision,
-    resolutionReason: row.resolution_reason,
-    analystNotes: row.analyst_notes,
-    resolvedAt: iso(row.resolved_at),
-    dueAt: iso(row.due_at),
-    updatedAt: iso(row.updated_at),
-  }));
+    const [caseRows] = await pool.query(
+      `SELECT cc.*, c.company_name, cu.customer_name
+       FROM compliance_cases cc
+       JOIN companies c ON cc.company_id = c.company_id
+       JOIN customers cu ON cc.customer_id = cu.customer_id
+       ORDER BY cc.created_at DESC
+       LIMIT 80`,
+    );
+    const cases = caseRows.map((row) => ({
+      id: row.case_id,
+      alertId: row.alert_id,
+      companyId: row.company_id,
+      companyName: row.company_name,
+      customerId: row.customer_id,
+      customerName: row.customer_name,
+      summary: row.summary,
+      priority: row.priority,
+      status: row.case_status,
+      owner: row.owner,
+      decision: row.decision,
+      resolutionReason: row.resolution_reason,
+      analystNotes: row.analyst_notes,
+      resolvedAt: iso(row.resolved_at),
+      dueAt: iso(row.due_at),
+      updatedAt: iso(row.updated_at),
+    }));
 
-  const [auditRows] = await pool.query(
-    `SELECT al.*, c.company_name
-     FROM audit_logs al
-     LEFT JOIN companies c ON al.company_id = c.company_id
-     ORDER BY al.created_at DESC
-     LIMIT 200`,
-  );
-  const auditLogs = auditRows.map((row) => ({
-    id: row.audit_id,
-    action: row.action,
-    actor: row.actor,
-    entityType: row.entity_type,
-    entityId: row.entity_id,
-    transactionId: row.transaction_id,
-    alertId: row.alert_id,
-    caseId: row.case_id,
-    companyId: row.company_id,
-    companyName: row.company_name,
-    message: row.message,
-    createdAt: iso(row.created_at),
-  }));
+    const [auditRows] = await pool.query(
+      `SELECT al.*, c.company_name
+       FROM audit_logs al
+       LEFT JOIN companies c ON al.company_id = c.company_id
+       ORDER BY al.created_at DESC
+       LIMIT 200`,
+    );
+    const auditLogs = auditRows.map((row) => ({
+      id: row.audit_id,
+      action: row.action,
+      actor: row.actor,
+      entityType: row.entity_type,
+      entityId: row.entity_id,
+      transactionId: row.transaction_id,
+      alertId: row.alert_id,
+      caseId: row.case_id,
+      companyId: row.company_id,
+      companyName: row.company_name,
+      message: row.message,
+      createdAt: iso(row.created_at),
+    }));
 
-  return { transactions, alerts, cases, auditLogs };
+    return { transactions, alerts, cases, auditLogs };
+  } catch (error) {
+    if (!/Unknown table|doesn't exist|unknown column/i.test(error.message)) {
+      throw error;
+    }
+
+    return {
+      transactions: [],
+      alerts: [],
+      cases: [],
+      auditLogs: [],
+    };
+  }
 }
 
 async function getMatchedRules(transactionIds) {
@@ -704,4 +752,6 @@ module.exports = {
   updateCase,
   updateAlert,
   upsertCompany,
+  query,
+  execute,
 };
