@@ -13,21 +13,15 @@ CREATE TABLE merchants (
 );
 
 -- Table 2: Users (updated)
+-- Roles: Admin manages users/rules/merchants only. Analyst and Senior Analyst work
+-- cases; STRO resolves escalations. See app.js requireRole() usage for what each can do.
 CREATE TABLE users (
     user_id VARCHAR(20) PRIMARY KEY,
     user_name VARCHAR(100) NOT NULL,
-    user_role ENUM('Analyst', 'STRO', 'Admin') NOT NULL,
+    user_role ENUM('Analyst', 'Senior Analyst', 'STRO', 'Admin') NOT NULL,
     password VARCHAR(255) NOT NULL,
     is_active TINYINT(1) NOT NULL DEFAULT 1
 );
-
--- Users seed data (password: 12345678)
-INSERT INTO users (user_id, user_name, user_role, password, is_active)
-VALUES
-    ('USR-001', 'Ava Lim', 'Analyst', SHA2('12345678', 256), 1),
-    ('USR-002', 'Noah Tan', 'Analyst', SHA2('12345678', 256), 1),
-    ('USR-003', 'Maya Wong', 'STRO', SHA2('12345678', 256), 1),
-    ('USR-004', 'Ethan Koh', 'Admin', SHA2('12345678', 256), 1);
 
 -- Table 3: Compliance Rules
 CREATE TABLE compliance_rules (
@@ -58,7 +52,7 @@ CREATE TABLE transactions (
     risk_score INT NOT NULL DEFAULT 0,
     risk_level ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL DEFAULT 'Low',
     status ENUM('Cleared', 'Flagged') NOT NULL DEFAULT 'Cleared',
-    action_status ENUM('None', 'Pending RFI', 'STR Filed', 'Dismissed as False Positive', 'Escalated') NOT NULL DEFAULT 'None',
+    action_status ENUM('None', 'Pending RFI', 'Pending Senior Review', 'STR Filed', 'Dismissed as False Positive', 'Escalated') NOT NULL DEFAULT 'None',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (merchant_id) REFERENCES merchants(merchant_id)
@@ -76,11 +70,14 @@ CREATE TABLE transaction_matched_rules (
 );
 
 -- Table 6: Audit Logs
+-- Append-only: see triggers below that reject any UPDATE/DELETE against this table.
 CREATE TABLE audit_logs (
     audit_id VARCHAR(40) PRIMARY KEY,
-    transaction_id VARCHAR(40) NOT NULL,
+    transaction_id VARCHAR(40) NULL,
+    entity_type VARCHAR(40) NULL,
+    entity_id VARCHAR(40) NULL,
     action VARCHAR(120) NOT NULL,
-    user_id VARCHAR(20) NOT NULL,
+    user_id VARCHAR(20) NULL,
     notes TEXT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE,
@@ -88,12 +85,18 @@ CREATE TABLE audit_logs (
 );
 
 -- Table: cases
+-- 'Pending Senior Review' is Scenario 2 of the escalation flow (Analyst -> Senior Analyst
+-- -> STRO): high-severity cases stop here before a Senior Analyst confirms and forwards to
+-- STRO. Standard-severity cases (Scenario 1) skip this and go straight to 'Escalated'.
+-- created_by is nullable because cases are opened automatically by the
+-- transactions_auto_case_insert/update triggers below, not by a human - there is no
+-- manual "open case" action anywhere in the app.
 CREATE TABLE cases (
     case_id VARCHAR(40) PRIMARY KEY,
     transaction_id VARCHAR(40) NOT NULL,
-    created_by VARCHAR(20) NOT NULL,
+    created_by VARCHAR(20) NULL,
     assigned_to VARCHAR(20) NULL,
-    status ENUM('Open', 'Pending RFI', 'Escalated', 'Dismissed as False Positive', 'STR Filed') NOT NULL DEFAULT 'Open',
+    status ENUM('Open', 'Pending RFI', 'Pending Senior Review', 'Escalated', 'Dismissed as False Positive', 'STR Filed') NOT NULL DEFAULT 'Open',
     notes TEXT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME ON UPDATE CURRENT_TIMESTAMP,
@@ -109,6 +112,7 @@ CREATE INDEX idx_transactions_risk_level ON transactions(risk_level);
 CREATE INDEX idx_transactions_action_status ON transactions(action_status);
 CREATE INDEX idx_transactions_created_at ON transactions(created_at);
 CREATE INDEX idx_audit_logs_transaction ON audit_logs(transaction_id);
+CREATE INDEX idx_audit_logs_entity ON audit_logs(entity_type, entity_id);
 CREATE INDEX idx_audit_logs_user ON audit_logs(user_id);
 CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
 CREATE INDEX idx_compliance_rules_merchant ON compliance_rules(merchant_id);
@@ -116,6 +120,51 @@ CREATE INDEX idx_cases_transaction ON cases(transaction_id);
 CREATE INDEX idx_cases_created_by ON cases(created_by);
 CREATE INDEX idx_cases_assigned_to ON cases(assigned_to);
 CREATE INDEX idx_cases_status ON cases(status);
+
+DELIMITER $$
+
+CREATE TRIGGER audit_logs_no_update
+BEFORE UPDATE ON audit_logs
+FOR EACH ROW
+BEGIN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'audit_logs is append-only and cannot be modified';
+END$$
+
+CREATE TRIGGER audit_logs_no_delete
+BEFORE DELETE ON audit_logs
+FOR EACH ROW
+BEGIN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'audit_logs is append-only and cannot be deleted';
+END$$
+
+-- Cases are never opened manually - these triggers open one automatically (and log it)
+-- the moment a transaction's status becomes 'Flagged', whether that happens on insert
+-- (the normal path) or via a later update.
+CREATE TRIGGER transactions_auto_case_insert
+AFTER INSERT ON transactions
+FOR EACH ROW
+BEGIN
+    IF NEW.status = 'Flagged' THEN
+        INSERT INTO cases (case_id, transaction_id, created_by, assigned_to, status, notes)
+        VALUES (CONCAT('CASE-', UNIX_TIMESTAMP(), '-', FLOOR(RAND() * 1000000)), NEW.transaction_id, NULL, NULL, 'Open', 'Automatically opened - transaction flagged by risk engine');
+        INSERT INTO audit_logs (audit_id, transaction_id, action, user_id, notes, created_at)
+        VALUES (CONCAT('AUD-', UNIX_TIMESTAMP(), '-', FLOOR(RAND() * 1000000)), NEW.transaction_id, 'Case Auto-Opened', NULL, 'System opened a case after this transaction was flagged', NOW());
+    END IF;
+END$$
+
+CREATE TRIGGER transactions_auto_case_update
+AFTER UPDATE ON transactions
+FOR EACH ROW
+BEGIN
+    IF NEW.status = 'Flagged' AND OLD.status <> 'Flagged' AND NOT EXISTS (SELECT 1 FROM cases WHERE transaction_id = NEW.transaction_id) THEN
+        INSERT INTO cases (case_id, transaction_id, created_by, assigned_to, status, notes)
+        VALUES (CONCAT('CASE-', UNIX_TIMESTAMP(), '-', FLOOR(RAND() * 1000000)), NEW.transaction_id, NULL, NULL, 'Open', 'Automatically opened - transaction flagged by risk engine');
+        INSERT INTO audit_logs (audit_id, transaction_id, action, user_id, notes, created_at)
+        VALUES (CONCAT('AUD-', UNIX_TIMESTAMP(), '-', FLOOR(RAND() * 1000000)), NEW.transaction_id, 'Case Auto-Opened', NULL, 'System opened a case after this transaction was flagged', NOW());
+    END IF;
+END$$
+
+DELIMITER ;
 
 -- =====================================================
 -- SEED DATA
@@ -132,7 +181,7 @@ VALUES
 INSERT INTO users (user_id, user_name, user_role, password, is_active)
 VALUES
     ('USR-001', 'Ava Lim', 'Analyst', SHA2('12345678', 256), 1),
-    ('USR-002', 'Noah Tan', 'Analyst', SHA2('12345678', 256), 1),
+    ('USR-002', 'Noah Tan', 'Senior Analyst', SHA2('12345678', 256), 1),
     ('USR-003', 'Maya Wong', 'STRO', SHA2('12345678', 256), 1),
     ('USR-004', 'Ethan Koh', 'Admin', SHA2('12345678', 256), 1);
 
@@ -213,10 +262,15 @@ VALUES
     ('AUD-002', 'TXN-003', 'Transaction Flagged', 'USR-001', 'System flagged - Critical risk score 165', '2026-07-14 14:00:00'),
     ('AUD-003', 'TXN-003', 'RFI Requested', 'USR-001', 'Requesting further information from merchant', '2026-07-14 14:15:00'),
     ('AUD-004', 'TXN-004', 'Transaction Flagged', 'USR-002', 'System flagged - High risk score 55', '2026-07-14 10:30:00'),
-    ('AUD-005', 'TXN-005', 'Transaction Flagged', 'USR-002', 'System flagged - Critical risk score 220', '2026-07-13 23:00:00');
-    
+    ('AUD-005', 'TXN-005', 'Transaction Flagged', 'USR-002', 'System flagged - Critical risk score 220', '2026-07-13 23:00:00'),
+    ('AUD-006', 'TXN-004', 'Case Auto-Opened', NULL, 'System opened a case after this transaction was flagged', '2026-07-14 10:30:00');
+
+-- CASE-002/003 use human created_by values as historical seed flavor (as if an analyst had
+-- already been working them); CASE-004 shows the actual system-opened shape every new case
+-- gets today, via the transactions_auto_case_insert/update triggers above.
 INSERT INTO cases (case_id, transaction_id, created_by, assigned_to, status, notes, created_at)
 VALUES
     ('CASE-001', 'TXN-003', 'USR-001', NULL, 'Pending RFI', 'Requesting additional merchant info', '2026-07-14 14:15:00'),
     ('CASE-002', 'TXN-002', 'USR-002', NULL, 'Open', NULL, '2026-07-14 10:00:00'),
-    ('CASE-003', 'TXN-005', 'USR-001', 'USR-003', 'Escalated', 'Escalating due to high risk score and multiple rule matches', '2026-07-14 09:00:00');
+    ('CASE-003', 'TXN-005', 'USR-001', 'USR-003', 'Escalated', 'Escalating due to high risk score and multiple rule matches', '2026-07-14 09:00:00'),
+    ('CASE-004', 'TXN-004', NULL, NULL, 'Open', 'Automatically opened - transaction flagged by risk engine', '2026-07-14 10:30:00');

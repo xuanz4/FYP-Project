@@ -116,6 +116,47 @@ function pushLimited(list, item, limit = 250) {
   if (list.length > limit) list.pop();
 }
 
+// The role-based Admin/Analyst/Senior Analyst/STRO dashboards read from the
+// merchant_id/card_number-shaped `transactions` table (FYP_Transaction_Monitoring_test.sql),
+// not from the companyId/customerId-shaped tables the live simulation below writes to via
+// database.saveTransaction(). This mirrors each generated transaction into that table too,
+// reusing the risk score/level/status the compliance engine already computed, so the
+// role dashboards receive real transactions instead of only the seed rows. The
+// transactions_auto_case_insert DB trigger takes it from there or opening a case.
+const roleSchemaMerchantIds = { companyA: 'MERCH-A', companyB: 'MERCH-B', companyC: 'MERCH-C' };
+const cardBankIssuers = ['DBS Bank', 'OCBC Bank', 'UOB', 'Citibank', 'Standard Chartered', 'Maybank'];
+
+function randomCardNumber() {
+  const prefix = Math.random() < 0.5 ? '4' : '5';
+  let rest = '';
+  for (let i = 0; i < 15; i += 1) rest += Math.floor(Math.random() * 10);
+  return prefix + rest;
+}
+
+function randomCardExpiry() {
+  const month = String(1 + Math.floor(Math.random() * 12)).padStart(2, '0');
+  const year = String(26 + Math.floor(Math.random() * 5)).padStart(2, '0');
+  return `${month}/${year}`;
+}
+
+async function mirrorTransactionToRoleSchema(transaction) {
+  const merchantId = roleSchemaMerchantIds[transaction.companyId];
+  if (!merchantId) return;
+
+  const cardNumber = randomCardNumber();
+  await database.execute(
+    `INSERT INTO transactions
+      (transaction_id, merchant_id, card_number, card_expiry, bin_range, cvv, bank_issuer, amount, transaction_code, risk_score, risk_level, status, action_status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'None', ?)`,
+    [
+      transaction.id, merchantId, cardNumber, randomCardExpiry(), cardNumber.slice(0, 6),
+      String(100 + Math.floor(Math.random() * 900)), pick(cardBankIssuers), transaction.amount,
+      `TXNREF-${transaction.uniqueTransactionId}`, transaction.riskScore, transaction.riskLevel,
+      transaction.status, new Date(transaction.createdAt),
+    ],
+  );
+}
+
 // Final risk score is chosen by level only, so analysts cannot type arbitrary scores.
 function getFinalRiskScore(finalRiskLevel) {
   const scoreMap = {
@@ -378,6 +419,8 @@ function createTransaction(overrides = {}) {
     queueDbWrite(() => database.saveTransaction(transaction));
   }
 
+  queueDbWrite(() => mirrorTransactionToRoleSchema(transaction));
+
   broadcast('transaction', redactTransactionForFeed(transaction));
   broadcast('metrics', getMetrics());
   broadcast('charts', getCharts());
@@ -565,8 +608,18 @@ function roleHomePath(role) {
   return {
     Admin: '/admin',
     Analyst: '/analyst',
+    'Senior Analyst': '/senior-analyst',
     STRO: '/stro',
   }[role] || '/login';
+}
+
+function activePageForRole(role) {
+  return {
+    Admin: 'admin',
+    Analyst: 'analyst',
+    'Senior Analyst': 'senior-analyst',
+    STRO: 'stro',
+  }[role] || 'analyst';
 }
 
 function authRedirect(req, res, next) {
@@ -674,12 +727,11 @@ app.get('/', requireAuth, (req, res) => res.redirect(roleHomePath(req.session.us
 app.get('/dashboard', requireAuth, (req, res) => res.redirect(roleHomePath(req.session.user.role)));
 
 app.get('/admin', requireRole('Admin'), async (req, res) => {
-  const [users, merchants, rules, transactions, auditLogs] = await Promise.all([
+  const [users, merchants, rules, auditLogs] = await Promise.all([
     database.query('SELECT user_id, user_name, user_role, is_active FROM users ORDER BY user_name ASC').then(([rows]) => rows),
     database.query('SELECT merchant_id, merchant_name, mcc_code, industry, mcc_risk_score, is_active FROM merchants ORDER BY merchant_name ASC').then(([rows]) => rows),
     database.query('SELECT rule_id, merchant_id, rule_name, risk_level, reason, weight, amount_threshold, count_threshold, rule_type, is_active FROM compliance_rules ORDER BY rule_name ASC').then(([rows]) => rows),
-    database.query('SELECT t.transaction_id, t.merchant_id, m.merchant_name, t.amount, t.risk_level, t.status, t.action_status, t.created_at FROM transactions t LEFT JOIN merchants m ON t.merchant_id = m.merchant_id ORDER BY t.created_at DESC').then(([rows]) => rows),
-    database.query('SELECT audit_id, transaction_id, action, user_id, notes, created_at FROM audit_logs ORDER BY created_at DESC LIMIT 100').then(([rows]) => rows),
+    database.query('SELECT audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at FROM audit_logs ORDER BY created_at DESC LIMIT 60').then(([rows]) => rows),
   ]);
 
   return res.render('role-dashboard', {
@@ -689,7 +741,7 @@ app.get('/admin', requireRole('Admin'), async (req, res) => {
     users,
     merchants,
     rules,
-    transactions,
+    transactions: [],
     auditLogs,
     cases: [],
     filters: {},
@@ -697,10 +749,13 @@ app.get('/admin', requireRole('Admin'), async (req, res) => {
 });
 
 app.get('/analyst', requireRole('Analyst'), async (req, res) => {
+  // Cases are opened automatically (see the transactions_auto_case_insert/update DB triggers),
+  // never by a specific analyst, so this is a shared queue: every Analyst sees every case
+  // that's still actionable (Open or awaiting RFI response), not just ones "they created".
   const [transactions, cases, auditLogs] = await Promise.all([
     database.query('SELECT t.transaction_id, t.merchant_id, m.merchant_name, t.amount, t.risk_level, t.status, t.action_status, t.created_at FROM transactions t LEFT JOIN merchants m ON t.merchant_id = m.merchant_id ORDER BY t.created_at DESC').then(([rows]) => rows),
-    database.query('SELECT case_id, transaction_id, created_by, assigned_to, status, notes, created_at, updated_at FROM cases WHERE created_by = ? ORDER BY created_at DESC', [req.session.user.id]).then(([rows]) => rows),
-    database.query('SELECT audit_id, transaction_id, action, user_id, notes, created_at FROM audit_logs WHERE user_id = ? ORDER BY created_at DESC LIMIT 60', [req.session.user.id]).then(([rows]) => rows),
+    database.query("SELECT c.case_id, c.transaction_id, c.created_by, c.assigned_to, c.status, c.notes, c.created_at, c.updated_at, t.risk_level FROM cases c JOIN transactions t ON c.transaction_id = t.transaction_id WHERE c.status IN ('Open', 'Pending RFI') ORDER BY c.created_at DESC").then(([rows]) => rows),
+    database.query('SELECT audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at FROM audit_logs ORDER BY created_at DESC LIMIT 60').then(([rows]) => rows),
   ]);
 
   return res.render('role-dashboard', {
@@ -717,10 +772,30 @@ app.get('/analyst', requireRole('Analyst'), async (req, res) => {
   });
 });
 
+app.get('/senior-analyst', requireRole('Senior Analyst'), async (req, res) => {
+  const [cases, auditLogs] = await Promise.all([
+    database.query('SELECT c.case_id, c.transaction_id, c.created_by, c.assigned_to, c.status, c.notes, c.created_at, c.updated_at, t.risk_level FROM cases c JOIN transactions t ON c.transaction_id = t.transaction_id WHERE c.status = ? ORDER BY c.created_at DESC', ['Pending Senior Review']).then(([rows]) => rows),
+    database.query('SELECT audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at FROM audit_logs ORDER BY created_at DESC LIMIT 60').then(([rows]) => rows),
+  ]);
+
+  return res.render('role-dashboard', {
+    title: 'Senior Analyst Dashboard',
+    activePage: 'senior-analyst',
+    role: 'Senior Analyst',
+    users: [],
+    merchants: [],
+    rules: [],
+    transactions: [],
+    auditLogs,
+    cases,
+    filters: {},
+  });
+});
+
 app.get('/stro', requireRole('STRO'), async (req, res) => {
   const [cases, auditLogs] = await Promise.all([
-    database.query('SELECT case_id, transaction_id, created_by, assigned_to, status, notes, created_at, updated_at FROM cases WHERE status = ? OR assigned_to = ? ORDER BY created_at DESC', ['Escalated', req.session.user.id]).then(([rows]) => rows),
-    database.query('SELECT audit_id, transaction_id, action, user_id, notes, created_at FROM audit_logs ORDER BY created_at DESC LIMIT 60').then(([rows]) => rows),
+    database.query('SELECT c.case_id, c.transaction_id, c.created_by, c.assigned_to, c.status, c.notes, c.created_at, c.updated_at, t.risk_level FROM cases c JOIN transactions t ON c.transaction_id = t.transaction_id WHERE c.status = ? OR c.assigned_to = ? ORDER BY c.created_at DESC', ['Escalated', req.session.user.id]).then(([rows]) => rows),
+    database.query('SELECT audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at FROM audit_logs ORDER BY created_at DESC LIMIT 60').then(([rows]) => rows),
   ]);
 
   return res.render('role-dashboard', {
@@ -754,7 +829,7 @@ app.get('/transactions/:id', requireAuth, async (req, res) => {
   if (!transaction) {
     return res.status(404).render('transaction-detail', {
       title: 'Transaction Not Found',
-      activePage: req.session.user.role === 'Admin' ? 'admin' : req.session.user.role === 'STRO' ? 'stro' : 'analyst',
+      activePage: activePageForRole(req.session.user.role),
       transaction: null,
       currentUser: req.session.user,
       currentRole: req.session.user.role,
@@ -765,7 +840,7 @@ app.get('/transactions/:id', requireAuth, async (req, res) => {
   const caseRecord = caseRows[0] || null;
   return res.render('transaction-detail', {
     title: `Transaction ${transaction.transaction_id}`,
-    activePage: req.session.user.role === 'Admin' ? 'admin' : req.session.user.role === 'STRO' ? 'stro' : 'analyst',
+    activePage: activePageForRole(req.session.user.role),
     transaction,
     caseRecord,
     currentUser: req.session.user,
@@ -788,6 +863,19 @@ function auditEntryForAction(userId, transactionId, action, notes) {
   };
 }
 
+async function logAdminAudit({
+  // Separate from logAudit() above: this writes directly to the audit_logs row shape
+  // (transaction_id/user_id/notes) that the Admin/Analyst/STRO routes use, rather than the
+  // in-memory + saveAuditLog() path used by the transaction ingestion pipeline.
+  action, userId, notes = null, transactionId = null, entityType = null, entityId = null,
+}) {
+  await database.execute(
+    `INSERT INTO audit_logs (audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+    [id('AUD'), transactionId, entityType, entityId, action, userId, notes],
+  );
+}
+
 app.post('/admin/users', requireRole('Admin'), async (req, res) => {
   const userId = String(req.body.userId || '').trim();
   const userName = String(req.body.userName || '').trim();
@@ -796,7 +884,7 @@ app.post('/admin/users', requireRole('Admin'), async (req, res) => {
   const isActive = req.body.isActive !== '0';
   if (!userId || !userName || !userRole) return res.redirect('/admin#users');
 
-  await database.execute(
+  const [result] = await database.execute(
     `INSERT INTO users (user_id, user_name, user_role, password, is_active)
      VALUES (?, ?, ?, SHA2(?, 256), ?)
      ON DUPLICATE KEY UPDATE
@@ -807,19 +895,35 @@ app.post('/admin/users', requireRole('Admin'), async (req, res) => {
     [userId, userName, userRole, password, isActive ? 1 : 0],
   );
 
+  await logAdminAudit({
+    action: result.insertId || result.affectedRows === 1 ? 'User Created' : 'User Updated',
+    userId: req.session.user.id,
+    entityType: 'User',
+    entityId: userId,
+    notes: `${userName} (${userRole})`,
+  });
+
   return res.redirect('/admin#users');
 });
 
 app.post('/admin/users/:id', requireRole('Admin'), async (req, res) => {
+  const isSelf = req.params.id === req.session.user.id;
   const updates = [];
   const values = [];
   if (req.body.userName) { updates.push('user_name = ?'); values.push(String(req.body.userName).trim()); }
-  if (req.body.userRole) { updates.push('user_role = ?'); values.push(String(req.body.userRole).trim()); }
+  if (req.body.userRole && !isSelf) { updates.push('user_role = ?'); values.push(String(req.body.userRole).trim()); }
   if (req.body.password) { updates.push('password = SHA2(?, 256)'); values.push(String(req.body.password)); }
   if (typeof req.body.isActive !== 'undefined') { updates.push('is_active = ?'); values.push(req.body.isActive === '1' || req.body.isActive === 'true' ? 1 : 0); }
   if (updates.length) {
     values.push(req.params.id);
     await database.execute(`UPDATE users SET ${updates.join(', ')} WHERE user_id = ?`, values);
+    await logAdminAudit({
+      action: 'User Updated',
+      userId: req.session.user.id,
+      entityType: 'User',
+      entityId: req.params.id,
+      notes: req.body.userRole && isSelf ? 'Role change ignored: admin cannot change their own role' : null,
+    });
   }
   return res.redirect('/admin#users');
 });
@@ -828,13 +932,26 @@ app.post('/admin/users/:id/toggle', requireRole('Admin'), async (req, res) => {
   const [rows] = await database.query('SELECT is_active FROM users WHERE user_id = ? LIMIT 1', [req.params.id]);
   const current = rows[0];
   if (current) {
-    await database.execute('UPDATE users SET is_active = ? WHERE user_id = ?', [current.is_active ? 0 : 1, req.params.id]);
+    const nextActive = current.is_active ? 0 : 1;
+    await database.execute('UPDATE users SET is_active = ? WHERE user_id = ?', [nextActive, req.params.id]);
+    await logAdminAudit({
+      action: nextActive ? 'User Activated' : 'User Deactivated',
+      userId: req.session.user.id,
+      entityType: 'User',
+      entityId: req.params.id,
+    });
   }
   return res.redirect('/admin#users');
 });
 
 app.post('/admin/users/:id/delete', requireRole('Admin'), async (req, res) => {
   await database.execute('DELETE FROM users WHERE user_id = ?', [req.params.id]);
+  await logAdminAudit({
+    action: 'User Deleted',
+    userId: req.session.user.id,
+    entityType: 'User',
+    entityId: req.params.id,
+  });
   return res.redirect('/admin#users');
 });
 
@@ -847,7 +964,7 @@ app.post('/admin/merchants', requireRole('Admin'), async (req, res) => {
   const isActive = req.body.isActive !== '0';
   if (!merchantId || !merchantName || !mccCode || !industry) return res.redirect('/admin#merchants');
 
-  await database.execute(
+  const [result] = await database.execute(
     `INSERT INTO merchants (merchant_id, merchant_name, mcc_code, industry, mcc_risk_score, is_active)
      VALUES (?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
@@ -858,6 +975,14 @@ app.post('/admin/merchants', requireRole('Admin'), async (req, res) => {
        is_active = VALUES(is_active)`,
     [merchantId, merchantName, mccCode, industry, mccRiskScore, isActive ? 1 : 0],
   );
+
+  await logAdminAudit({
+    action: result.insertId || result.affectedRows === 1 ? 'Merchant Created' : 'Merchant Updated',
+    userId: req.session.user.id,
+    entityType: 'Merchant',
+    entityId: merchantId,
+    notes: `${merchantName} (MCC ${mccCode})`,
+  });
 
   return res.redirect('/admin#merchants');
 });
@@ -873,12 +998,24 @@ app.post('/admin/merchants/:id', requireRole('Admin'), async (req, res) => {
   if (updates.length) {
     values.push(req.params.id);
     await database.execute(`UPDATE merchants SET ${updates.join(', ')} WHERE merchant_id = ?`, values);
+    await logAdminAudit({
+      action: 'Merchant Updated',
+      userId: req.session.user.id,
+      entityType: 'Merchant',
+      entityId: req.params.id,
+    });
   }
   return res.redirect('/admin#merchants');
 });
 
 app.post('/admin/merchants/:id/delete', requireRole('Admin'), async (req, res) => {
   await database.execute('DELETE FROM merchants WHERE merchant_id = ?', [req.params.id]);
+  await logAdminAudit({
+    action: 'Merchant Deleted',
+    userId: req.session.user.id,
+    entityType: 'Merchant',
+    entityId: req.params.id,
+  });
   return res.redirect('/admin#merchants');
 });
 
@@ -898,7 +1035,7 @@ app.post('/admin/rules', requireRole('Admin'), async (req, res) => {
 
   if (!payload.ruleId || !payload.ruleName || !payload.reason) return res.redirect('/admin#rules');
 
-  await database.execute(
+  const [result] = await database.execute(
     `INSERT INTO compliance_rules (rule_id, merchant_id, rule_name, risk_level, reason, weight, amount_threshold, count_threshold, rule_type, is_active)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
@@ -913,6 +1050,14 @@ app.post('/admin/rules', requireRole('Admin'), async (req, res) => {
        is_active = VALUES(is_active)`,
     [payload.ruleId, payload.merchantId, payload.ruleName, payload.riskLevel, payload.reason, payload.weight, payload.amountThreshold, payload.countThreshold, payload.ruleType, payload.isActive ? 1 : 0],
   );
+
+  await logAdminAudit({
+    action: result.insertId || result.affectedRows === 1 ? 'Rule Created' : 'Rule Updated',
+    userId: req.session.user.id,
+    entityType: 'Rule',
+    entityId: payload.ruleId,
+    notes: payload.ruleName,
+  });
 
   return res.redirect('/admin#rules');
 });
@@ -932,70 +1077,51 @@ app.post('/admin/rules/:id', requireRole('Admin'), async (req, res) => {
   if (updates.length) {
     values.push(req.params.id);
     await database.execute(`UPDATE compliance_rules SET ${updates.join(', ')} WHERE rule_id = ?`, values);
+    await logAdminAudit({
+      action: 'Rule Updated',
+      userId: req.session.user.id,
+      entityType: 'Rule',
+      entityId: req.params.id,
+    });
   }
   return res.redirect('/admin#rules');
 });
 
 app.post('/admin/rules/:id/delete', requireRole('Admin'), async (req, res) => {
   await database.execute('DELETE FROM compliance_rules WHERE rule_id = ?', [req.params.id]);
+  await logAdminAudit({
+    action: 'Rule Deleted',
+    userId: req.session.user.id,
+    entityType: 'Rule',
+    entityId: req.params.id,
+  });
   return res.redirect('/admin#rules');
-});
-
-app.post('/admin/transactions/:id', requireRole('Admin'), async (req, res) => {
-  const updates = [];
-  const values = [];
-  if (req.body.merchantId) { updates.push('merchant_id = ?'); values.push(String(req.body.merchantId).trim()); }
-  if (req.body.amount) { updates.push('amount = ?'); values.push(Number(req.body.amount)); }
-  if (req.body.status) { updates.push('status = ?'); values.push(String(req.body.status).trim()); }
-  if (req.body.actionStatus) { updates.push('action_status = ?'); values.push(String(req.body.actionStatus).trim()); }
-  if (req.body.riskLevel) { updates.push('risk_level = ?'); values.push(String(req.body.riskLevel).trim()); }
-  if (req.body.riskScore) { updates.push('risk_score = ?'); values.push(Number(req.body.riskScore)); }
-  if (req.body.transactionCode) { updates.push('transaction_code = ?'); values.push(String(req.body.transactionCode).trim()); }
-  if (req.body.bankIssuer) { updates.push('bank_issuer = ?'); values.push(String(req.body.bankIssuer).trim()); }
-  if (updates.length) {
-    values.push(req.params.id);
-    await database.execute(`UPDATE transactions SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE transaction_id = ?`, values);
-  }
-  return res.redirect('/admin#transactions');
-});
-
-app.post('/admin/transactions/:id/delete', requireRole('Admin'), async (req, res) => {
-  await database.execute('DELETE FROM transactions WHERE transaction_id = ?', [req.params.id]);
-  return res.redirect('/admin#transactions');
-});
-
-app.post('/analyst/cases', requireRole('Analyst'), async (req, res) => {
-  const transactionId = String(req.body.transactionId || '').trim();
-  const notes = String(req.body.notes || '').trim();
-  const assignedTo = req.body.assignedTo ? String(req.body.assignedTo).trim() : null;
-  if (!transactionId) return res.redirect('/analyst#cases');
-
-  const caseId = id('CASE');
-  await database.execute(
-    `INSERT INTO cases (case_id, transaction_id, created_by, assigned_to, status, notes)
-     VALUES (?, ?, ?, ?, 'Open', ?)`,
-    [caseId, transactionId, req.session.user.id, assignedTo, notes || null],
-  );
-  await database.execute('UPDATE transactions SET action_status = ? WHERE transaction_id = ?', ['None', transactionId]);
-  await database.execute(
-    `INSERT INTO audit_logs (audit_id, transaction_id, action, user_id, notes, created_at)
-     VALUES (?, ?, ?, ?, ?, NOW())`,
-    [id('AUD'), transactionId, 'Case Opened', req.session.user.id, notes || 'Analyst opened a case'],
-  );
-
-  return res.redirect('/analyst#cases');
 });
 
 app.post('/analyst/cases/:id/action', requireRole('Analyst'), async (req, res) => {
   const action = String(req.body.action || '').trim();
   const notes = String(req.body.notes || '').trim();
-  const [rows] = await database.query('SELECT transaction_id FROM cases WHERE case_id = ? LIMIT 1', [req.params.id]);
+  const [rows] = await database.query(
+    `SELECT c.transaction_id, t.risk_level
+     FROM cases c
+     JOIN transactions t ON c.transaction_id = t.transaction_id
+     WHERE c.case_id = ?
+     LIMIT 1`,
+    [req.params.id],
+  );
   const caseRow = rows[0];
   if (!caseRow) return res.redirect('/analyst#cases');
 
+  // Escalation routing follows the confirmed rule: Critical-risk cases need a Senior
+  // Analyst's review first (Scenario 2) before reaching STRO; everything else escalates
+  // straight to STRO (Scenario 1).
+  const escalation = caseRow.risk_level === 'Critical'
+    ? { status: 'Pending Senior Review', actionStatus: 'Pending Senior Review', label: 'Escalated to Senior Analyst' }
+    : { status: 'Escalated', actionStatus: 'Escalated', label: 'Escalated to STRO' };
+
   const actionMap = {
     rfi: { status: 'Pending RFI', actionStatus: 'Pending RFI', label: 'Request RFI' },
-    escalate: { status: 'Escalated', actionStatus: 'Escalated', label: 'Escalated case' },
+    escalate: escalation,
     dismiss: { status: 'Dismissed as False Positive', actionStatus: 'Dismissed as False Positive', label: 'Dismissed as False Positive' },
   };
   const selected = actionMap[action];
@@ -1010,6 +1136,31 @@ app.post('/analyst/cases/:id/action', requireRole('Analyst'), async (req, res) =
   );
 
   return res.redirect('/analyst#cases');
+});
+
+app.post('/senior-analyst/cases/:id/action', requireRole('Senior Analyst'), async (req, res) => {
+  const action = String(req.body.action || '').trim();
+  const notes = String(req.body.notes || '').trim();
+  const [rows] = await database.query('SELECT transaction_id FROM cases WHERE case_id = ? LIMIT 1', [req.params.id]);
+  const caseRow = rows[0];
+  if (!caseRow) return res.redirect('/senior-analyst#cases');
+
+  const actionMap = {
+    escalate: { status: 'Escalated', actionStatus: 'Escalated', label: 'Escalated to STRO' },
+    dismiss: { status: 'Dismissed as False Positive', actionStatus: 'Dismissed as False Positive', label: 'Dismissed as False Positive' },
+  };
+  const selected = actionMap[action];
+  if (!selected) return res.redirect('/senior-analyst#cases');
+
+  await database.execute('UPDATE cases SET status = ?, notes = COALESCE(?, notes), updated_at = CURRENT_TIMESTAMP WHERE case_id = ?', [selected.status, notes || null, req.params.id]);
+  await database.execute('UPDATE transactions SET action_status = ?, updated_at = CURRENT_TIMESTAMP WHERE transaction_id = ?', [selected.actionStatus, caseRow.transaction_id]);
+  await database.execute(
+    `INSERT INTO audit_logs (audit_id, transaction_id, action, user_id, notes, created_at)
+     VALUES (?, ?, ?, ?, ?, NOW())`,
+    [id('AUD'), caseRow.transaction_id, selected.label, req.session.user.id, notes || selected.label],
+  );
+
+  return res.redirect('/senior-analyst#cases');
 });
 
 app.post('/stro/cases/:id/action', requireRole('STRO'), async (req, res) => {

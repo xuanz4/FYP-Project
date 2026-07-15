@@ -88,38 +88,50 @@
                             <% } %>
                 </section>
 
-                <% if (currentRole==='Analyst' ) { %>
+                <% if (currentRole==='Analyst' && caseRecord) { %>
                     <section class="panel">
                         <div class="panel-header">
                             <div>
                                 <h2>Analyst Actions</h2>
-                                <p>Create a case or update the existing one.</p>
+                                <p>Update the case that was automatically opened for this transaction.</p>
                             </div>
                         </div>
-                        <% if (!caseRecord) { %>
-                            <form method="post" action="/analyst/cases" class="grid-form compact-form">
-                                <input type="hidden" name="transactionId" value="<%= transaction.transaction_id %>">
-                                <label><span>Assigned To</span><input name="assignedTo"></label>
-                                <label><span>Notes</span><input name="notes"></label>
-                                <button type="submit" class="primary-btn">Open Case</button>
-                            </form>
-                            <% } else { %>
-                                <div class="table-actions">
-                                    <form method="post" action="/analyst/cases/<%= caseRecord.case_id %>/action"><input
-                                            type="hidden" name="action" value="rfi"><button type="submit"
-                                            class="secondary-btn">Request RFI</button></form>
-                                    <form method="post" action="/analyst/cases/<%= caseRecord.case_id %>/action"><input
-                                            type="hidden" name="action" value="escalate"><button type="submit"
-                                            class="secondary-btn">Escalate</button></form>
-                                    <form method="post" action="/analyst/cases/<%= caseRecord.case_id %>/action"><input
-                                            type="hidden" name="action" value="dismiss"><button type="submit"
-                                            class="secondary-btn danger">Dismiss as False Positive</button></form>
-                                </div>
-                                <% } %>
+                        <div class="table-actions">
+                            <form method="post" action="/analyst/cases/<%= caseRecord.case_id %>/action"><input
+                                    type="hidden" name="action" value="rfi"><button type="submit"
+                                    class="secondary-btn">Request RFI</button></form>
+                            <form method="post" action="/analyst/cases/<%= caseRecord.case_id %>/action"><input
+                                    type="hidden" name="action" value="escalate"><button type="submit"
+                                    class="secondary-btn">Escalate</button></form>
+                            <form method="post" action="/analyst/cases/<%= caseRecord.case_id %>/action"><input
+                                    type="hidden" name="action" value="dismiss"><button type="submit"
+                                    class="secondary-btn danger">Resolve</button></form>
+                        </div>
                     </section>
                     <% } %>
 
-                        <% if (currentRole==='STRO' && caseRecord) { %>
+                        <% if (currentRole==='Senior Analyst' && caseRecord && caseRecord.status==='Pending Senior Review' ) { %>
+                            <section class="panel">
+                                <div class="panel-header">
+                                    <div>
+                                        <h2>Senior Analyst Actions</h2>
+                                        <p>Confirm the concern to escalate to STRO, or resolve it as a false positive.</p>
+                                    </div>
+                                </div>
+                                <div class="table-actions">
+                                    <form method="post"
+                                        action="/senior-analyst/cases/<%= caseRecord.case_id %>/action"><input
+                                            type="hidden" name="action" value="escalate"><button type="submit"
+                                            class="secondary-btn">Escalate to STRO</button></form>
+                                    <form method="post"
+                                        action="/senior-analyst/cases/<%= caseRecord.case_id %>/action"><input
+                                            type="hidden" name="action" value="dismiss"><button type="submit"
+                                            class="secondary-btn danger">Resolve</button></form>
+                                </div>
+                            </section>
+                            <% } %>
+
+                                <% if (currentRole==='STRO' && caseRecord) { %>
                             <section class="panel">
                                 <div class="panel-header">
                                     <div>
@@ -130,7 +142,7 @@
                                 <div class="table-actions">
                                     <form method="post" action="/stro/cases/<%= caseRecord.case_id %>/action"><input
                                             type="hidden" name="action" value="dismiss"><button type="submit"
-                                            class="secondary-btn danger">Dismiss as False Positive</button></form>
+                                            class="secondary-btn danger">Resolve</button></form>
                                     <form method="post" action="/stro/cases/<%= caseRecord.case_id %>/action"><input
                                             type="hidden" name="action" value="str"><button type="submit"
                                             class="secondary-btn">File STR</button></form>
@@ -141,155 +153,3 @@
     </main>
 
     <%- include('partials/footer', { includeClientScript: false }) %>
-        typeof activityLogs !== 'undefined' && Array.isArray(activityLogs)
-        ? activityLogs
-        : [];
-        %>
-        <% if (safeActivityLogs.length> 0) { %>
-            <section class="panel detail-section">
-                <div class="panel-header">
-                    <div>
-                        <h2>Activity Log</h2>
-                        <p>Timeline for this transaction only.</p>
-                    </div>
-                </div>
-                <div id="transactionActivityLog" class="transaction-activity-list">
-                    <% safeActivityLogs.forEach((entry)=> { %>
-                        <article class="transaction-activity-item">
-                            <time>
-                                <%= new Date(entry.createdAt).toLocaleTimeString('en-SG') %>
-                            </time>
-                            <div>
-                                <strong>
-                                    <%= entry.action %>
-                                </strong>
-                                <p>
-                                    <%= entry.message || '' %>
-                                </p>
-                                <span>
-                                    <%= entry.actor || 'System' %> &middot; <%= new
-                                            Date(entry.createdAt).toLocaleString('en-SG') %>
-                                </span>
-                            </div>
-                        </article>
-                        <% }); %>
-                </div>
-            </section>
-            <% } %>
-
-                <div id="transactionActionModal" class="detail-modal action-modal" aria-hidden="true">
-                    <div class="detail-modal-backdrop" data-close-transaction-action></div>
-                    <section class="detail-dialog action-dialog" role="dialog" aria-modal="true"
-                        aria-labelledby="transactionActionTitle">
-                        <button type="button" class="detail-close" data-close-transaction-action
-                            aria-label="Close action form">Close</button>
-                        <div class="detail-heading">
-                            <div>
-                                <span class="eyebrow">Demo Form</span>
-                                <h2 id="transactionActionTitle">Transaction Action</h2>
-                                <p>This form is for demonstration only and does not submit to a backend.</p>
-                            </div>
-                        </div>
-                        <form id="transactionActionForm" class="action-form">
-                            <input id="transactionActionType" type="hidden" name="action" value="">
-                            <label>
-                                <span>Name</span>
-                                <input id="transactionActionName" name="name" type="text" readonly
-                                    value="<%= transaction.customerName %>">
-                            </label>
-                            <label>
-                                <span>Amount</span>
-                                <input id="transactionActionAmount" name="amount" type="text" readonly
-                                    value="<%= moneyFormatter.format(transaction.amount) %>">
-                            </label>
-                            <label>
-                                <span>Transaction Location</span>
-                                <input id="transactionActionCountry" name="country" type="text" readonly
-                                    value="<%= transaction.country %>">
-                            </label>
-                            <label>
-                                <span>Merchant Category</span>
-                                <input id="transactionActionCategory" name="merchantCategory" type="text" readonly
-                                    value="<%= transaction.merchantCategory %>">
-                            </label>
-                            <label>
-                                <span>MCC / Industry</span>
-                                <input name="industry" type="text" readonly
-                                    value="<%= transaction.mccCode || 'N/A' %> / <%= transaction.industry || 'N/A' %>">
-                            </label>
-                            <label>
-                                <span>Analyst Notes</span>
-                                <textarea name="notes" rows="4" required minlength="10"
-                                    placeholder="Enter at least 10 meaningful characters"></textarea>
-                            </label>
-                            <button id="transactionActionSubmit" type="submit" class="action-submit">Submit</button>
-                        </form>
-                    </section>
-                </div>
-                <div id="rfiEmailModal" class="detail-modal action-modal" aria-hidden="true">
-                    <div class="detail-modal-backdrop" data-close-rfi-modal></div>
-                    <section class="detail-dialog action-dialog rfi-dialog" role="dialog" aria-modal="true"
-                        aria-labelledby="rfiEmailTitle">
-                        <button type="button" class="detail-close" data-close-rfi-modal
-                            aria-label="Close RFI form">Close</button>
-                        <div class="detail-heading">
-                            <div>
-                                <span class="eyebrow">Customer Verification</span>
-                                <h2 id="rfiEmailTitle">Request for Information</h2>
-                                <p>Send a neutral customer-facing verification request.</p>
-                            </div>
-                        </div>
-                        <form id="rfiEmailForm" class="action-form">
-                            <p class="rfi-warning">
-                                Use neutral verification wording. Do not disclose internal risk scores, screening
-                                results, suspicious transaction reporting, or investigation details to the customer.
-                            </p>
-                            <p id="rfiTestModeNotice"
-                                class="rfi-test-mode-notice <%= emailTestMode ? '' : 'is-hidden' %>">
-                                Development mode: Email will be captured by Ethereal and will not be delivered to the
-                                real customer.
-                            </p>
-                            <label>
-                                <span>Recipient Type</span>
-                                <input id="rfiRecipientType" type="text" readonly
-                                    value="<%= transaction.accountType || 'Individual' %>">
-                            </label>
-                            <label>
-                                <span>Recipient Name</span>
-                                <input id="rfiRecipientName" type="text" readonly
-                                    value="<%= transaction.accountType === 'Organisation' ? (transaction.authorisedContactName || transaction.customerName) : transaction.customerName %>">
-                            </label>
-                            <label>
-                                <span id="rfiRecipientEmailLabel">
-                                    <%= transaction.accountType==='Organisation' ? 'Authorised contact email'
-                                        : 'Customer email' %>
-                                </span>
-                                <input id="rfiRecipientEmail" type="email" readonly
-                                    value="<%= transaction.accountType === 'Organisation' ? (transaction.authorisedContactEmail || '') : (transaction.customerEmail || '') %>">
-                                <small id="rfiRecipientEmailHelp">Saved customer contact. In Ethereal test mode, the
-                                    email is captured in a preview inbox and is not delivered to this address.</small>
-                            </label>
-                            <label class="full-span">
-                                <span>Subject</span>
-                                <input name="subject" type="text" required
-                                    value="Additional Information Required for Your Transaction">
-                            </label>
-                            <label class="full-span">
-                                <span>Information Requested</span>
-                                <textarea name="informationRequested" rows="4" required minlength="10"
-                                    placeholder="Please provide the invoice and source-of-funds documents."></textarea>
-                            </label>
-                            <div id="rfiEmailPreview" class="email-preview is-hidden"></div>
-                            <p id="rfiEmailFeedback" class="muted"></p>
-                            <div class="modal-actions">
-                                <button type="button" class="secondary-btn" data-close-rfi-modal>Cancel</button>
-                                <button id="rfiPreviewButton" type="button" class="secondary-btn">Preview Email</button>
-                                <button id="rfiSendButton" type="submit" class="action-submit">Send RFI</button>
-                            </div>
-                        </form>
-                    </section>
-                </div>
-                <% } %>
-                    </main>
-
-                    <%- include('partials/footer') %>

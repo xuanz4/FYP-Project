@@ -10,7 +10,6 @@
     <% if (currentRole==='Admin' ) { %>
       <a class="<%= activePage === 'admin' ? 'active' : '' %>" href="/admin">Admin Dashboard</a>
       <a href="/admin#users">User Management</a>
-      <a href="/admin#transactions">Transaction Management</a>
       <a href="/admin#audit">Audit Log</a>
       <a href="/admin#merchants">Merchant Management</a>
       <a href="/admin#rules">Rule Management</a>
@@ -19,10 +18,17 @@
         <a href="/analyst#live-feed">Live Transaction Feed</a>
         <a href="/analyst#queue">Operations Working Queue</a>
         <a href="/analyst#cases">Cases</a>
-        <% } else if (currentRole==='STRO' ) { %>
-          <a class="<%= activePage === 'stro' ? 'active' : '' %>" href="/stro">STRO Dashboard</a>
-          <a href="/stro#cases">Cases</a>
-          <% } else { %>
+        <a href="/analyst#audit">Audit Log</a>
+        <% } else if (currentRole==='Senior Analyst' ) { %>
+          <a class="<%= activePage === 'senior-analyst' ? 'active' : '' %>" href="/senior-analyst">Senior Analyst
+            Dashboard</a>
+          <a href="/senior-analyst#cases">Cases Pending Review</a>
+          <a href="/senior-analyst#audit">Audit Log</a>
+          <% } else if (currentRole==='STRO' ) { %>
+            <a class="<%= activePage === 'stro' ? 'active' : '' %>" href="/stro">STRO Dashboard</a>
+            <a href="/stro#cases">Cases</a>
+            <a href="/stro#audit">Audit Log</a>
+            <% } else { %>
             <a class="<%= activePage === 'dashboard' ? 'active' : '' %>" href="/dashboard">Dashboard</a>
             <a class="<%= activePage === 'analytics' ? 'active' : '' %>" href="/analytics">Analytics</a>
             <a class="<%= activePage === 'diligence' ? 'active' : '' %>" href="/diligence">Due Diligence</a>

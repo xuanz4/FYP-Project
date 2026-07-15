@@ -442,6 +442,28 @@ tbody tr:hover td {
   color: var(--red);
   background: #fde8ec;
 }
+.case-row-needs-senior-review {
+  background: #fde8ec;
+}
+.case-row-needs-senior-review td {
+  border-top: 1px solid #f6c2ce;
+  border-bottom: 1px solid #f6c2ce;
+}
+.senior-review-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  padding: 0 8px;
+  min-height: 22px;
+  border-radius: 999px;
+  background: var(--red);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
 .status-cleared {
   color: var(--green);
   font-weight: 800;
