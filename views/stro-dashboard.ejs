@@ -1,0 +1,47 @@
+<%- include('partials/head', { title, activePage }) %>
+<% const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG') : 'Not assigned'; %>
+
+<main class="analyst-page">
+  <section class="analyst-page-header">
+    <div>
+      <p class="detail-eyebrow">UNIWEB STRO workspace</p>
+      <h1>STRO Overview</h1>
+      <p>Suspicious transaction reporting workload for <strong><%= currentUser.name %></strong> (<%= currentUser.id %>)</p>
+    </div>
+    <span class="role-chip">STRO</span>
+  </section>
+
+  <section class="summary-grid">
+    <article><span>Cases Referred to STRO</span><strong><%= summary.referred %></strong><small>Routed for reporting review</small></article>
+    <article><span>STR Recommended</span><strong><%= summary.recommended %></strong><small>Awaiting STR preparation</small></article>
+    <article><span>Draft STRs</span><strong><%= summary.draft %></strong><small>Saved report drafts</small></article>
+    <article><span>Pending Approval</span><strong><%= summary.pendingApproval %></strong><small>Ready for approval or filing</small></article>
+    <article><span>Filed STRs</span><strong><%= summary.filed %></strong><small>Submitted report records</small></article>
+    <article><span>Waiting for Information</span><strong><%= summary.waiting %></strong><small>Evidence requested</small></article>
+  </section>
+
+  <section class="analyst-preview-grid">
+    <article class="panel">
+      <div class="panel-header"><div><h2>Priority STRO Cases</h2><p>Top referred cases needing reporting review.</p></div><a class="secondary-link" href="/stro/cases">View All Cases</a></div>
+      <% if (casePreview.length) { %><div class="compact-list"><% casePreview.forEach((item) => { %>
+        <a href="/transactions/<%= item.transaction_id %>"><strong><%= item.case_id %></strong><span><%= item.str_status || 'Recommended' %> &middot; <%= item.merchant_name || 'Unknown Merchant' %> &middot; <%= fmtDate(item.due_at) %></span></a>
+      <% }) %></div><% } else { %><p class="empty-inline">No STRO cases currently require attention.</p><% } %>
+    </article>
+
+    <article class="panel">
+      <div class="panel-header"><div><h2>Recent STR Activity</h2><p>Latest saved or updated STR records.</p></div><a class="secondary-link" href="/stro/str-reports">View STR Reports</a></div>
+      <% if (reportPreview.length) { %><div class="compact-list"><% reportPreview.forEach((item) => { %>
+        <a href="/transactions/<%= item.transaction_id %>"><strong><%= item.reference_number || item.str_id %></strong><span><%= item.str_status %> &middot; <%= fmtDate(item.updated_at || item.created_at) %></span></a>
+      <% }) %></div><% } else { %><p class="empty-inline">No STR records have been created yet.</p><% } %>
+    </article>
+
+    <article class="panel">
+      <div class="panel-header"><div><h2>Recent STRO Audit Activity</h2><p>Latest traceable STRO actions.</p></div><a class="secondary-link" href="/stro/audit-log">View Audit Log</a></div>
+      <% if (auditPreview.length) { %><div class="compact-list"><% auditPreview.forEach((entry) => { %>
+        <a href="<%= entry.transaction_id ? `/transactions/${entry.transaction_id}` : '/stro/audit-log' %>"><strong><%= entry.action %></strong><span><%= entry.user_name || entry.user_id || 'System' %> &middot; <%= fmtDate(entry.created_at) %></span></a>
+      <% }) %></div><% } else { %><p class="empty-inline">No STRO audit activity matches the current view.</p><% } %>
+    </article>
+  </section>
+</main>
+
+<%- include('partials/footer', { includeClientScript: true }) %>

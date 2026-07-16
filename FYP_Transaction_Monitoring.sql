@@ -157,6 +157,10 @@ CREATE TABLE compliance_cases (
     priority ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL,
     case_status ENUM('New', 'Under Review', 'Waiting for Information', 'Escalated', 'Resolved', 'False Positive') NOT NULL DEFAULT 'New',
     owner VARCHAR(100) NOT NULL DEFAULT 'Operations Team',
+    assigned_role VARCHAR(40) NULL,
+    escalation_destination VARCHAR(40) NULL,
+    referred_to_stro_at DATETIME NULL,
+    referred_to_stro_by VARCHAR(20) NULL,
     decision ENUM('Accepted', 'Rejected', 'Escalated') NULL,
     resolution_reason VARCHAR(80) NULL,
     analyst_notes TEXT NULL,
@@ -167,6 +171,33 @@ CREATE TABLE compliance_cases (
     FOREIGN KEY (alert_id) REFERENCES alerts(alert_id) ON DELETE CASCADE,
     FOREIGN KEY (company_id) REFERENCES companies(company_id),
     FOREIGN KEY (customer_id) REFERENCES customers(customer_id)
+);
+
+CREATE TABLE str_reports (
+    str_id VARCHAR(40) PRIMARY KEY,
+    transaction_id VARCHAR(40) NOT NULL,
+    case_id VARCHAR(40) NOT NULL,
+    str_status ENUM('Recommended', 'Draft', 'Pending Approval', 'Filed', 'Not Required') NOT NULL DEFAULT 'Recommended',
+    reference_number VARCHAR(80) NULL,
+    reporting_reason TEXT NULL,
+    suspicion_summary TEXT NULL,
+    transaction_summary TEXT NULL,
+    supporting_evidence TEXT NULL,
+    stro_notes TEXT NULL,
+    referral_reason VARCHAR(120) NULL,
+    referral_summary TEXT NULL,
+    senior_analyst_notes TEXT NULL,
+    prepared_by VARCHAR(20) NULL,
+    approved_by VARCHAR(20) NULL,
+    filed_by VARCHAR(20) NULL,
+    filing_date DATE NULL,
+    filed_at DATETIME NULL,
+    not_required_reason TEXT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NULL,
+    UNIQUE KEY uniq_str_case (case_id),
+    FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE,
+    FOREIGN KEY (case_id) REFERENCES compliance_cases(case_id) ON DELETE CASCADE
 );
 
 CREATE TABLE audit_logs (
@@ -303,6 +334,10 @@ CREATE INDEX idx_alerts_status ON alerts(alert_status);
 CREATE INDEX idx_alerts_severity ON alerts(severity);
 CREATE INDEX idx_alerts_grouping ON alerts(customer_id, company_id, primary_rule_id, alert_status);
 CREATE INDEX idx_cases_status ON compliance_cases(case_status);
+CREATE INDEX idx_cases_assigned_role ON compliance_cases(assigned_role);
+CREATE INDEX idx_cases_escalation_destination ON compliance_cases(escalation_destination);
+CREATE INDEX idx_str_reports_transaction ON str_reports(transaction_id);
+CREATE INDEX idx_str_reports_status ON str_reports(str_status);
 CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
 CREATE INDEX idx_audit_logs_transaction ON audit_logs(transaction_id);
 CREATE INDEX idx_audit_logs_alert ON audit_logs(alert_id);

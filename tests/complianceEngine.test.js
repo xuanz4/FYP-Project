@@ -12,6 +12,8 @@ const { buildCustomerRiskProfiles } = require('../src/customerRiskEngine');
 const { screenPayment } = require('../src/screeningEngine');
 const { buildRfiEmail } = require('../src/services/emailService');
 const app = require('../app');
+const { addWorkingDays } = app.locals.assignmentHelpers;
+const { validateStrTransition } = app.locals.strWorkflowHelpers;
 
 const highRiskTransaction = {
   amount: 50000,
@@ -105,6 +107,15 @@ assert.strictEqual(highProfileRiskResult.recommendedAction, 'Request OTP');
 assert.ok(highProfileRiskResult.matchedRules.some((rule) => rule.id === 'PROFILE-CUSTOMER-HIGH'));
 assert.ok(highProfileRiskResult.matchedRules.some((rule) => rule.id === 'PROFILE-MERCHANT-HIGH'));
 
+assert.strictEqual(addWorkingDays(new Date('2026-07-16T10:00:00+08:00'), 2).toLocaleDateString('en-SG'), '20/07/2026');
+assert.strictEqual(addWorkingDays(new Date('2026-07-17T10:00:00+08:00'), 2).toLocaleDateString('en-SG'), '21/07/2026');
+assert.strictEqual(validateStrTransition('Recommended', 'Draft'), true);
+assert.strictEqual(validateStrTransition('Draft', 'Pending Approval'), true);
+assert.strictEqual(validateStrTransition('Pending Approval', 'Filed'), true);
+assert.strictEqual(validateStrTransition('Draft', 'Not Required'), true);
+assert.strictEqual(validateStrTransition('Filed', 'Draft'), false);
+assert.strictEqual(validateStrTransition('Filed', 'Filed'), false);
+
 const analytics = buildAnalytics(
   [
     {
@@ -193,7 +204,7 @@ async function assertNewTransactionStoresInitialRisk() {
         throw new Error('Mock email failure');
       }
       const etherealMode = process.env.EMAIL_PROVIDER === 'ethereal';
-      const testMode = process.env.EMAIL_TEST_MODE === 'true' || etherealMode;
+      const testMode = etherealMode;
       const deliveredTo = options.to;
       const deliveredSubject = testMode ? `[TEST] ${options.subject}` : options.subject;
       sentRfiEmails.push({ ...options, deliveredTo, deliveredSubject, testMode, etherealMode });
@@ -241,7 +252,7 @@ async function assertNewTransactionStoresInitialRisk() {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        finalRiskLevel: 'Medium',
+        finalRiskScore: 40,
         decision: 'Accepted',
         resolutionReason: 'Legitimate Transaction',
         analystNotes: 'Reviewed supporting context and accepted the transaction.',
@@ -283,24 +294,31 @@ async function assertNewTransactionStoresInitialRisk() {
     assert.strictEqual(transaction.finalRiskLevel, null);
 
     const scoreCases = [
-      ['Low', 15],
-      ['Medium', 40],
-      ['High', 60],
-      ['Critical', 80],
+      [0, 'Low'],
+      [29, 'Low'],
+      [30, 'Medium'],
+      [49, 'Medium'],
+      [50, 'High'],
+      [69, 'High'],
+      [70, 'Critical'],
+      [100, 'Critical'],
     ];
 
-    for (const [level, expectedScore] of scoreCases) {
-      const riskTransaction = await createTransaction(level);
+    for (const [score, expectedLevel] of scoreCases) {
+      const riskTransaction = await createTransaction(`Score${score}`);
       const initialRiskScore = riskTransaction.initialRiskScore;
       const initialRiskLevel = riskTransaction.initialRiskLevel;
-      const response = await resolveTransaction(riskTransaction, { finalRiskLevel: level });
+      const response = await resolveTransaction(riskTransaction, {
+        finalRiskScore: score,
+        finalRiskLevel: expectedLevel === 'Low' ? 'Critical' : 'Low',
+      });
       const body = await response.json();
 
       assert.strictEqual(response.status, 200);
       assert.strictEqual(body.transaction.initialRiskScore, initialRiskScore);
       assert.strictEqual(body.transaction.initialRiskLevel, initialRiskLevel);
-      assert.strictEqual(body.transaction.finalRiskScore, expectedScore);
-      assert.strictEqual(body.transaction.finalRiskLevel, level);
+      assert.strictEqual(body.transaction.finalRiskScore, score);
+      assert.strictEqual(body.transaction.finalRiskLevel, expectedLevel);
       assert.strictEqual(body.transaction.decision, 'Accepted');
       assert.strictEqual(body.transaction.resolutionReason, 'Legitimate Transaction');
       assert.strictEqual(body.transaction.analystNotes, 'Reviewed supporting context and accepted the transaction.');
@@ -308,18 +326,22 @@ async function assertNewTransactionStoresInitialRisk() {
       assert.strictEqual(body.case.status, 'Resolved');
     }
 
-    const invalidLevelTransaction = await createTransaction('InvalidLevel');
-    const invalidLevelResponse = await resolveTransaction(invalidLevelTransaction, { finalRiskLevel: 'Very High' });
-    assert.strictEqual(invalidLevelResponse.status, 400);
+    const belowRangeTransaction = await createTransaction('BelowRange');
+    const belowRangeResponse = await resolveTransaction(belowRangeTransaction, { finalRiskScore: -1 });
+    assert.strictEqual(belowRangeResponse.status, 400);
+
+    const aboveRangeTransaction = await createTransaction('AboveRange');
+    const aboveRangeResponse = await resolveTransaction(aboveRangeTransaction, { finalRiskScore: 101 });
+    assert.strictEqual(aboveRangeResponse.status, 400);
 
     const emptyNotesTransaction = await createTransaction('EmptyNotes');
     const emptyNotesResponse = await resolveTransaction(emptyNotesTransaction, { analystNotes: '   ' });
     assert.strictEqual(emptyNotesResponse.status, 400);
 
     const duplicateTransaction = await createTransaction('Duplicate');
-    const firstResolve = await resolveTransaction(duplicateTransaction, { finalRiskLevel: 'Low' });
+    const firstResolve = await resolveTransaction(duplicateTransaction, { finalRiskScore: 15 });
     assert.strictEqual(firstResolve.status, 200);
-    const duplicateResolve = await resolveTransaction(duplicateTransaction, { finalRiskLevel: 'Critical' });
+    const duplicateResolve = await resolveTransaction(duplicateTransaction, { finalRiskScore: 80 });
     assert.strictEqual(duplicateResolve.status, 409);
 
     const rfiEmailTransaction = await createTransaction('RfiEmail');
@@ -330,6 +352,9 @@ async function assertNewTransactionStoresInitialRisk() {
     assert.strictEqual(sentRfiEmails.length, sentBeforeRfi + 1);
     assert.strictEqual(sentRfiEmails.at(-1).to, rfiEmailTransaction.customerEmail);
     assert.strictEqual(sentRfiEmails.at(-1).recipientName, rfiEmailTransaction.customerName);
+    assert.strictEqual(validRfiBody.message, 'RFI email accepted for delivery.');
+    assert.strictEqual(validRfiBody.previewUrl, undefined);
+    assert.strictEqual(validRfiBody.delivery.provider, 'smtp');
     assert.strictEqual(validRfiBody.transaction.assessmentStatus, 'Waiting for Information');
     assert.strictEqual(validRfiBody.auditEntry.action, 'Request for Information Sent');
 
@@ -400,26 +425,19 @@ async function assertNewTransactionStoresInitialRisk() {
     assert.ok(!authFailureActivity.some((entry) => entry.action === 'Request for Information Sent'));
 
     const resolvedRfiTransaction = await createTransaction('ResolvedRfi');
-    const resolvedBeforeRfi = await resolveTransaction(resolvedRfiTransaction, { finalRiskLevel: 'Low' });
+    const resolvedBeforeRfi = await resolveTransaction(resolvedRfiTransaction, { finalRiskScore: 15 });
     assert.strictEqual(resolvedBeforeRfi.status, 200);
     const resolvedRfiResponse = await postRfi(resolvedRfiTransaction);
     assert.strictEqual(resolvedRfiResponse.status, 409);
 
-    const originalTestMode = process.env.EMAIL_TEST_MODE;
     const originalEmailProvider = process.env.EMAIL_PROVIDER;
-    process.env.EMAIL_TEST_MODE = 'true';
-    const testModeTransaction = await createTransaction('TestModeRfi');
-    const testModeRfiResponse = await postRfi(testModeTransaction);
-    assert.strictEqual(testModeRfiResponse.status, 200);
-    assert.strictEqual(sentRfiEmails.at(-1).deliveredTo, testModeTransaction.customerEmail);
-    assert.strictEqual(sentRfiEmails.at(-1).testMode, true);
-    assert.strictEqual(sentRfiEmails.at(-1).deliveredSubject, '[TEST] Additional Information Required for Your Transaction');
     process.env.EMAIL_PROVIDER = 'ethereal';
     const etherealTransaction = await createTransaction('EtherealRfi');
     const etherealResponse = await postRfi(etherealTransaction);
     const etherealBody = await etherealResponse.json();
     assert.strictEqual(etherealResponse.status, 200);
-    assert.strictEqual(etherealBody.message, 'Test email created successfully. This message was not delivered to the customer.');
+    assert.strictEqual(etherealBody.provider, 'ethereal');
+    assert.strictEqual(etherealBody.message, 'Test RFI email created successfully. No real email was delivered.');
     assert.strictEqual(etherealBody.previewUrl, 'https://ethereal.email/message/mock-preview');
     assert.strictEqual(etherealBody.delivery.provider, 'ethereal');
     assert.strictEqual(etherealBody.delivery.recipientSource, 'stored');
@@ -427,8 +445,6 @@ async function assertNewTransactionStoresInitialRisk() {
     assert.strictEqual(sentRfiEmails.at(-1).etherealMode, true);
     assert.strictEqual(sentRfiEmails.at(-1).deliveredTo, etherealTransaction.customerEmail);
     assert.strictEqual(etherealTransaction.customerEmail, sentRfiEmails.at(-1).to);
-    if (originalTestMode === undefined) delete process.env.EMAIL_TEST_MODE;
-    else process.env.EMAIL_TEST_MODE = originalTestMode;
     if (originalEmailProvider === undefined) delete process.env.EMAIL_PROVIDER;
     else process.env.EMAIL_PROVIDER = originalEmailProvider;
 
@@ -473,7 +489,7 @@ async function assertNewTransactionStoresInitialRisk() {
     });
     assert.strictEqual(repeatedEscalation.status, 409);
 
-    const resolvedActionResponse = await resolveTransaction(actionTransaction, { finalRiskLevel: 'Medium' });
+    const resolvedActionResponse = await resolveTransaction(actionTransaction, { finalRiskScore: 40 });
     const resolvedActionBody = await resolvedActionResponse.json();
     assert.strictEqual(resolvedActionResponse.status, 200);
     const resolvedActions = resolvedActionBody.activityLogs.map((entry) => entry.action);

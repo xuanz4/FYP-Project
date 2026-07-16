@@ -1,155 +1,1452 @@
 <%- include('partials/head', { title, activePage }) %>
 
-    <main class="transaction-detail-page">
-        <section class="topbar detail-topbar">
-            <div>
-                <a class="back-link"
-                    href="<%= currentRole === 'Admin' ? '/admin' : currentRole === 'STRO' ? '/stro' : '/analyst' %>">&larr;
-                    Back to Dashboard</a>
-                <h1>Transaction Review</h1>
-                <% if (transaction) { %>
-                    <p>
-                        <%= transaction.transaction_id %>
+<%
+    const tx = transaction || {};
+    const caseInfo = caseRecord || null;
+    const logs = Array.isArray(activityLogs) ? activityLogs : [];
+    const contributions = Array.isArray(riskContributions) ? riskContributions : [];
+    const role = currentRole || 'Analyst';
+    const roleLabel = role === 'STRO' ? 'Suspicious Transaction Report Officer' : role;
+    const userName = currentUser?.name || currentUser?.user_name || 'Current user';
+    const isAnalyst = role === 'Analyst';
+    const isSenior = role === 'Senior Analyst';
+    const isStro = role === 'STRO';
+    const isAdmin = role === 'Admin';
+    const transactionId = tx.transaction_id || tx.id || '';
+    const merchantName = tx.merchant_name || tx.companyName || tx.merchant_id || 'UNIWEB merchant';
+    const customerName = tx.customer_name || tx.customerName || tx.card_holder_name || tx.accountName || merchantName || 'Unknown customer';
+    const savedRfiRecipientEmail = tx.customer_email || tx.customerEmail || tx.authorised_contact_email || tx.authorisedContactEmail || '';
+    const rfiSlug = (value, fallback) => {
+        const slug = String(value || fallback || 'recipient')
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9\s-]/g, '')
+            .replace(/\s+/g, '-')
+            .replace(/-+/g, '-')
+            .replace(/^-|-$/g, '')
+            .slice(0, 36);
+        return slug || fallback || 'recipient';
+    };
+    const generatedRfiTestEmail = `${rfiSlug(customerName, 'recipient').slice(0, 30)}-${rfiSlug(transactionId, 'transaction').slice(0, 24)}@example.com`;
+    const isEmailTestModeForRecipient = typeof emailTestMode !== 'undefined' && emailTestMode;
+    const displayedRfiRecipientEmail = savedRfiRecipientEmail || (isEmailTestModeForRecipient ? generatedRfiTestEmail : '');
+    const rfiRecipientSource = savedRfiRecipientEmail
+        ? ((tx.accountType || tx.account_type) === 'Organisation' ? 'saved-organisation-contact' : 'saved-individual')
+        : (isEmailTestModeForRecipient ? 'generated-test' : 'missing');
+    const amount = Number(tx.amount || 0);
+    const currency = tx.currency || 'SGD';
+    const transactionStatus = tx.status || 'Flagged';
+    const rawCaseStatus = caseInfo?.status || tx.assessmentStatus || tx.action_status || 'New';
+    const assessmentStatusMap = {
+        'Open': 'New',
+        'Pending RFI': 'Waiting for Information',
+        'Pending Senior Review': 'Escalated',
+        'Dismissed as False Positive': 'Resolved',
+        'STR Filed': 'Resolved',
+        'None': 'New'
+    };
+    const assessmentStatus = assessmentStatusMap[rawCaseStatus] || rawCaseStatus;
+    const decision = tx.decision || (rawCaseStatus === 'Dismissed as False Positive' ? 'Accepted' : rawCaseStatus === 'STR Filed' ? 'Escalated' : 'Not assigned');
+    const initialScore = tx.initial_risk_score ?? tx.initialRiskScore ?? tx.risk_score ?? tx.riskScore ?? 'Not assigned';
+    const initialLevel = tx.initial_risk_level || tx.initialRiskLevel || tx.risk_level || tx.riskBand || 'Not assigned';
+    const finalScore = tx.final_risk_score ?? tx.finalRiskScore ?? null;
+    const finalLevel = tx.final_risk_level || tx.finalRiskLevel || null;
+    const initialScoreNumber = Number(initialScore) || 0;
+    const hasMccRiskContribution = tx.mcc_risk_score !== undefined || tx.mccRiskScore !== undefined;
+    const hasProfileRiskContribution = tx.profile_risk_score !== undefined || tx.profileRiskScore !== undefined;
+    const hasDetectionRiskContribution = tx.transaction_detection_score !== undefined || tx.transactionDetectionScore !== undefined;
+    const mccRiskContribution = Number(tx.mcc_risk_score ?? tx.mccRiskScore ?? 0);
+    const profileRiskContribution = Number(tx.profile_risk_score ?? tx.profileRiskScore ?? 0);
+    const detectionRiskContribution = Number(tx.transaction_detection_score ?? tx.transactionDetectionScore ?? 0);
+    const ruleWeightTotal = contributions.reduce((total, rule) => total + Number(rule.rule_weight ?? rule.weight ?? rule.score ?? rule.riskContribution ?? 0), 0);
+    const displayedDetectionContribution = hasDetectionRiskContribution ? detectionRiskContribution : ruleWeightTotal;
+    const knownComponentTotal = mccRiskContribution + (hasProfileRiskContribution ? profileRiskContribution : 0) + (hasDetectionRiskContribution ? detectionRiskContribution : ruleWeightTotal);
+    const unpersistedRiskContribution = Math.max(0, initialScoreNumber - knownComponentTotal);
+    const baselineContributions = [
+        {
+            label: 'MCC Risk Contribution',
+            description: hasMccRiskContribution
+                ? 'Merchant category risk points contributed to the initial score.'
+                : 'MCC contribution is not stored for this transaction.',
+            points: hasMccRiskContribution ? mccRiskContribution : null,
+            matchedField: 'Merchant category'
+        },
+        {
+            label: 'Profile Risk Contribution',
+            description: hasProfileRiskContribution
+                ? 'Customer or merchant profile risk points contributed to the initial score.'
+                : 'Profile contribution is not stored in the active transaction schema.',
+            points: hasProfileRiskContribution ? profileRiskContribution : null,
+            matchedField: 'Customer / merchant profile',
+            missingDetails: !hasProfileRiskContribution
+        },
+        {
+            label: 'Transaction Detection Contribution',
+            description: hasDetectionRiskContribution
+                ? 'Monitoring-rule points contributed to the initial score.'
+                : contributions.length
+                    ? 'Detailed rule rows are available, but the stored detection total is not.'
+                    : 'Detection contribution is not stored in the active transaction schema.',
+            points: hasDetectionRiskContribution ? detectionRiskContribution : (contributions.length ? ruleWeightTotal : null),
+            matchedField: 'Monitoring rules',
+            missingDetails: !hasDetectionRiskContribution
+        },
+        unpersistedRiskContribution > 0 ? {
+            label: 'Unpersisted Risk Components',
+            description: 'These points are included in the stored initial score, but this database row does not retain the component split.',
+            points: unpersistedRiskContribution,
+            matchedField: 'Stored aggregate risk score',
+            missingDetails: true
+        } : null
+    ].filter(Boolean);
+    const hasAnyContributionDetails = contributions.length > 0 || baselineContributions.length > 0;
+    const isResolved = ['Resolved', 'Dismissed as False Positive', 'STR Filed'].includes(assessmentStatus) || ['Dismissed as False Positive', 'STR Filed'].includes(rawCaseStatus);
+    const dueDate = caseInfo?.due_at || caseInfo?.dueAt || tx.due_at || tx.dueAt || 'Not assigned';
+    const assignedAnalyst = caseInfo?.assigned_user_name || caseInfo?.assignedUserName || caseInfo?.owner || tx.assignedAnalyst || (caseInfo?.assigned_to ? caseInfo.assigned_to : 'Unassigned');
+    const isUnassignedCase = !!caseInfo && !caseInfo.assigned_to && !caseInfo.assignedUserId;
+    const strStatus = caseInfo?.str_status || caseInfo?.strStatus || 'Not Started';
+    const routedToStro = caseInfo?.assigned_role === 'STRO' || caseInfo?.assignedRole === 'STRO' || caseInfo?.escalation_destination === 'STRO' || caseInfo?.escalationDestination === 'STRO';
+    const escalationDestination = caseInfo?.escalation_destination || caseInfo?.escalationDestination || (routedToStro ? 'STRO' : caseInfo?.assigned_role || caseInfo?.assignedRole || 'Not assigned');
+    const referredBy = caseInfo?.referred_by_user_name || caseInfo?.referredByName || caseInfo?.referred_to_stro_by || 'Not assigned';
+    const canReferToStro = !isResolved && isSenior && !!caseInfo && !routedToStro && strStatus === 'Not Started';
+    const canStroWorkStr = !isResolved && isStro && routedToStro && ['Recommended', 'Draft', 'Pending Approval'].includes(strStatus);
+    const canStroRequestInfo = canStroWorkStr;
+    const canMarkStrNotRequired = canStroWorkStr;
+    const canPrepareStr = canStroWorkStr;
+    const screeningResult = transactionStatus === 'Flagged' ? 'Potential review required' : 'Cleared';
+    const recommendedAction = tx.recommendedAction || (initialLevel === 'Critical' ? 'Manual Review or Hold Settlement' : initialLevel === 'High' ? 'Request OTP' : initialLevel === 'Medium' ? 'Monitor' : 'Allow');
+    const backHref = role === 'Admin' ? '/admin' : role === 'STRO' ? '/stro' : role === 'Senior Analyst' ? '/senior-analyst' : '/analyst';
+    const canSendRfi = !isResolved && ((isAnalyst || isSenior) || canStroRequestInfo);
+    const canEscalate = !isResolved && isAnalyst && !!caseInfo && escalationDestination === 'Not assigned' && strStatus === 'Not Started';
+    const canResolve = !isResolved && ((isAnalyst && rawCaseStatus !== 'Escalated' && rawCaseStatus !== 'Pending Senior Review' && initialLevel !== 'Critical') || isSenior);
+    const canFileStr = false;
+    const canRecommendStr = false;
+    const canAssignToMe = !isResolved && isUnassignedCase && (isAnalyst || isSenior);
+    const hasEmailTestMode = typeof emailTestMode !== 'undefined' && emailTestMode;
+%>
+
+<main class="transaction-review-page">
+    <section class="review-case-header">
+        <div class="review-header-main">
+            <a class="back-link" href="<%= backHref %>">&larr; Back to Dashboard</a>
+            <p class="detail-eyebrow">UNIWEB local-card monitoring</p>
+            <h1>Transaction Review</h1>
+            <% if (transaction) { %>
+                <p class="review-header-subtitle"><%= transactionId %> · <%= customerName %></p>
+            <% } else { %>
+                <p class="review-header-subtitle">Transaction not found.</p>
+            <% } %>
+        </div>
+        <div class="review-role-card">
+            <span>Viewing as</span>
+            <strong><%= roleLabel %></strong>
+            <small><%= userName %></small>
+        </div>
+    </section>
+
+    <% if (!transaction) { %>
+        <section class="panel detail-empty-state">
+            <div class="detail-empty-body">
+                <h2>Transaction could not be loaded</h2>
+                <p class="muted">The selected transaction no longer exists or is not available to this role.</p>
+            </div>
+        </section>
+    <% } else { %>
+        <section class="review-meta-strip">
+            <article>
+                <span>Customer / Organisation</span>
+                <strong><%= customerName %></strong>
+            </article>
+            <article>
+                <span>Amount</span>
+                <strong><%= currency %> <%= amount.toFixed(2) %></strong>
+            </article>
+            <article>
+                <span>Date and Time</span>
+                <strong><%= tx.created_at || tx.createdAt ? new Date(tx.created_at || tx.createdAt).toLocaleString('en-SG') : 'Not assigned' %></strong>
+            </article>
+            <article>
+                <span>Transaction Status</span>
+                <strong class="status-pill status-<%= String(transactionStatus).toLowerCase() %>"><%= transactionStatus %></strong>
+            </article>
+            <article>
+                <span>Assessment Status</span>
+                <strong id="assessmentStatusValue" class="status-pill status-<%= String(assessmentStatus).toLowerCase().replaceAll(' ', '-') %>"><%= assessmentStatus %></strong>
+            </article>
+            <article>
+                <span>Escalated To</span>
+                <strong id="escalatedToValue"><%= escalationDestination %></strong>
+            </article>
+            <article>
+                <span>Referred By</span>
+                <strong id="referredByValue"><%= referredBy %></strong>
+            </article>
+            <article>
+                <span>STR Status</span>
+                <strong id="strStatusValue"><%= strStatus %></strong>
+            </article>
+            <article>
+                <span>Assigned Analyst</span>
+                <strong id="assignedAnalystValue"><%= assignedAnalyst %></strong>
+                <% if (canAssignToMe) { %>
+                    <button id="assignToMeButton" type="button" class="inline-action-button"
+                        data-case-id="<%= caseInfo.case_id %>">Assign to Me</button>
+                    <small id="assignToMeFeedback" class="inline-feedback"></small>
+                <% } %>
+            </article>
+            <article>
+                <span>Due Date</span>
+                <strong id="caseDueDateValue"><%= dueDate === 'Not assigned' ? dueDate : new Date(dueDate).toLocaleString('en-SG') %></strong>
+            </article>
+        </section>
+
+        <section class="review-top-grid">
+            <article class="panel review-risk-card">
+                <div class="panel-header">
+                    <div>
+                        <h2>Risk Assessment Summary</h2>
+                        <p>Initial automated screening is kept separate from the final assessment outcome.</p>
+                    </div>
+                </div>
+                <div class="risk-assessment-pair">
+                    <div class="assessment-block initial-block">
+                        <span>Initial Assessment</span>
+                        <strong><%= initialScore %></strong>
+                        <small><%= initialLevel %></small>
+                        <dl>
+                            <div><dt>Monitoring rules triggered</dt><dd><%= contributions.length %></dd></div>
+                            <div><dt>Screening result</dt><dd><%= screeningResult %></dd></div>
+                            <div><dt>Recommended action</dt><dd><%= recommendedAction %></dd></div>
+                        </dl>
+                    </div>
+                    <div class="assessment-block final-block">
+                        <span>Final Assessment</span>
+                        <strong><%= finalScore ?? 'Not assigned' %></strong>
+                        <small><%= finalLevel || 'Not assigned' %></small>
+                        <dl>
+                            <div><dt>Decision</dt><dd><%= decision %></dd></div>
+                            <div><dt>Resolution reason</dt><dd><%= tx.resolutionReason || tx.resolution_reason || (isResolved ? rawCaseStatus : 'Not assigned') %></dd></div>
+                            <div><dt>Resolved by</dt><dd><%= tx.resolvedBy || 'Not assigned' %></dd></div>
+                            <div><dt>Resolved at</dt><dd><%= tx.resolvedAt || tx.resolved_at ? new Date(tx.resolvedAt || tx.resolved_at).toLocaleString('en-SG') : 'Not assigned' %></dd></div>
+                        </dl>
+                    </div>
+                </div>
+            </article>
+
+            <article class="panel review-contribution-card">
+                <div class="panel-header">
+                    <div>
+                        <h2>Risk Contributions</h2>
+                        <p>Contribution points affect the score. Screening confidence is supporting evidence.</p>
+                    </div>
+                </div>
+                <% if (hasAnyContributionDetails) { %>
+                    <div class="contribution-list">
+                        <% baselineContributions.forEach((item) => { %>
+                            <article class="contribution-item <%= item.missingDetails ? 'missing-rule-details' : '' %>">
+                                <div>
+                                    <strong><%= item.label %></strong>
+                                    <p><%= item.description %></p>
+                                </div>
+                                <dl>
+                                    <div><dt>Component</dt><dd><%= item.label.replace(' Contribution', '') %></dd></div>
+                                    <div><dt>Contribution</dt><dd><%= item.points === null ? 'Not stored' : `${item.points} pts` %></dd></div>
+                                    <div><dt>Matched field</dt><dd><%= item.matchedField %></dd></div>
+                                    <div><dt>Confidence</dt><dd>Not a screening confidence score</dd></div>
+                                </dl>
+                            </article>
+                        <% }) %>
+                        <% contributions.forEach((rule) => { %>
+                            <article class="contribution-item">
+                                <div>
+                                    <strong><%= rule.rule_name || rule.name || rule.label || rule.ruleId || 'Matched rule' %></strong>
+                                    <p><%= rule.reason || rule.description || rule.message || 'Rule matched this transaction.' %></p>
+                                </div>
+                                <dl>
+                                    <div><dt>Severity</dt><dd><span class="risk-badge risk-<%= String(rule.risk_level || rule.severity || initialLevel).toLowerCase() %>"><%= rule.risk_level || rule.severity || initialLevel %></span></dd></div>
+                                    <div><dt>Risk contribution</dt><dd><%= rule.weight ?? rule.score ?? rule.riskContribution ?? 'Not assigned' %> pts</dd></div>
+                                    <div><dt>Matched field</dt><dd><%= rule.matchedField || rule.field || 'Transaction context' %></dd></div>
+                                    <div><dt>Confidence</dt><dd><%= rule.confidence ? `${rule.confidence}%` : 'Evidence only' %></dd></div>
+                                </dl>
+                            </article>
+                        <% }) %>
+                        <article class="contribution-formula">
+                            <strong>
+                                MCC <%= hasMccRiskContribution ? mccRiskContribution : 'not stored' %>
+                                + Profile <%= hasProfileRiskContribution ? profileRiskContribution : 'not stored' %>
+                                + Detection <%= hasDetectionRiskContribution ? detectionRiskContribution : (contributions.length ? ruleWeightTotal : 'not stored') %>
+                                <%= unpersistedRiskContribution > 0 ? ` + Unpersisted ${unpersistedRiskContribution}` : '' %>
+                                = Initial Risk Score <%= initialScoreNumber %>
+                            </strong>
+                            <% if (unpersistedRiskContribution > 0) { %>
+                                <p>Risk calculation components were not fully persisted for this transaction, so the remaining <%= unpersistedRiskContribution %> points are shown as an unpersisted aggregate.</p>
+                            <% } %>
+                            <% if (!hasDetectionRiskContribution && contributions.length === 0 && initialScoreNumber > mccRiskContribution) { %>
+                                <p>No matched monitoring-rule rows were stored for this transaction.</p>
+                            <% } %>
+                        </article>
+                    </div>
+                <% } else { %>
+                    <p class="empty-inline">
+                        <%= initialScoreNumber > 0 ? 'Risk contribution details could not be loaded.' : 'No monitoring-rule points were added.' %>
                     </p>
-                    <% } else { %>
-                        <p>Transaction not found.</p>
+                <% } %>
+            </article>
+        </section>
+
+        <section class="panel review-tabs-panel">
+            <div class="review-tabs" role="tablist" aria-label="Transaction review sections">
+                <button type="button" class="review-tab active" data-review-tab="overview" role="tab" aria-selected="true">Overview</button>
+                <button type="button" class="review-tab" data-review-tab="investigation" role="tab" aria-selected="false">Investigation</button>
+                <button type="button" class="review-tab" data-review-tab="activity" role="tab" aria-selected="false">Activity Log</button>
+            </div>
+
+            <section class="review-tab-panel active" data-review-panel="overview" role="tabpanel">
+                <div class="overview-grid">
+                    <article class="review-info-card">
+                        <h3>Transaction Information</h3>
+                        <dl class="review-definition-grid">
+                            <div><dt>Amount</dt><dd><%= currency %> <%= amount.toFixed(2) %></dd></div>
+                            <div><dt>Direction</dt><dd><%= tx.direction || 'Local card payment' %></dd></div>
+                            <div><dt>Channel</dt><dd><%= tx.channel || 'Card' %></dd></div>
+                            <div><dt>Country</dt><dd><%= tx.country || 'Singapore' %></dd></div>
+                            <div><dt>Counterparty</dt><dd><%= tx.counterparty || tx.counterpartyName || merchantName %></dd></div>
+                            <div><dt>Counterparty country</dt><dd><%= tx.counterpartyCountry || tx.counterparty_country || 'Singapore' %></dd></div>
+                            <div><dt>Payment reference</dt><dd><%= tx.paymentReference || tx.transaction_code || tx.transaction_id || 'Not assigned' %></dd></div>
+                            <div><dt>Date and time</dt><dd><%= tx.created_at || tx.createdAt ? new Date(tx.created_at || tx.createdAt).toLocaleString('en-SG') : 'Not assigned' %></dd></div>
+                        </dl>
+                    </article>
+                    <article class="review-info-card">
+                        <h3>Customer or Organisation Profile</h3>
+                        <dl class="review-definition-grid">
+                            <div><dt>Account type</dt><dd><%= tx.accountType || 'Merchant card account' %></dd></div>
+                            <div><dt>Name</dt><dd><%= customerName %></dd></div>
+                            <div><dt>Customer ID</dt><dd><%= tx.customer_id || tx.customerId || tx.merchant_id || 'Not assigned' %></dd></div>
+                            <div><dt>KYC status</dt><dd><%= tx.kycStatus || tx.kyc_status || 'Verified' %></dd></div>
+                            <div><dt>Customer risk</dt><dd><%= tx.customerRiskLevel || tx.customer_risk_level || initialLevel %></dd></div>
+                            <div><dt>Merchant risk</dt><dd><%= tx.merchantRiskLevel || tx.merchant_risk_level || initialLevel %></dd></div>
+                            <div><dt>Authorised contact</dt><dd><%= tx.authorisedContactName || tx.authorised_contact_name || 'Not assigned' %></dd></div>
+                        </dl>
+                    </article>
+                    <article class="review-info-card wide">
+                        <h3>Screening Evidence</h3>
+                        <div class="screening-evidence-grid">
+                            <div><span>Sanctions</span><strong><%= tx.sanctionsResult || 'No direct match recorded' %></strong></div>
+                            <div><span>PEP</span><strong><%= tx.pepResult || 'No direct match recorded' %></strong></div>
+                            <div><span>Watchlist</span><strong><%= tx.watchlistResult || (contributions.length ? 'Rule evidence recorded' : 'No direct match recorded') %></strong></div>
+                            <div><span>Adverse media</span><strong><%= tx.adverseMediaResult || 'No direct match recorded' %></strong></div>
+                            <div><span>Matched fields</span><strong><%= contributions.map((rule) => rule.matchedField || rule.field).filter(Boolean).join(', ') || 'Transaction context' %></strong></div>
+                            <div><span>Confidence values</span><strong><%= contributions.map((rule) => rule.confidence ? `${rule.confidence}%` : null).filter(Boolean).join(', ') || 'Not assigned' %></strong></div>
+                        </div>
+                    </article>
+                </div>
+            </section>
+
+            <section class="review-tab-panel" data-review-panel="investigation" role="tabpanel" hidden>
+                <% if (isAdmin) { %>
+                    <div class="read-only-notice">Administrative oversight view. Compliance decisions are restricted.</div>
+                <% } else if (!caseInfo) { %>
+                    <div class="read-only-notice">No linked case exists for this transaction yet.</div>
+                <% } else { %>
+                    <div class="investigation-layout">
+                        <article class="review-info-card">
+                            <h3>Case Context</h3>
+                            <dl class="review-definition-grid">
+                                <div><dt>Case ID</dt><dd><%= caseInfo.case_id %></dd></div>
+                                <div><dt>Raw status</dt><dd><%= rawCaseStatus %></dd></div>
+                                <div><dt>Created by</dt><dd><%= caseInfo.created_by || 'System' %></dd></div>
+                                <div><dt>Assigned to</dt><dd><%= assignedAnalyst %></dd></div>
+                                <div><dt>Assigned role</dt><dd id="assignedRoleValue"><%= caseInfo.assigned_role || 'Not assigned' %></dd></div>
+                                <div><dt>Escalated to</dt><dd id="caseEscalatedToValue"><%= escalationDestination %></dd></div>
+                                <div><dt>Referred by</dt><dd id="caseReferredByValue"><%= referredBy %></dd></div>
+                                <div class="wide"><dt>Notes</dt><dd><%= caseInfo.notes || 'No notes recorded' %></dd></div>
+                            </dl>
+                        </article>
+                        <% if (isStro || isSenior) { %>
+                            <article class="review-info-card">
+                                <h3>STR Summary</h3>
+                                <dl class="review-definition-grid">
+                                    <div><dt>STR Status</dt><dd id="strSummaryStatus"><%= strStatus %></dd></div>
+                                    <div><dt>Reference number</dt><dd id="strSummaryReference"><%= caseInfo.reference_number || 'Not assigned' %></dd></div>
+                                    <div><dt>Prepared by</dt><dd><%= caseInfo.prepared_by_name || caseInfo.prepared_by || 'Not assigned' %></dd></div>
+                                    <div><dt>Approved by</dt><dd><%= caseInfo.approved_by_name || caseInfo.approved_by || 'Not assigned' %></dd></div>
+                                    <div><dt>Filed by</dt><dd><%= caseInfo.filed_by_name || caseInfo.filed_by || 'Not assigned' %></dd></div>
+                                    <div><dt>Filing date</dt><dd id="strSummaryFilingDate"><%= caseInfo.filing_date ? new Date(caseInfo.filing_date).toLocaleDateString('en-SG') : 'Not assigned' %></dd></div>
+                                    <div><dt>Last updated</dt><dd><%= caseInfo.str_updated_at ? new Date(caseInfo.str_updated_at).toLocaleString('en-SG') : 'Not assigned' %></dd></div>
+                                </dl>
+                            </article>
                         <% } %>
+                        <article class="review-info-card action-priority-card">
+                            <h3><%= roleLabel %> Actions</h3>
+                            <p class="muted">Only actions permitted for <%= roleLabel %> are shown.</p>
+                            <div class="role-action-list">
+                                <% if (canSendRfi) { %>
+                                    <button id="openRfiModalButton" type="button" class="secondary-btn"
+                                        data-transaction-id="<%= transactionId %>"
+                                        data-recipient-type="<%= tx.accountType || 'Individual' %>"
+                                        data-recipient-name="<%= customerName %>"
+                                        data-recipient-email="<%= displayedRfiRecipientEmail %>"
+                                        data-recipient-source="<%= rfiRecipientSource %>"
+                                        data-transaction-date="<%= tx.created_at || tx.createdAt ? new Date(tx.created_at || tx.createdAt).toLocaleString('en-SG') : '' %>"
+                                        data-transaction-amount="<%= amount.toFixed(2) %>"
+                                        data-currency="<%= currency %>"><%= isStro ? 'Request More Information' : 'Request for Information' %></button>
+                                <% } %>
+                                <% if (canEscalate) { %>
+                                    <button id="openEscalationModalButton" type="button" class="secondary-btn warning"
+                                        data-transaction-id="<%= transactionId %>">Escalate</button>
+                                <% } %>
+                                <% if (canReferToStro) { %>
+                                    <button id="openReferStroModalButton" type="button" class="secondary-btn warning"
+                                        data-transaction-id="<%= transactionId %>">Refer to STRO</button>
+                                <% } %>
+                                <% if (canResolve) { %>
+                                    <button id="openResolveModalButton" type="button" class="secondary-btn danger"
+                                        data-transaction-id="<%= transactionId %>">Resolve</button>
+                                <% } %>
+                                <% if (canPrepareStr) { %>
+                                    <button id="openStrModalButton" type="button" class="secondary-btn"
+                                        data-transaction-id="<%= transactionId %>"><%= strStatus === 'Draft' || strStatus === 'Pending Approval' ? 'Continue STR' : 'Prepare STR' %></button>
+                                <% } %>
+                                <% if (canMarkStrNotRequired) { %>
+                                    <button id="openStrNotRequiredModalButton" type="button" class="secondary-btn danger"
+                                        data-transaction-id="<%= transactionId %>">Mark Not Required</button>
+                                <% } %>
+                                <% if (!canSendRfi && !canEscalate && !canResolve && !canReferToStro && !canPrepareStr && !canMarkStrNotRequired) { %>
+                                    <div class="read-only-notice">This assessment is read-only for your current role or status.</div>
+                                <% } %>
+                            </div>
+                        </article>
+                    </div>
+                <% } %>
+            </section>
+
+            <section class="review-tab-panel" data-review-panel="activity" role="tabpanel" hidden>
+                <% if (logs.length > 0) { %>
+                    <div id="activityTimeline" class="activity-timeline">
+                        <% logs.forEach((entry) => { %>
+                            <article class="activity-timeline-item">
+                                <time><%= entry.created_at || entry.createdAt ? new Date(entry.created_at || entry.createdAt).toLocaleString('en-SG') : 'Time unavailable' %></time>
+                                <div>
+                                    <strong><%= entry.action || 'Activity recorded' %></strong>
+                                    <p><%= entry.notes || entry.message || 'No message recorded.' %></p>
+                                    <span><%= entry.user_name || entry.actor || entry.user_id || 'System' %> · <%= entry.user_role || entry.role || 'Role not recorded' %></span>
+                                </div>
+                            </article>
+                        <% }) %>
+                    </div>
+                <% } else { %>
+                    <p class="empty-inline">No transaction-specific activity has been recorded yet.</p>
+                <% } %>
+            </section>
+        </section>
+
+        <% if (canSendRfi) { %>
+            <div id="rfiEmailModal" class="detail-modal" aria-hidden="true">
+                <div class="detail-modal-backdrop" data-close-rfi-modal></div>
+                <section class="detail-dialog rfi-dialog" role="dialog" aria-modal="true" aria-labelledby="rfiEmailTitle">
+                    <button type="button" class="detail-close" data-close-rfi-modal aria-label="Close RFI form">Close</button>
+                    <div class="panel-header">
+                        <div>
+                            <h2 id="rfiEmailTitle">Request for Information</h2>
+                            <p>Preview and send a neutral customer-facing request.</p>
+                        </div>
+                    </div>
+                    <form id="rfiEmailForm" class="action-form">
+                        <p class="rfi-warning">
+                            Use neutral verification wording. Do not disclose internal risk scores, screening results, suspicious transaction reporting, or investigation details to the customer.
+                        </p>
+                        <% if (hasEmailTestMode) { %>
+                            <p class="rfi-test-mode-notice">Development mode: Email will be captured by Ethereal and will not be delivered to the real customer.</p>
+                        <% } %>
+                        <label>
+                            <span>Recipient Type</span>
+                            <input id="rfiRecipientType" type="text" readonly value="<%= tx.accountType || 'Individual' %>">
+                        </label>
+                        <label>
+                            <span>Recipient Name</span>
+                            <input id="rfiRecipientName" type="text" readonly value="<%= customerName %>">
+                        </label>
+                        <label>
+                            <span><%= rfiRecipientSource === 'generated-test' ? 'Development Test Recipient' : 'Customer or Authorised Contact Email' %></span>
+                            <input id="rfiRecipientEmail" type="email" readonly value="<%= displayedRfiRecipientEmail %>">
+                            <% if (rfiRecipientSource === 'generated-test') { %>
+                                <small>No saved recipient email was available. A temporary test address was generated for this Ethereal preview. No email will be delivered to this address.</small>
+                            <% } else { %>
+                                <small>Saved customer contact. In Ethereal test mode, the email is captured in a preview inbox and is not delivered to this address.</small>
+                            <% } %>
+                        </label>
+                        <label>
+                            <span>Subject</span>
+                            <input id="rfiSubject" name="subject" type="text" required value="Additional Information Required for Your Transaction">
+                        </label>
+                        <label>
+                            <span>Information Requested</span>
+                            <textarea id="rfiInformationRequested" name="informationRequested" required minlength="10" placeholder="Please provide the invoice and supporting documents."></textarea>
+                            <small>Need a neutral starting point? Choose a safe template below, then adjust it before sending.</small>
+                        </label>
+                        <div class="rfi-template-row">
+                            <span>Safe template</span>
+                            <div>
+                                <button type="button" class="secondary-btn" data-rfi-template="Please provide the invoice and receipt for this transaction.">Invoice and receipt</button>
+                                <button type="button" class="secondary-btn" data-rfi-template="Please provide the transaction purpose and a short explanation of the purchase.">Transaction purpose</button>
+                                <button type="button" class="secondary-btn" data-rfi-template="Please provide source-of-funds documents supporting this transaction.">Source-of-funds documents</button>
+                                <button type="button" class="secondary-btn" data-rfi-template="Please explain your relationship with the counterparty for this transaction.">Counterparty relationship</button>
+                                <button type="button" class="secondary-btn" data-rfi-template="Please provide business supporting documents related to this transaction.">Business supporting documents</button>
+                            </div>
+                        </div>
+                        <div id="rfiEmailPreview" class="email-preview is-hidden"></div>
+                        <p id="rfiEmailFeedback" class="muted"></p>
+                        <div class="modal-actions">
+                            <button type="button" class="secondary-btn" data-close-rfi-modal>Cancel</button>
+                            <button id="rfiPreviewButton" type="button" class="secondary-btn">Preview Email</button>
+                            <button id="rfiSendButton" type="submit" class="action-submit">Send RFI</button>
+                        </div>
+                    </form>
+                </section>
+            </div>
+        <% } %>
+
+        <section id="rfiSuccessPanel" class="panel rfi-success-panel is-hidden" aria-live="polite">
+            <div>
+                <h2>Test RFI Email Created</h2>
+                <p>This is a safe email preview for demonstration. It was not delivered to the customer.</p>
+                <p class="muted">Generated email preview - this does not prove real delivery.</p>
+            </div>
+            <div id="rfiSuccessPreview" class="email-preview"></div>
+            <div class="modal-actions">
+                <button id="openRfiPreviewButton" type="button" class="action-submit">Open Test Email</button>
+                <button id="closeRfiSuccessPanel" type="button" class="secondary-btn">Close</button>
             </div>
         </section>
 
-        <% if (!transaction) { %>
-            <section class="panel">
-                <p class="muted">The transaction could not be loaded.</p>
-            </section>
-            <% } else { %>
-                <section class="panel">
+        <% if (canEscalate) { %>
+            <div id="escalationModal" class="detail-modal" aria-hidden="true">
+                <div class="detail-modal-backdrop" data-close-escalation-modal></div>
+                <section class="detail-dialog" role="dialog" aria-modal="true" aria-labelledby="escalationTitle">
+                    <button type="button" class="detail-close" data-close-escalation-modal aria-label="Close escalation form">Close</button>
                     <div class="panel-header">
                         <div>
-                            <h2>Transaction Details</h2>
-                            <p>Merchant, risk, and case context.</p>
+                            <h2 id="escalationTitle">Escalate Case</h2>
+                            <p>Choose whether this case needs senior review or direct STRO review.</p>
                         </div>
                     </div>
-                    <div class="detail-grid">
-                        <article><span>Transaction ID</span><strong>
-                                <%= transaction.transaction_id %>
-                            </strong></article>
-                        <article><span>Merchant</span><strong>
-                                <%= transaction.merchant_name || transaction.merchant_id %>
-                            </strong></article>
-                        <article><span>Amount</span><strong>
-                                <%= Number(transaction.amount).toFixed(2) %>
-                            </strong></article>
-                        <article><span>Risk Level</span><strong>
-                                <%= transaction.risk_level %>
-                            </strong></article>
-                        <article><span>Status</span><strong>
-                                <%= transaction.status %>
-                            </strong></article>
-                        <article><span>Action Status</span><strong>
-                                <%= transaction.action_status %>
-                            </strong></article>
-                        <article><span>Created</span><strong>
-                                <%= new Date(transaction.created_at).toLocaleString('en-SG') %>
-                            </strong></article>
-                        <article><span>Updated</span><strong>
-                                <%= transaction.updated_at ? new Date(transaction.updated_at).toLocaleString('en-SG')
-                                    : 'Not updated' %>
-                            </strong></article>
-                    </div>
+                    <form id="escalationForm" class="action-form">
+                        <label>
+                            <span>Escalation Destination</span>
+                            <select id="escalationDestination" required>
+                                <option value="Senior Analyst" <%= initialLevel === 'Critical' ? 'selected' : '' %>>Senior Analyst</option>
+                                <option value="STRO" <%= initialLevel === 'Critical' ? '' : 'selected' %>>STRO</option>
+                            </select>
+                        </label>
+                        <label>
+                            <span>Escalation Reason</span>
+                            <select id="escalationReason" required>
+                                <option value="">Select reason</option>
+                                <option <%= initialLevel === 'Critical' ? 'selected' : '' %>>Critical risk requires senior review</option>
+                                <option>Possible suspicious activity / STR consideration</option>
+                                <option>Strong screening evidence</option>
+                                <option>RFI response remains insufficient</option>
+                                <option>Complex transaction behaviour</option>
+                                <option>Other</option>
+                            </select>
+                        </label>
+                        <label class="wide">
+                            <span>Escalation Notes</span>
+                            <textarea id="escalationNotes" required minlength="10"></textarea>
+                        </label>
+                        <p id="escalationFeedback" class="muted"></p>
+                        <div class="modal-actions">
+                            <button type="button" class="secondary-btn" data-close-escalation-modal>Cancel</button>
+                            <button id="escalationSubmit" type="submit" class="action-submit">Confirm Escalation</button>
+                        </div>
+                    </form>
                 </section>
+            </div>
+        <% } %>
 
-                <section class="panel">
+        <% if (canReferToStro) { %>
+            <div id="referStroModal" class="detail-modal" aria-hidden="true">
+                <div class="detail-modal-backdrop" data-close-refer-stro-modal></div>
+                <section class="detail-dialog" role="dialog" aria-modal="true" aria-labelledby="referStroTitle">
+                    <button type="button" class="detail-close" data-close-refer-stro-modal aria-label="Close referral form">Close</button>
                     <div class="panel-header">
                         <div>
-                            <h2>Case Context</h2>
-                            <p>Open or resolve the linked case from this review screen.</p>
+                            <h2 id="referStroTitle">Refer Case to STRO</h2>
+                            <p>Route this case for suspicious transaction reporting review.</p>
                         </div>
                     </div>
-                    <% if (caseRecord) { %>
-                        <div class="detail-grid">
-                            <article><span>Case ID</span><strong>
-                                    <%= caseRecord.case_id %>
-                                </strong></article>
-                            <article><span>Status</span><strong>
-                                    <%= caseRecord.status %>
-                                </strong></article>
-                            <article><span>Created By</span><strong>
-                                    <%= caseRecord.created_by %>
-                                </strong></article>
-                            <article><span>Assigned To</span><strong>
-                                    <%= caseRecord.assigned_to || 'Unassigned' %>
-                                </strong></article>
-                            <article class="wide"><span>Notes</span><strong>
-                                    <%= caseRecord.notes || 'No notes' %>
-                                </strong></article>
+                    <form id="referStroForm" class="action-form">
+                        <label>
+                            <span>Referral Reason</span>
+                            <select id="referStroReason" required>
+                                <option value="">Select reason</option>
+                                <option>Possible suspicious activity</option>
+                                <option>Strong screening evidence</option>
+                                <option>Unexplained transaction behaviour</option>
+                                <option>RFI response remains insufficient</option>
+                                <option>Other</option>
+                            </select>
+                        </label>
+                        <label class="wide">
+                            <span>Summary for STRO</span>
+                            <textarea id="referStroSummary" required minlength="30"></textarea>
+                        </label>
+                        <fieldset class="checkbox-fieldset wide">
+                            <legend>Supporting Evidence</legend>
+                            <% ['Triggered monitoring rules', 'Screening evidence', 'Customer profile risk', 'Merchant profile risk', 'Transaction behaviour', 'RFI response', 'Other'].forEach((item) => { %>
+                                <label><input type="checkbox" name="referStroEvidence" value="<%= item %>"> <span><%= item %></span></label>
+                            <% }) %>
+                        </fieldset>
+                        <label class="wide">
+                            <span>Senior Analyst Notes</span>
+                            <textarea id="referStroNotes" required minlength="10"></textarea>
+                        </label>
+                        <p id="referStroFeedback" class="muted"></p>
+                        <div class="modal-actions">
+                            <button type="button" class="secondary-btn" data-close-refer-stro-modal>Cancel</button>
+                            <button id="referStroSubmit" type="submit" class="action-submit">Confirm Referral</button>
                         </div>
-                        <% } else { %>
-                            <p class="muted">No case exists for this transaction yet.</p>
-                            <% } %>
+                    </form>
                 </section>
+            </div>
+        <% } %>
 
-                <% if (currentRole==='Analyst' && caseRecord) { %>
-                    <section class="panel">
-                        <div class="panel-header">
-                            <div>
-                                <h2>Analyst Actions</h2>
-                                <p>Update the case that was automatically opened for this transaction.</p>
-                            </div>
+        <% if (canPrepareStr) { %>
+            <div id="strWorkflowModal" class="detail-modal" aria-hidden="true">
+                <div class="detail-modal-backdrop" data-close-str-modal></div>
+                <section class="detail-dialog" role="dialog" aria-modal="true" aria-labelledby="strWorkflowTitle">
+                    <button type="button" class="detail-close" data-close-str-modal aria-label="Close STR form">Close</button>
+                    <div class="panel-header">
+                        <div>
+                            <h2 id="strWorkflowTitle">Prepare STR</h2>
+                            <p>Save a draft, submit for approval, or mark the STR as filed.</p>
                         </div>
-                        <div class="table-actions">
-                            <form method="post" action="/analyst/cases/<%= caseRecord.case_id %>/action"><input
-                                    type="hidden" name="action" value="rfi"><button type="submit"
-                                    class="secondary-btn">Request RFI</button></form>
-                            <form method="post" action="/analyst/cases/<%= caseRecord.case_id %>/action"><input
-                                    type="hidden" name="action" value="escalate"><button type="submit"
-                                    class="secondary-btn">Escalate</button></form>
-                            <form method="post" action="/analyst/cases/<%= caseRecord.case_id %>/action"><input
-                                    type="hidden" name="action" value="dismiss"><button type="submit"
-                                    class="secondary-btn danger">Resolve</button></form>
+                    </div>
+                    <form id="strWorkflowForm" class="action-form">
+                        <label>
+                            <span>STR Status</span>
+                            <select id="strWorkflowStatus" required>
+                                <option value="Draft">Draft</option>
+                                <option value="Pending Approval">Pending Approval</option>
+                                <option value="Filed">Filed</option>
+                            </select>
+                        </label>
+                        <label>
+                            <span>STR Reference Number</span>
+                            <input id="strReferenceNumber" type="text" value="<%= caseInfo.reference_number || '' %>">
+                        </label>
+                        <label>
+                            <span>Filing Date</span>
+                            <input id="strFilingDate" type="date" value="<%= caseInfo.filing_date ? new Date(caseInfo.filing_date).toISOString().slice(0, 10) : '' %>">
+                        </label>
+                        <label class="wide">
+                            <span>Reporting Reason</span>
+                            <textarea id="strReportingReason" required minlength="20"><%= caseInfo.reporting_reason || '' %></textarea>
+                        </label>
+                        <label class="wide">
+                            <span>Suspicion Summary</span>
+                            <textarea id="strSuspicionSummary" required minlength="30"><%= caseInfo.suspicion_summary || '' %></textarea>
+                        </label>
+                        <label class="wide">
+                            <span>Transaction Summary</span>
+                            <textarea readonly><%= [
+                                `Transaction ID: ${transactionId}`,
+                                `Transaction date: ${tx.created_at || tx.createdAt ? new Date(tx.created_at || tx.createdAt).toLocaleString('en-SG') : 'Not assigned'}`,
+                                `Amount: ${currency} ${amount.toFixed(2)}`,
+                                `Direction: ${tx.direction || 'Local card payment'}`,
+                                `Counterparty: ${tx.counterparty || tx.counterpartyName || merchantName}`,
+                                `Counterparty country: ${tx.counterpartyCountry || tx.counterparty_country || 'Singapore'}`
+                            ].join('\n') %></textarea>
+                        </label>
+                        <fieldset class="checkbox-fieldset wide">
+                            <legend>Supporting Evidence</legend>
+                            <% ['Triggered monitoring rules', 'Screening matches', 'Customer profile risk', 'Merchant profile risk', 'Transaction behaviour', 'RFI response', 'Other'].forEach((item) => { %>
+                                <label><input type="checkbox" name="strEvidence" value="<%= item %>"> <span><%= item %></span></label>
+                            <% }) %>
+                        </fieldset>
+                        <label class="wide">
+                            <span>STRO Notes</span>
+                            <textarea id="strStroNotes" required minlength="10"><%= caseInfo.stro_notes || '' %></textarea>
+                        </label>
+                        <label class="wide checkbox-line">
+                            <input id="strConfirmAccurate" type="checkbox">
+                            <span>I confirm that the STR information has been reviewed and is accurate.</span>
+                        </label>
+                        <p id="strWorkflowFeedback" class="muted"></p>
+                        <div class="modal-actions">
+                            <button type="button" class="secondary-btn" data-close-str-modal>Cancel</button>
+                            <button type="button" class="secondary-btn" data-str-submit="Draft">Save Draft</button>
+                            <button type="button" class="secondary-btn" data-str-submit="Pending Approval">Submit for Approval</button>
+                            <button type="button" class="action-submit" data-str-submit="Filed">Mark Filed</button>
                         </div>
-                    </section>
-                    <% } %>
+                    </form>
+                </section>
+            </div>
+        <% } %>
 
-                        <% if (currentRole==='Senior Analyst' && caseRecord && caseRecord.status==='Pending Senior Review' ) { %>
-                            <section class="panel">
-                                <div class="panel-header">
-                                    <div>
-                                        <h2>Senior Analyst Actions</h2>
-                                        <p>Confirm the concern to escalate to STRO, or resolve it as a false positive.</p>
-                                    </div>
-                                </div>
-                                <div class="table-actions">
-                                    <form method="post"
-                                        action="/senior-analyst/cases/<%= caseRecord.case_id %>/action"><input
-                                            type="hidden" name="action" value="escalate"><button type="submit"
-                                            class="secondary-btn">Escalate to STRO</button></form>
-                                    <form method="post"
-                                        action="/senior-analyst/cases/<%= caseRecord.case_id %>/action"><input
-                                            type="hidden" name="action" value="dismiss"><button type="submit"
-                                            class="secondary-btn danger">Resolve</button></form>
-                                </div>
-                            </section>
-                            <% } %>
+        <% if (canMarkStrNotRequired) { %>
+            <div id="strNotRequiredModal" class="detail-modal" aria-hidden="true">
+                <div class="detail-modal-backdrop" data-close-str-not-required-modal></div>
+                <section class="detail-dialog" role="dialog" aria-modal="true" aria-labelledby="strNotRequiredTitle">
+                    <button type="button" class="detail-close" data-close-str-not-required-modal aria-label="Close not required form">Close</button>
+                    <div class="panel-header">
+                        <div>
+                            <h2 id="strNotRequiredTitle">Mark STR Not Required</h2>
+                            <p>Record why reporting is not required after STRO review.</p>
+                        </div>
+                    </div>
+                    <form id="strNotRequiredForm" class="action-form">
+                        <label class="wide">
+                            <span>Reason</span>
+                            <textarea id="strNotRequiredReason" required minlength="20"></textarea>
+                        </label>
+                        <p id="strNotRequiredFeedback" class="muted"></p>
+                        <div class="modal-actions">
+                            <button type="button" class="secondary-btn" data-close-str-not-required-modal>Cancel</button>
+                            <button id="strNotRequiredSubmit" type="submit" class="action-submit">Mark Not Required</button>
+                        </div>
+                    </form>
+                </section>
+            </div>
+        <% } %>
 
-                                <% if (currentRole==='STRO' && caseRecord) { %>
-                            <section class="panel">
-                                <div class="panel-header">
-                                    <div>
-                                        <h2>STRO Actions</h2>
-                                        <p>Resolve an escalated case.</p>
-                                    </div>
-                                </div>
-                                <div class="table-actions">
-                                    <form method="post" action="/stro/cases/<%= caseRecord.case_id %>/action"><input
-                                            type="hidden" name="action" value="dismiss"><button type="submit"
-                                            class="secondary-btn danger">Resolve</button></form>
-                                    <form method="post" action="/stro/cases/<%= caseRecord.case_id %>/action"><input
-                                            type="hidden" name="action" value="str"><button type="submit"
-                                            class="secondary-btn">File STR</button></form>
-                                </div>
-                            </section>
-                            <% } %>
-                                <% } %>
-    </main>
+        <% if (canResolve) { %>
+            <div id="resolveAssessmentModal" class="detail-modal" aria-hidden="true">
+                <div class="detail-modal-backdrop" data-close-resolve-modal></div>
+                <section class="detail-dialog resolve-dialog" role="dialog" aria-modal="true" aria-labelledby="resolveAssessmentTitle">
+                    <button type="button" class="detail-close" data-close-resolve-modal aria-label="Close resolve form">Close</button>
+                    <div class="panel-header">
+                        <div>
+                            <h2 id="resolveAssessmentTitle">Resolve Assessment</h2>
+                            <p>Assign the confirmed final risk after reviewing the transaction evidence.</p>
+                        </div>
+                    </div>
+                    <form id="resolveAssessmentForm" class="action-form">
+                        <label>
+                            <span>Final Risk Score</span>
+                            <input id="finalRiskScoreInput" name="finalRiskScore" type="number" min="0" max="100" step="1" required>
+                            <small>Enter the confirmed risk score after reviewing the transaction, customer profile, screening evidence and supporting information.</small>
+                        </label>
+                        <label>
+                            <span>Final Risk Level</span>
+                            <input id="finalRiskLevelDisplay" name="finalRiskLevel" type="text" readonly value="Not assigned">
+                        </label>
+                        <label>
+                            <span>Decision</span>
+                            <select id="resolveDecision" name="decision" required>
+                                <option value="Accepted">Accepted</option>
+                                <option value="Rejected">Rejected</option>
+                            </select>
+                        </label>
+                        <label>
+                            <span>Resolution Reason</span>
+                            <select id="resolveReason" name="resolutionReason" required>
+                                <option value="Legitimate Transaction">Legitimate Transaction</option>
+                                <option value="False Positive">False Positive</option>
+                                <option value="Suspicious Activity">Suspicious Activity</option>
+                                <option value="Insufficient Information">Insufficient Information</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </label>
+                        <label class="wide">
+                            <span>Analyst Notes</span>
+                            <textarea id="resolveAnalystNotes" name="analystNotes" required minlength="10" placeholder="Summarise the review evidence and final decision."></textarea>
+                        </label>
+                        <p id="resolveAssessmentFeedback" class="muted"></p>
+                        <div class="modal-actions">
+                            <button type="button" class="secondary-btn" data-close-resolve-modal>Cancel</button>
+                            <button id="resolveAssessmentSubmit" type="submit" class="action-submit">Confirm Resolution</button>
+                        </div>
+                    </form>
+                </section>
+            </div>
+        <% } %>
+    <% } %>
+</main>
 
-    <%- include('partials/footer', { includeClientScript: false }) %>
+<script>
+    (() => {
+        const tabButtons = document.querySelectorAll('[data-review-tab]');
+        const tabPanels = document.querySelectorAll('[data-review-panel]');
+        tabButtons.forEach((button) => {
+            button.addEventListener('click', () => {
+                const target = button.dataset.reviewTab;
+                tabButtons.forEach((item) => {
+                    item.classList.toggle('active', item === button);
+                    item.setAttribute('aria-selected', item === button ? 'true' : 'false');
+                });
+                tabPanels.forEach((panel) => {
+                    const isActive = panel.dataset.reviewPanel === target;
+                    panel.classList.toggle('active', isActive);
+                    panel.hidden = !isActive;
+                });
+            });
+        });
+
+        const getRiskLevelFromScore = (score) => {
+            if (score >= 70) return 'Critical';
+            if (score >= 50) return 'High';
+            if (score >= 30) return 'Medium';
+            return 'Low';
+        };
+        const resolveOpenButton = document.querySelector('#openResolveModalButton');
+        const resolveModal = document.querySelector('#resolveAssessmentModal');
+        const resolveForm = document.querySelector('#resolveAssessmentForm');
+        const finalRiskScoreInput = document.querySelector('#finalRiskScoreInput');
+        const finalRiskLevelDisplay = document.querySelector('#finalRiskLevelDisplay');
+        const resolveDecision = document.querySelector('#resolveDecision');
+        const resolveReason = document.querySelector('#resolveReason');
+        const resolveNotes = document.querySelector('#resolveAnalystNotes');
+        const resolveFeedback = document.querySelector('#resolveAssessmentFeedback');
+        const resolveSubmit = document.querySelector('#resolveAssessmentSubmit');
+        const updateFinalRiskLevel = () => {
+            const value = Number(finalRiskScoreInput?.value);
+            if (!Number.isInteger(value) || value < 0 || value > 100) {
+                if (finalRiskLevelDisplay) finalRiskLevelDisplay.value = 'Invalid score';
+                return false;
+            }
+            if (finalRiskLevelDisplay) finalRiskLevelDisplay.value = getRiskLevelFromScore(value);
+            return true;
+        };
+        const openResolveModal = () => {
+            if (!resolveModal) return;
+            resolveModal.classList.add('open');
+            resolveModal.setAttribute('aria-hidden', 'false');
+            document.body.classList.add('modal-open');
+            if (resolveFeedback) resolveFeedback.textContent = '';
+            setTimeout(() => finalRiskScoreInput?.focus(), 0);
+        };
+        const closeResolveModal = () => {
+            if (!resolveModal) return;
+            resolveModal.classList.remove('open');
+            resolveModal.setAttribute('aria-hidden', 'true');
+            document.body.classList.remove('modal-open');
+            if (resolveFeedback) resolveFeedback.textContent = '';
+        };
+        finalRiskScoreInput?.addEventListener('input', () => {
+            const valid = updateFinalRiskLevel();
+            if (resolveFeedback) resolveFeedback.textContent = valid ? '' : 'Final risk score must be a whole number from 0 to 100.';
+        });
+        resolveOpenButton?.addEventListener('click', (event) => {
+            event.preventDefault();
+            openResolveModal();
+        });
+        document.querySelectorAll('[data-close-resolve-modal]').forEach((control) => {
+            control.addEventListener('click', (event) => {
+                event.preventDefault();
+                closeResolveModal();
+            });
+        });
+        resolveForm?.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (!updateFinalRiskLevel()) {
+                if (resolveFeedback) resolveFeedback.textContent = 'Final risk score must be a whole number from 0 to 100.';
+                return;
+            }
+            const notes = resolveNotes?.value.trim() || '';
+            if (notes.length < 10) {
+                if (resolveFeedback) resolveFeedback.textContent = 'Please provide a meaningful explanation of at least 10 characters.';
+                return;
+            }
+            if (resolveReason?.value === 'False Positive' && resolveDecision?.value !== 'Accepted') {
+                if (resolveFeedback) resolveFeedback.textContent = 'False Positive resolutions must use the Accepted decision.';
+                return;
+            }
+            if (resolveDecision?.value === 'Rejected' && Number(finalRiskScoreInput?.value) < 50 && resolveFeedback) {
+                resolveFeedback.textContent = 'Warning: rejected decisions normally use High or Critical final risk. Saving anyway...';
+            } else if (resolveFeedback) {
+                resolveFeedback.textContent = 'Saving...';
+            }
+            if (resolveSubmit) {
+                resolveSubmit.disabled = true;
+                resolveSubmit.textContent = 'Saving...';
+            }
+            try {
+                const response = await fetch(`/api/transactions/${encodeURIComponent(resolveOpenButton?.dataset.transactionId || '<%= transactionId %>')}/resolve`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        finalRiskScore: Number(finalRiskScoreInput?.value),
+                        decision: resolveDecision?.value,
+                        resolutionReason: resolveReason?.value,
+                        analystNotes: notes,
+                    }),
+                });
+                const contentType = response.headers.get('content-type') || '';
+                if (!contentType.includes('application/json')) {
+                    const text = await response.text();
+                    throw new Error(`Server returned ${response.status} instead of JSON: ${text.slice(0, 160)}`);
+                }
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.message || 'Unable to resolve assessment');
+                closeResolveModal();
+                window.location.reload();
+            } catch (error) {
+                if (resolveFeedback) resolveFeedback.textContent = error.message;
+            } finally {
+                if (resolveSubmit) {
+                    resolveSubmit.disabled = false;
+                    resolveSubmit.textContent = 'Confirm Resolution';
+                }
+            }
+        });
+
+        const openButton = document.querySelector('#openRfiModalButton');
+        const modal = document.querySelector('#rfiEmailModal');
+        const form = document.querySelector('#rfiEmailForm');
+        const infoField = document.querySelector('#rfiInformationRequested');
+        const subjectField = document.querySelector('#rfiSubject');
+        const feedback = document.querySelector('#rfiEmailFeedback');
+        const preview = document.querySelector('#rfiEmailPreview');
+        const sendButton = document.querySelector('#rfiSendButton');
+        const previewButton = document.querySelector('#rfiPreviewButton');
+        const successPanel = document.querySelector('#rfiSuccessPanel');
+        const successPreview = document.querySelector('#rfiSuccessPreview');
+        const openPreviewButton = document.querySelector('#openRfiPreviewButton');
+        const closeSuccessPanel = document.querySelector('#closeRfiSuccessPanel');
+        const assignToMeButton = document.querySelector('#assignToMeButton');
+        const assignToMeFeedback = document.querySelector('#assignToMeFeedback');
+        const assignedAnalystValue = document.querySelector('#assignedAnalystValue');
+        const caseDueDateValue = document.querySelector('#caseDueDateValue');
+        const assessmentStatusValue = document.querySelector('#assessmentStatusValue');
+        const strStatusValue = document.querySelector('#strStatusValue');
+        const strSummaryStatus = document.querySelector('#strSummaryStatus');
+        const strSummaryReference = document.querySelector('#strSummaryReference');
+        const strSummaryFilingDate = document.querySelector('#strSummaryFilingDate');
+        const escalatedToValue = document.querySelector('#escalatedToValue');
+        const caseEscalatedToValue = document.querySelector('#caseEscalatedToValue');
+        const assignedRoleValue = document.querySelector('#assignedRoleValue');
+        const referStroButton = document.querySelector('#openReferStroModalButton');
+        const referStroModal = document.querySelector('#referStroModal');
+        const referStroForm = document.querySelector('#referStroForm');
+        const referStroFeedback = document.querySelector('#referStroFeedback');
+        const referStroSubmit = document.querySelector('#referStroSubmit');
+        const escalationButton = document.querySelector('#openEscalationModalButton');
+        const escalationModal = document.querySelector('#escalationModal');
+        const escalationForm = document.querySelector('#escalationForm');
+        const escalationDestinationInput = document.querySelector('#escalationDestination');
+        const escalationReasonInput = document.querySelector('#escalationReason');
+        const escalationFeedback = document.querySelector('#escalationFeedback');
+        const escalationSubmit = document.querySelector('#escalationSubmit');
+        const strModalButton = document.querySelector('#openStrModalButton');
+        const strModal = document.querySelector('#strWorkflowModal');
+        const strFeedback = document.querySelector('#strWorkflowFeedback');
+        const strStatusInput = document.querySelector('#strWorkflowStatus');
+        const strNotRequiredButton = document.querySelector('#openStrNotRequiredModalButton');
+        const strNotRequiredModal = document.querySelector('#strNotRequiredModal');
+        const strNotRequiredForm = document.querySelector('#strNotRequiredForm');
+        const strNotRequiredFeedback = document.querySelector('#strNotRequiredFeedback');
+        let currentRfiPreviewUrl = '';
+        const restrictedPhrases = [
+            'suspicious transaction report', 'suspicious transaction', 'STR', 'money laundering',
+            'terrorist financing', 'sanctions match', 'sanction match', 'watchlist match',
+            'PEP match', 'adverse media match', 'risk score', 'critical risk',
+            'high risk customer', 'AML investigation', 'police investigation',
+            'law enforcement', 'reported to authorities',
+        ];
+        const escapeHtml = (value) => String(value || '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#039;');
+        assignToMeButton?.addEventListener('click', async (event) => {
+            event.preventDefault();
+            const caseId = assignToMeButton.dataset.caseId || '';
+            assignToMeButton.disabled = true;
+            assignToMeButton.textContent = 'Assigning...';
+            if (assignToMeFeedback) assignToMeFeedback.textContent = '';
+            try {
+                const response = await fetch(`/api/cases/${encodeURIComponent(caseId)}/assign-to-me`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                });
+                const contentType = response.headers.get('content-type') || '';
+                if (!contentType.includes('application/json')) {
+                    const text = await response.text();
+                    throw new Error(`Server returned ${response.status} instead of JSON: ${text.slice(0, 160)}`);
+                }
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.message || 'Unable to assign case.');
+
+                if (assignedAnalystValue) assignedAnalystValue.textContent = result.case?.assignedAnalyst || 'Assigned';
+                if (caseDueDateValue && result.case?.dueAt) {
+                    caseDueDateValue.textContent = new Date(result.case.dueAt).toLocaleString('en-SG');
+                }
+                if (assessmentStatusValue) {
+                    assessmentStatusValue.textContent = result.case?.assessmentStatus || 'Under Review';
+                    assessmentStatusValue.className = 'status-pill status-under-review';
+                }
+                assignToMeButton.remove();
+                if (assignToMeFeedback) assignToMeFeedback.textContent = 'Case assigned to you.';
+
+                const activityPanel = document.querySelector('[data-review-panel="activity"]');
+                let timeline = document.querySelector('#activityTimeline');
+                if (!timeline && activityPanel) {
+                    activityPanel.innerHTML = '<div id="activityTimeline" class="activity-timeline"></div>';
+                    timeline = document.querySelector('#activityTimeline');
+                }
+                if (timeline && result.auditEntry) {
+                    const item = document.createElement('article');
+                    item.className = 'activity-timeline-item';
+                    item.innerHTML = `
+                        <time>${escapeHtml(new Date(result.auditEntry.createdAt).toLocaleString('en-SG'))}</time>
+                        <div>
+                            <strong>${escapeHtml(result.auditEntry.action)}</strong>
+                            <p>${escapeHtml(result.auditEntry.notes)}</p>
+                            <span>${escapeHtml(result.auditEntry.userName)} &middot; ${escapeHtml(result.auditEntry.userRole)}</span>
+                        </div>
+                    `;
+                    timeline.appendChild(item);
+                }
+            } catch (error) {
+                assignToMeButton.disabled = false;
+                assignToMeButton.textContent = 'Assign to Me';
+                if (assignToMeFeedback) assignToMeFeedback.textContent = error.message;
+            }
+        });
+        const openDetailModal = (modalElement, feedbackElement, focusSelector) => {
+            if (!modalElement) return;
+            modalElement.classList.add('open');
+            modalElement.setAttribute('aria-hidden', 'false');
+            document.body.classList.add('modal-open');
+            if (feedbackElement) feedbackElement.textContent = '';
+            setTimeout(() => modalElement.querySelector(focusSelector)?.focus(), 0);
+        };
+        const closeDetailModal = (modalElement, feedbackElement) => {
+            if (!modalElement) return;
+            modalElement.classList.remove('open');
+            modalElement.setAttribute('aria-hidden', 'true');
+            document.body.classList.remove('modal-open');
+            if (feedbackElement) feedbackElement.textContent = '';
+        };
+        const selectedCheckboxValues = (name) => Array.from(document.querySelectorAll(`input[name="${name}"]:checked`)).map((item) => item.value);
+        const appendActivity = (entry) => {
+            const activityPanel = document.querySelector('[data-review-panel="activity"]');
+            let timeline = document.querySelector('#activityTimeline');
+            if (!timeline && activityPanel) {
+                activityPanel.innerHTML = '<div id="activityTimeline" class="activity-timeline"></div>';
+                timeline = document.querySelector('#activityTimeline');
+            }
+            if (!timeline || !entry) return;
+            const item = document.createElement('article');
+            item.className = 'activity-timeline-item';
+            item.innerHTML = `
+                <time>${escapeHtml(new Date().toLocaleString('en-SG'))}</time>
+                <div>
+                    <strong>${escapeHtml(entry.action || 'Activity recorded')}</strong>
+                    <p>${escapeHtml(entry.notes || entry.message || '')}</p>
+                    <span>${escapeHtml(<%- JSON.stringify(userName) %>)} &middot; ${escapeHtml(<%- JSON.stringify(roleLabel) %>)}</span>
+                </div>
+            `;
+            timeline.appendChild(item);
+        };
+        referStroButton?.addEventListener('click', (event) => {
+            event.preventDefault();
+            openDetailModal(referStroModal, referStroFeedback, '#referStroReason');
+        });
+        escalationButton?.addEventListener('click', (event) => {
+            event.preventDefault();
+            openDetailModal(escalationModal, escalationFeedback, '#escalationDestination');
+        });
+        document.querySelectorAll('[data-close-escalation-modal]').forEach((control) => {
+            control.addEventListener('click', (event) => {
+                event.preventDefault();
+                closeDetailModal(escalationModal, escalationFeedback);
+            });
+        });
+        escalationReasonInput?.addEventListener('change', () => {
+            const reason = escalationReasonInput.value;
+            if (reason === 'Possible suspicious activity / STR consideration' || reason === 'Strong screening evidence') {
+                if (escalationDestinationInput) escalationDestinationInput.value = 'STRO';
+            }
+        });
+        escalationForm?.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const body = {
+                escalationDestination: escalationDestinationInput?.value || '',
+                escalationReason: escalationReasonInput?.value || '',
+                escalationNotes: document.querySelector('#escalationNotes')?.value.trim() || '',
+            };
+            if (!body.escalationDestination || !body.escalationReason || body.escalationNotes.length < 10) {
+                if (escalationFeedback) escalationFeedback.textContent = 'Select a destination, reason and meaningful notes before escalating.';
+                return;
+            }
+            if (escalationSubmit) {
+                escalationSubmit.disabled = true;
+                escalationSubmit.textContent = 'Escalating...';
+            }
+            try {
+                const response = await fetch(`/api/transactions/${encodeURIComponent(<%- JSON.stringify(transactionId) %>)}/escalate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.message || 'Unable to escalate case.');
+                if (assessmentStatusValue) {
+                    assessmentStatusValue.textContent = 'Escalated';
+                    assessmentStatusValue.className = 'status-pill status-escalated';
+                }
+                if (escalatedToValue) escalatedToValue.textContent = result.escalatedTo || body.escalationDestination;
+                if (caseEscalatedToValue) caseEscalatedToValue.textContent = result.escalatedTo || body.escalationDestination;
+                if (assignedRoleValue) assignedRoleValue.textContent = result.assignedRole || body.escalationDestination;
+                if (strStatusValue) strStatusValue.textContent = result.strStatus || 'Not Started';
+                if (strSummaryStatus) strSummaryStatus.textContent = result.strStatus || 'Not Started';
+                if (document.querySelector('#referredByValue')) document.querySelector('#referredByValue').textContent = <%- JSON.stringify(userName) %>;
+                if (document.querySelector('#caseReferredByValue')) document.querySelector('#caseReferredByValue').textContent = <%- JSON.stringify(userName) %>;
+                escalationButton?.remove();
+                appendActivity({
+                    action: result.escalatedTo === 'STRO' ? 'Case Referred to STRO' : 'Case Escalated to Senior Analyst',
+                    notes: result.escalatedTo === 'STRO'
+                        ? 'Case referred directly to STRO by Analyst for suspicious transaction reporting review.'
+                        : 'Case escalated to Senior Analyst for critical-risk review.',
+                });
+                closeDetailModal(escalationModal, escalationFeedback);
+            } catch (error) {
+                if (escalationFeedback) escalationFeedback.textContent = error.message;
+            } finally {
+                if (escalationSubmit) {
+                    escalationSubmit.disabled = false;
+                    escalationSubmit.textContent = 'Confirm Escalation';
+                }
+            }
+        });
+        document.querySelectorAll('[data-close-refer-stro-modal]').forEach((control) => {
+            control.addEventListener('click', (event) => {
+                event.preventDefault();
+                closeDetailModal(referStroModal, referStroFeedback);
+            });
+        });
+        referStroForm?.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const body = {
+                referralReason: document.querySelector('#referStroReason')?.value || '',
+                referralSummary: document.querySelector('#referStroSummary')?.value.trim() || '',
+                supportingEvidence: selectedCheckboxValues('referStroEvidence'),
+                seniorAnalystNotes: document.querySelector('#referStroNotes')?.value.trim() || '',
+            };
+            if (body.referralSummary.length < 30 || body.seniorAnalystNotes.length < 10 || !body.supportingEvidence.length) {
+                if (referStroFeedback) referStroFeedback.textContent = 'Complete the referral reason, evidence, summary and notes before confirming.';
+                return;
+            }
+            if (referStroSubmit) {
+                referStroSubmit.disabled = true;
+                referStroSubmit.textContent = 'Referring...';
+            }
+            try {
+                const response = await fetch(`/api/transactions/${encodeURIComponent(<%- JSON.stringify(transactionId) %>)}/refer-to-stro`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.message || 'Unable to refer case to STRO.');
+                if (assessmentStatusValue) {
+                    assessmentStatusValue.textContent = 'Escalated';
+                    assessmentStatusValue.className = 'status-pill status-escalated';
+                }
+                if (strStatusValue) strStatusValue.textContent = result.strStatus || 'Recommended';
+                if (strSummaryStatus) strSummaryStatus.textContent = result.strStatus || 'Recommended';
+                if (escalatedToValue) escalatedToValue.textContent = 'STRO';
+                if (caseEscalatedToValue) caseEscalatedToValue.textContent = 'STRO';
+                if (assignedRoleValue) assignedRoleValue.textContent = 'STRO';
+                referStroButton?.remove();
+                appendActivity({ action: 'Case Referred to STRO', notes: 'Case referred to STRO for suspicious transaction reporting review.' });
+                closeDetailModal(referStroModal, referStroFeedback);
+            } catch (error) {
+                if (referStroFeedback) referStroFeedback.textContent = error.message;
+            } finally {
+                if (referStroSubmit) {
+                    referStroSubmit.disabled = false;
+                    referStroSubmit.textContent = 'Confirm Referral';
+                }
+            }
+        });
+        strModalButton?.addEventListener('click', (event) => {
+            event.preventDefault();
+            openDetailModal(strModal, strFeedback, '#strWorkflowStatus');
+        });
+        document.querySelectorAll('[data-close-str-modal]').forEach((control) => {
+            control.addEventListener('click', (event) => {
+                event.preventDefault();
+                closeDetailModal(strModal, strFeedback);
+            });
+        });
+        document.querySelectorAll('[data-str-submit]').forEach((control) => {
+            control.addEventListener('click', async (event) => {
+                event.preventDefault();
+                const nextStatus = control.dataset.strSubmit;
+                if (strStatusInput) strStatusInput.value = nextStatus;
+                const body = {
+                    strStatus: nextStatus,
+                    referenceNumber: document.querySelector('#strReferenceNumber')?.value.trim() || '',
+                    filingDate: document.querySelector('#strFilingDate')?.value || '',
+                    reportingReason: document.querySelector('#strReportingReason')?.value.trim() || '',
+                    suspicionSummary: document.querySelector('#strSuspicionSummary')?.value.trim() || '',
+                    supportingEvidence: selectedCheckboxValues('strEvidence'),
+                    stroNotes: document.querySelector('#strStroNotes')?.value.trim() || '',
+                    confirmAccurate: document.querySelector('#strConfirmAccurate')?.checked || false,
+                };
+                if (body.reportingReason.length < 20 || body.suspicionSummary.length < 30 || body.stroNotes.length < 10 || !body.supportingEvidence.length) {
+                    if (strFeedback) strFeedback.textContent = 'Complete the STR reason, summary, evidence and STRO notes before saving.';
+                    return;
+                }
+                if (nextStatus === 'Filed' && (!body.referenceNumber || !body.filingDate || !body.confirmAccurate)) {
+                    if (strFeedback) strFeedback.textContent = 'Reference number, filing date and confirmation are required to mark filed.';
+                    return;
+                }
+                control.disabled = true;
+                const originalText = control.textContent;
+                control.textContent = 'Saving...';
+                try {
+                    const response = await fetch(`/api/transactions/${encodeURIComponent(<%- JSON.stringify(transactionId) %>)}/str`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body),
+                    });
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.message || 'Unable to save STR.');
+                    if (strStatusValue) strStatusValue.textContent = result.strStatus;
+                    if (strSummaryStatus) strSummaryStatus.textContent = result.strStatus;
+                    if (strSummaryReference) strSummaryReference.textContent = result.referenceNumber || 'Not assigned';
+                    if (strSummaryFilingDate) strSummaryFilingDate.textContent = result.filingDate ? new Date(result.filingDate).toLocaleDateString('en-SG') : 'Not assigned';
+                    appendActivity({ action: result.strStatus === 'Filed' ? 'STR Filed' : result.strStatus === 'Pending Approval' ? 'STR Submitted for Approval' : 'STR Draft Saved', notes: result.message });
+                    closeDetailModal(strModal, strFeedback);
+                    if (result.strStatus === 'Filed') window.location.reload();
+                } catch (error) {
+                    if (strFeedback) strFeedback.textContent = error.message;
+                } finally {
+                    control.disabled = false;
+                    control.textContent = originalText;
+                }
+            });
+        });
+        strNotRequiredButton?.addEventListener('click', (event) => {
+            event.preventDefault();
+            openDetailModal(strNotRequiredModal, strNotRequiredFeedback, '#strNotRequiredReason');
+        });
+        document.querySelectorAll('[data-close-str-not-required-modal]').forEach((control) => {
+            control.addEventListener('click', (event) => {
+                event.preventDefault();
+                closeDetailModal(strNotRequiredModal, strNotRequiredFeedback);
+            });
+        });
+        strNotRequiredForm?.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const reason = document.querySelector('#strNotRequiredReason')?.value.trim() || '';
+            if (reason.length < 20) {
+                if (strNotRequiredFeedback) strNotRequiredFeedback.textContent = 'Please provide a meaningful reason of at least 20 characters.';
+                return;
+            }
+            const submit = document.querySelector('#strNotRequiredSubmit');
+            if (submit) {
+                submit.disabled = true;
+                submit.textContent = 'Saving...';
+            }
+            try {
+                const response = await fetch(`/api/transactions/${encodeURIComponent(<%- JSON.stringify(transactionId) %>)}/str/not-required`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reason }),
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.message || 'Unable to mark STR not required.');
+                if (strStatusValue) strStatusValue.textContent = 'Not Required';
+                if (strSummaryStatus) strSummaryStatus.textContent = 'Not Required';
+                strModalButton?.remove();
+                strNotRequiredButton?.remove();
+                appendActivity({ action: 'STR Marked Not Required', notes: 'STR marked not required after STRO review.' });
+                closeDetailModal(strNotRequiredModal, strNotRequiredFeedback);
+            } catch (error) {
+                if (strNotRequiredFeedback) strNotRequiredFeedback.textContent = error.message;
+            } finally {
+                if (submit) {
+                    submit.disabled = false;
+                    submit.textContent = 'Mark Not Required';
+                }
+            }
+        });
+        const hasMeaningfulText = (value) => {
+            const text = String(value || '').trim().replace(/\s+/g, ' ');
+            return text.length >= 10 && !['test', 'testing', 'n/a', 'na'].includes(text.toLowerCase());
+        };
+        const restrictedPhraseFound = (...values) => {
+            const text = values.filter(Boolean).join(' ');
+            return restrictedPhrases.some((phrase) => new RegExp(`\\b${phrase.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}\\b`, 'i').test(text));
+        };
+        const validate = () => {
+            const subject = subjectField?.value.trim() || '';
+            const informationRequested = infoField?.value.trim() || '';
+            if (!subject) return 'Subject is required.';
+            if (!hasMeaningfulText(informationRequested)) return 'Please provide a meaningful information request of at least 10 characters.';
+            if (restrictedPhraseFound(subject, informationRequested)) return 'This message may disclose internal compliance information. Please use neutral verification wording.';
+            return '';
+        };
+        const buildBody = () => [
+            `Dear ${openButton?.dataset.recipientName || 'Customer'},`,
+            '',
+            'We require additional information to complete our routine review of a recent transaction.',
+            '',
+            'Please provide the following information or supporting documents:',
+            '',
+            infoField?.value.trim() || '',
+            '',
+            `Transaction reference: ${openButton?.dataset.transactionId || ''}`,
+            `Transaction date: ${openButton?.dataset.transactionDate || ''}`,
+            `Transaction amount: ${openButton?.dataset.currency || 'SGD'} ${openButton?.dataset.transactionAmount || ''}`,
+            '',
+            'Please reply to this email with the requested information.',
+            '',
+            'Thank you.',
+            '',
+            'Customer Review Team',
+            <%- JSON.stringify(merchantName) %>,
+        ].join('\n');
+        const renderGeneratedPreview = ({ container = preview, provider = '', subject = subjectField?.value.trim() || '', previewUrl = '' } = {}) => {
+            if (!container) return;
+            const providerLabel = provider === 'ethereal' ? 'Ethereal test' : provider === 'smtp' ? 'Live SMTP' : 'Not sent';
+            const recipientSource = openButton?.dataset.recipientSource || '';
+            const recipientLabel = recipientSource === 'generated-test' ? 'Development test recipient' : 'Intended recipient';
+            container.classList.remove('is-hidden');
+            container.innerHTML = `
+                <strong>Generated email preview - this does not prove real delivery.</strong>
+                <div><strong>Provider status:</strong> ${escapeHtml(providerLabel)}</div>
+                <div><strong>${escapeHtml(recipientLabel)}:</strong> ${escapeHtml(openButton?.dataset.recipientEmail || 'Saved customer contact')}</div>
+                ${recipientSource === 'generated-test' ? '<div class="muted">No saved recipient email was available. This example.com address is only for the Ethereal preview.</div>' : ''}
+                <div><strong>Subject:</strong> ${escapeHtml(subject)}</div>
+                <pre>${escapeHtml(buildBody())}</pre>
+                ${previewUrl ? '<div><strong>External preview:</strong> Available through Open Test Email.</div>' : ''}
+            `;
+        };
+        const openModal = () => {
+            if (!modal) return;
+            modal.classList.add('open');
+            modal.setAttribute('aria-hidden', 'false');
+            document.body.classList.add('modal-open');
+            if (feedback) feedback.textContent = '';
+            if (preview) {
+                preview.classList.add('is-hidden');
+                preview.innerHTML = '';
+            }
+            setTimeout(() => infoField?.focus(), 0);
+        };
+        const closeModal = () => {
+            if (!modal) return;
+            modal.classList.remove('open');
+            modal.setAttribute('aria-hidden', 'true');
+            document.body.classList.remove('modal-open');
+            if (feedback) feedback.textContent = '';
+            if (preview) {
+                preview.classList.add('is-hidden');
+                preview.innerHTML = '';
+            }
+        };
+        openButton?.addEventListener('click', (event) => {
+            event.preventDefault();
+            openModal();
+        });
+        document.querySelectorAll('[data-close-rfi-modal]').forEach((control) => {
+            control.addEventListener('click', (event) => {
+                event.preventDefault();
+                closeModal();
+            });
+        });
+        document.querySelectorAll('[data-rfi-template]').forEach((control) => {
+            control.addEventListener('click', (event) => {
+                event.preventDefault();
+                if (!infoField) return;
+                infoField.value = control.dataset.rfiTemplate || '';
+                if (feedback) feedback.textContent = '';
+                infoField.focus();
+            });
+        });
+        previewButton?.addEventListener('click', (event) => {
+            event.preventDefault();
+            const message = validate();
+            if (message) {
+                if (feedback) feedback.textContent = message;
+                return;
+            }
+            if (feedback) feedback.textContent = '';
+            renderGeneratedPreview();
+        });
+        form?.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const message = validate();
+            if (message) {
+                if (feedback) feedback.textContent = message;
+                return;
+            }
+            if (sendButton) {
+                sendButton.disabled = true;
+                sendButton.textContent = 'Sending...';
+            }
+            if (feedback) feedback.textContent = 'Sending...';
+            try {
+                const response = await fetch(`/api/transactions/${encodeURIComponent(openButton?.dataset.transactionId || '')}/rfi`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        subject: subjectField?.value.trim() || '',
+                        informationRequested: infoField?.value.trim() || '',
+                    }),
+                });
+                const contentType = response.headers.get('content-type') || '';
+                if (!contentType.includes('application/json')) {
+                    const text = await response.text();
+                    throw new Error(`Server returned ${response.status} instead of JSON: ${text.slice(0, 160)}`);
+                }
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.message || 'The RFI email could not be sent.');
+                if (result.provider === 'ethereal' && !result.previewUrl) {
+                    throw new Error('The test email was created but no preview URL was returned.');
+                }
+                closeModal();
+                currentRfiPreviewUrl = result.previewUrl || '';
+                if (successPanel) {
+                    const heading = successPanel.querySelector('h2');
+                    const messageText = successPanel.querySelector('p');
+                    if (heading) heading.textContent = result.provider === 'ethereal' ? 'Test RFI Email Created' : 'RFI Email Accepted';
+                    if (messageText) {
+                        messageText.textContent = result.provider === 'ethereal'
+                            ? 'This is a safe email preview for demonstration. It was not delivered to the customer.'
+                            : 'The email provider accepted this message for delivery.';
+                    }
+                    renderGeneratedPreview({
+                        container: successPreview,
+                        provider: result.provider || '',
+                        subject: subjectField?.value.trim() || '',
+                        previewUrl: currentRfiPreviewUrl,
+                    });
+                    if (openPreviewButton) {
+                        openPreviewButton.hidden = !currentRfiPreviewUrl;
+                        openPreviewButton.disabled = !currentRfiPreviewUrl;
+                    }
+                    successPanel.classList.remove('is-hidden');
+                    successPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            } catch (error) {
+                if (feedback) feedback.textContent = error.message;
+            } finally {
+                if (sendButton) {
+                    sendButton.disabled = false;
+                    sendButton.textContent = 'Send RFI';
+                }
+            }
+        });
+        openPreviewButton?.addEventListener('click', (event) => {
+            event.preventDefault();
+            if (!currentRfiPreviewUrl) return;
+            window.open(currentRfiPreviewUrl, '_blank', 'noopener,noreferrer');
+        });
+        closeSuccessPanel?.addEventListener('click', (event) => {
+            event.preventDefault();
+            currentRfiPreviewUrl = '';
+            successPanel?.classList.add('is-hidden');
+            if (successPreview) successPreview.innerHTML = '';
+        });
+    })();
+</script>
+
+<%- include('partials/footer', { includeClientScript: false }) %>

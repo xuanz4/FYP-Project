@@ -51,12 +51,11 @@ function maskEmailList(values) {
 }
 
 function getEmailRuntimeConfig() {
-  const testMode = process.env.EMAIL_TEST_MODE === 'true';
   const provider = String(process.env.EMAIL_PROVIDER || 'smtp').toLowerCase();
   return {
     provider,
     etherealMode: provider === 'ethereal',
-    testMode,
+    testMode: provider === 'ethereal',
   };
 }
 
@@ -141,7 +140,6 @@ async function sendRfiEmail(options) {
   validateSmtpConfig();
   const provider = String(process.env.EMAIL_PROVIDER || 'smtp').toLowerCase();
   const etherealMode = provider === 'ethereal';
-  const testMode = process.env.EMAIL_TEST_MODE === 'true';
   const to = options.to;
   if (!isValidEmail(to)) {
     const error = new Error('Customer email is missing or invalid');
@@ -149,7 +147,7 @@ async function sendRfiEmail(options) {
     throw error;
   }
 
-  const subject = `${testMode || etherealMode ? '[TEST] ' : ''}${options.subject}`;
+  const subject = `${etherealMode ? '[TEST] ' : ''}${options.subject}`;
   const text = buildRfiEmail(options);
   const fromName = process.env.EMAIL_FROM_NAME || 'Customer Review Team';
   const fromAddress = etherealMode ? 'no-reply@ethereal.email' : process.env.EMAIL_FROM;
@@ -175,11 +173,26 @@ async function sendRfiEmail(options) {
     throw error;
   }
 
+  if (!etherealMode && !(Array.isArray(info.accepted) && info.accepted.length > 0)) {
+    const error = new Error('SMTP provider did not accept any recipients');
+    error.code = 'EDELIVERYNOTACCEPTED';
+    error.response = info.response;
+    throw error;
+  }
+
+  const previewUrl = etherealMode ? nodemailer.getTestMessageUrl(info) : null;
+  if (etherealMode && !previewUrl) {
+    const error = new Error('Ethereal preview URL was not available for this message');
+    error.code = 'EPREVIEWUNAVAILABLE';
+    throw error;
+  }
+
   return {
     info,
-    testMode: testMode || etherealMode,
+    testMode: etherealMode,
     etherealMode,
-    previewUrl: etherealMode ? nodemailer.getTestMessageUrl(info) : null,
+    provider: etherealMode ? 'ethereal' : 'smtp',
+    previewUrl,
     subject,
     body: text,
     delivery: {

@@ -1,0 +1,65 @@
+<%- include('partials/head', { title, activePage }) %>
+
+<%
+  const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG') : 'Not assigned';
+  const params = new URLSearchParams({ ...filters, actionType: query?.actionType || '', userId: query?.userId || '', userRole: query?.userRole || '', dateFrom: query?.dateFrom || '', dateTo: query?.dateTo || '' });
+  const pageLink = (page) => { const next = new URLSearchParams(params); next.set('page', page); return `/analyst/audit-log?${next.toString()}`; };
+%>
+
+<main class="analyst-page">
+  <section class="analyst-page-header">
+    <div>
+      <p class="detail-eyebrow">UNIWEB analyst workspace</p>
+      <h1>Audit Log</h1>
+      <p>System and analyst activity recorded for traceability.</p>
+    </div>
+    <span class="role-chip">Analyst</span>
+  </section>
+
+  <form class="analyst-filter-bar" method="get">
+    <label><span>Action Type</span><select name="actionType"><option value="">All</option><% actions.forEach((item) => { %><option value="<%= item.action %>" <%= query.actionType === item.action ? 'selected' : '' %>><%= item.action %></option><% }) %></select></label>
+    <label><span>User</span><select name="userId"><option value="">All</option><% users.forEach((item) => { %><option value="<%= item.user_id %>" <%= query.userId === item.user_id ? 'selected' : '' %>><%= item.user_name %></option><% }) %></select></label>
+    <label><span>Role</span><select name="userRole"><option value="">All</option><% ['Analyst','Senior Analyst','STRO','Admin'].forEach((item) => { %><option value="<%= item %>" <%= query.userRole === item ? 'selected' : '' %>><%= item %></option><% }) %></select></label>
+    <label><span>From</span><input type="date" name="dateFrom" value="<%= query.dateFrom || '' %>"></label>
+    <label><span>To</span><input type="date" name="dateTo" value="<%= query.dateTo || '' %>"></label>
+    <label><span>Search</span><input name="q" value="<%= filters.q %>" placeholder="Transaction, case, alert, action"></label>
+    <button class="secondary-btn" type="submit">Apply</button>
+  </form>
+
+  <section class="panel">
+    <div class="table-wrap analyst-table-wrap">
+      <table class="analyst-table">
+        <thead><tr><th>Time</th><th>Action</th><th>User</th><th>Role</th><th>Affected Record</th><th>Notes</th></tr></thead>
+        <tbody>
+          <% if (rows.length) { rows.forEach((entry) => { %>
+            <tr>
+              <td><%= fmtDate(entry.created_at) %></td>
+              <td><strong><%= entry.action %></strong></td>
+              <td><%= entry.user_name || entry.user_id || 'System' %></td>
+              <td><%= entry.user_role || 'System' %></td>
+              <td>
+                <% if (entry.transaction_id) { %>
+                  <a href="/transactions/<%= entry.transaction_id %>"><%= entry.transaction_id %></a>
+                <% } else if (entry.entity_type) { %>
+                  <%= entry.entity_type %>: <%= entry.entity_id || 'Not assigned' %>
+                <% } else { %>
+                  Not assigned
+                <% } %>
+              </td>
+              <td><%= entry.notes || 'No notes recorded' %></td>
+            </tr>
+          <% }) } else { %>
+            <tr><td colspan="6" class="empty-inline">No audit records match the selected filters.</td></tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+    <div class="pagination-row">
+      <a class="secondary-btn <%= pagination.page <= 1 ? 'disabled' : '' %>" href="<%= pageLink(Math.max(1, pagination.page - 1)) %>">Previous</a>
+      <span>Page <%= pagination.page %> of <%= pagination.totalPages %> · <%= pagination.total %> records</span>
+      <a class="secondary-btn <%= pagination.page >= pagination.totalPages ? 'disabled' : '' %>" href="<%= pageLink(Math.min(pagination.totalPages, pagination.page + 1)) %>">Next</a>
+    </div>
+  </section>
+</main>
+
+<%- include('partials/footer', { includeClientScript: true }) %>

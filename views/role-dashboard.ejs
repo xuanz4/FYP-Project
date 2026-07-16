@@ -478,18 +478,7 @@
                                             <%= item.notes || '' %>
                                         </td>
                                         <td class="table-actions">
-                                            <form method="post" action="/analyst/cases/<%= item.case_id %>/action">
-                                                <input type="hidden" name="action" value="rfi">
-                                                <button type="submit" class="secondary-btn">Request RFI</button>
-                                            </form>
-                                            <form method="post" action="/analyst/cases/<%= item.case_id %>/action">
-                                                <input type="hidden" name="action" value="escalate">
-                                                <button type="submit" class="secondary-btn">Escalate</button>
-                                            </form>
-                                            <form method="post" action="/analyst/cases/<%= item.case_id %>/action">
-                                                <input type="hidden" name="action" value="dismiss">
-                                                <button type="submit" class="secondary-btn danger">Resolve</button>
-                                            </form>
+                                            <a class="secondary-btn" href="/transactions/<%= item.transaction_id %>">Review Case</a>
                                         </td>
                                     </tr>
                                     <% }) %>
@@ -594,17 +583,7 @@
                                                 <%= item.notes || '' %>
                                             </td>
                                             <td class="table-actions">
-                                                <form method="post"
-                                                    action="/senior-analyst/cases/<%= item.case_id %>/action">
-                                                    <input type="hidden" name="action" value="escalate">
-                                                    <button type="submit" class="secondary-btn">Escalate to
-                                                        STRO</button>
-                                                </form>
-                                                <form method="post"
-                                                    action="/senior-analyst/cases/<%= item.case_id %>/action">
-                                                    <input type="hidden" name="action" value="dismiss">
-                                                    <button type="submit" class="secondary-btn danger">Resolve</button>
-                                                </form>
+                                                <a class="secondary-btn" href="/transactions/<%= item.transaction_id %>">Review Case</a>
                                             </td>
                                         </tr>
                                         <% }) %>
@@ -708,16 +687,7 @@
                                                     <%= item.notes || '' %>
                                                 </td>
                                                 <td class="table-actions">
-                                                    <form method="post"
-                                                        action="/stro/cases/<%= item.case_id %>/action">
-                                                        <input type="hidden" name="action" value="dismiss">
-                                                        <button type="submit" class="secondary-btn danger">Resolve</button>
-                                                    </form>
-                                                    <form method="post"
-                                                        action="/stro/cases/<%= item.case_id %>/action">
-                                                        <input type="hidden" name="action" value="str">
-                                                        <button type="submit" class="secondary-btn">File STR</button>
-                                                    </form>
+                                                    <a class="secondary-btn" href="/transactions/<%= item.transaction_id %>">Review Case</a>
                                                 </td>
                                             </tr>
                                             <% }) %>

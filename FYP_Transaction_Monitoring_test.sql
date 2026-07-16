@@ -96,13 +96,48 @@ CREATE TABLE cases (
     transaction_id VARCHAR(40) NOT NULL,
     created_by VARCHAR(20) NULL,
     assigned_to VARCHAR(20) NULL,
-    status ENUM('Open', 'Pending RFI', 'Pending Senior Review', 'Escalated', 'Dismissed as False Positive', 'STR Filed') NOT NULL DEFAULT 'Open',
+    assigned_role VARCHAR(40) NULL,
+    escalation_destination VARCHAR(40) NULL,
+    status ENUM('Open', 'Under Review', 'Pending RFI', 'Pending Senior Review', 'Escalated', 'Dismissed as False Positive', 'STR Filed', 'Resolved') NOT NULL DEFAULT 'Open',
     notes TEXT NULL,
+    due_at DATETIME NULL,
+    referred_to_stro_at DATETIME NULL,
+    referred_to_stro_by VARCHAR(20) NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE,
     FOREIGN KEY (created_by) REFERENCES users(user_id),
     FOREIGN KEY (assigned_to) REFERENCES users(user_id)
+);
+
+CREATE TABLE str_reports (
+    str_id VARCHAR(40) PRIMARY KEY,
+    transaction_id VARCHAR(40) NOT NULL,
+    case_id VARCHAR(40) NOT NULL,
+    str_status ENUM('Recommended', 'Draft', 'Pending Approval', 'Filed', 'Not Required') NOT NULL DEFAULT 'Recommended',
+    reference_number VARCHAR(80) NULL,
+    reporting_reason TEXT NULL,
+    suspicion_summary TEXT NULL,
+    transaction_summary TEXT NULL,
+    supporting_evidence TEXT NULL,
+    stro_notes TEXT NULL,
+    referral_reason VARCHAR(120) NULL,
+    referral_summary TEXT NULL,
+    senior_analyst_notes TEXT NULL,
+    prepared_by VARCHAR(20) NULL,
+    approved_by VARCHAR(20) NULL,
+    filed_by VARCHAR(20) NULL,
+    filing_date DATE NULL,
+    filed_at DATETIME NULL,
+    not_required_reason TEXT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NULL,
+    UNIQUE KEY uniq_str_case (case_id),
+    FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE,
+    FOREIGN KEY (case_id) REFERENCES cases(case_id) ON DELETE CASCADE,
+    FOREIGN KEY (prepared_by) REFERENCES users(user_id),
+    FOREIGN KEY (approved_by) REFERENCES users(user_id),
+    FOREIGN KEY (filed_by) REFERENCES users(user_id)
 );
 
 -- Indexes
@@ -120,6 +155,11 @@ CREATE INDEX idx_cases_transaction ON cases(transaction_id);
 CREATE INDEX idx_cases_created_by ON cases(created_by);
 CREATE INDEX idx_cases_assigned_to ON cases(assigned_to);
 CREATE INDEX idx_cases_status ON cases(status);
+CREATE INDEX idx_cases_due_at ON cases(due_at);
+CREATE INDEX idx_cases_assigned_role ON cases(assigned_role);
+CREATE INDEX idx_cases_escalation_destination ON cases(escalation_destination);
+CREATE INDEX idx_str_reports_transaction ON str_reports(transaction_id);
+CREATE INDEX idx_str_reports_status ON str_reports(str_status);
 
 DELIMITER $$
 

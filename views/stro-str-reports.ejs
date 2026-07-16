@@ -1,0 +1,49 @@
+<%- include('partials/head', { title, activePage }) %>
+<%
+  const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG') : 'Not assigned';
+  const params = new URLSearchParams(filters);
+  const pageLink = (page) => { const next = new URLSearchParams(params); next.set('page', page); return `/stro/str-reports?${next.toString()}`; };
+%>
+
+<main class="analyst-page">
+  <section class="analyst-page-header">
+    <div><p class="detail-eyebrow">UNIWEB STRO workspace</p><h1>STR Reports</h1><p>Internal suspicious transaction reporting records. Confidential narratives stay inside Transaction Review.</p></div>
+    <span class="role-chip">STRO</span>
+  </section>
+
+  <form class="analyst-filter-bar" method="get">
+    <label><span>STR Status</span><select name="strStatus"><option value="">All</option><% ['Recommended','Draft','Pending Approval','Filed','Not Required'].forEach((item) => { %><option value="<%= item %>" <%= filters.strStatus === item ? 'selected' : '' %>><%= item %></option><% }) %></select></label>
+    <label><span>Prepared By</span><select name="preparedBy"><option value="">All</option><% filterOptions.users.forEach((item) => { %><option value="<%= item.user_id %>" <%= filters.preparedBy === item.user_id ? 'selected' : '' %>><%= item.user_name %></option><% }) %></select></label>
+    <label><span>Filing Date</span><input type="date" name="filingDate" value="<%= filters.filingDate || '' %>"></label>
+    <label><span>Search</span><input name="q" value="<%= filters.q %>" placeholder="STR reference, case, transaction"></label>
+    <button class="secondary-btn" type="submit">Apply</button>
+  </form>
+
+  <section class="panel">
+    <div class="table-wrap analyst-table-wrap">
+      <table class="analyst-table">
+        <thead><tr><th>STR Reference</th><th>Case ID</th><th>Transaction</th><th>Prepared By</th><th>Approved By</th><th>STR Status</th><th>Last Updated</th><th>Filing Date</th><th>Action</th></tr></thead>
+        <tbody>
+          <% if (rows.length) { rows.forEach((item) => { %>
+            <tr>
+              <td><strong><%= item.reference_number || item.str_id %></strong></td>
+              <td><%= item.case_id %></td>
+              <td><%= item.transaction_id %></td>
+              <td><%= item.prepared_by_name || item.prepared_by || 'Not assigned' %></td>
+              <td><%= item.approved_by_name || item.approved_by || 'Not assigned' %></td>
+              <td><%= item.str_status %></td>
+              <td><%= fmtDate(item.updated_at || item.created_at) %></td>
+              <td><%= item.filing_date ? new Date(item.filing_date).toLocaleDateString('en-SG') : 'Not filed' %></td>
+              <td><a class="secondary-btn" href="/transactions/<%= item.transaction_id %>">View STR</a></td>
+            </tr>
+          <% }) } else { %>
+            <tr><td colspan="9" class="empty-inline">No STR reports match the selected filters.</td></tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+    <div class="pagination-row"><a class="secondary-btn <%= pagination.page <= 1 ? 'disabled' : '' %>" href="<%= pageLink(Math.max(1, pagination.page - 1)) %>">Previous</a><span>Page <%= pagination.page %> of <%= pagination.totalPages %> &middot; <%= pagination.total %> records</span><a class="secondary-btn <%= pagination.page >= pagination.totalPages ? 'disabled' : '' %>" href="<%= pageLink(Math.min(pagination.totalPages, pagination.page + 1)) %>">Next</a></div>
+  </section>
+</main>
+
+<%- include('partials/footer', { includeClientScript: true }) %>

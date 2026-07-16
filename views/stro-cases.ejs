@@ -1,0 +1,66 @@
+<%- include('partials/head', { title, activePage }) %>
+<%
+  const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG') : 'Not assigned';
+  const isOverdue = (item) => item.due_at && new Date(item.due_at).getTime() < Date.now() && !['Resolved','Dismissed as False Positive','STR Filed'].includes(item.status);
+  const statusLabel = (value) => ({ 'Pending RFI': 'Waiting for Information', Escalated: 'Escalated', 'STR Filed': 'Resolved' }[value] || value || 'New');
+  const params = new URLSearchParams(filters);
+  const pageLink = (page) => { const next = new URLSearchParams(params); next.set('page', page); return `/stro/cases?${next.toString()}`; };
+%>
+
+<main class="analyst-page">
+  <section class="analyst-page-header">
+    <div><p class="detail-eyebrow">UNIWEB STRO workspace</p><h1>STRO Cases</h1><p>Cases referred for suspicious transaction reporting review.</p></div>
+    <span class="role-chip">STRO</span>
+  </section>
+
+  <section class="summary-grid compact">
+    <article><span>Recommended</span><strong><%= Number(summary.recommended || 0) %></strong></article>
+    <article><span>Draft</span><strong><%= Number(summary.draft || 0) %></strong></article>
+    <article><span>Pending Approval</span><strong><%= Number(summary.pending_approval || 0) %></strong></article>
+    <article><span>Waiting for Information</span><strong><%= Number(summary.waiting || 0) %></strong></article>
+    <article><span>Filed</span><strong><%= Number(summary.filed || 0) %></strong></article>
+    <article><span>Overdue</span><strong><%= Number(summary.overdue || 0) %></strong></article>
+  </section>
+
+  <form class="analyst-filter-bar" method="get">
+    <label><span>STR Status</span><select name="strStatus"><option value="">All</option><% ['Recommended','Draft','Pending Approval','Filed','Not Required'].forEach((item) => { %><option value="<%= item %>" <%= filters.strStatus === item ? 'selected' : '' %>><%= item %></option><% }) %></select></label>
+    <label><span>Assessment Status</span><select name="assessmentStatus"><option value="">All</option><% ['Open','Under Review','Pending RFI','Escalated','STR Filed','Resolved'].forEach((item) => { %><option value="<%= item %>" <%= filters.assessmentStatus === item ? 'selected' : '' %>><%= statusLabel(item) %></option><% }) %></select></label>
+    <label><span>Risk Level</span><select name="riskLevel"><option value="">All</option><% ['Low','Medium','High','Critical'].forEach((item) => { %><option value="<%= item %>" <%= filters.riskLevel === item ? 'selected' : '' %>><%= item %></option><% }) %></select></label>
+    <label><span>Referred By</span><select name="referredBy"><option value="">All</option><% filterOptions.users.forEach((item) => { %><option value="<%= item.user_id %>" <%= filters.referredBy === item.user_id ? 'selected' : '' %>><%= item.user_name %></option><% }) %></select></label>
+    <label><span>Assignment</span><select name="assignmentStatus"><option value="">All</option><option value="assigned" <%= filters.assignmentStatus === 'assigned' ? 'selected' : '' %>>Assigned</option><option value="unassigned" <%= filters.assignmentStatus === 'unassigned' ? 'selected' : '' %>>Unassigned</option></select></label>
+    <label><span>Due Status</span><select name="dueStatus"><option value="">All</option><option value="overdue" <%= filters.dueStatus === 'overdue' ? 'selected' : '' %>>Overdue</option><option value="notAssigned" <%= filters.dueStatus === 'notAssigned' ? 'selected' : '' %>>Not assigned</option></select></label>
+    <label><span>Search</span><input name="q" value="<%= filters.q %>" placeholder="Case, transaction, merchant"></label>
+    <button class="secondary-btn" type="submit">Apply</button>
+  </form>
+
+  <section class="panel">
+    <div class="table-wrap analyst-table-wrap">
+      <table class="analyst-table">
+        <thead><tr><th>Case ID</th><th>Transaction</th><th>Created</th><th>Merchant</th><th class="num">Amount</th><th>Initial Risk</th><th>STR Status</th><th>Assessment Status</th><th>Referred By</th><th>Assigned To</th><th>Due Date</th><th>Action</th></tr></thead>
+        <tbody>
+          <% if (rows.length) { rows.forEach((item) => { %>
+            <tr>
+              <td><strong><%= item.case_id %></strong></td>
+              <td><%= item.transaction_id %></td>
+              <td><%= fmtDate(item.created_at) %></td>
+              <td><strong><%= item.merchant_name || 'Unknown Merchant' %></strong><div class="muted">MCC <%= item.mcc_code || 'N/A' %></div></td>
+              <td class="num">SGD <%= Number(item.amount || 0).toFixed(2) %></td>
+              <td><span class="risk-badge risk-<%= String(item.risk_level || 'low').toLowerCase() %>"><%= item.risk_level || 'Low' %></span><div class="muted">Score <%= item.risk_score ?? 'N/A' %></div></td>
+              <td><%= item.str_status || 'Recommended' %></td>
+              <td><%= statusLabel(item.status) %></td>
+              <td><%= item.referred_by_user_name || item.referred_by_user_role || 'Not recorded' %></td>
+              <td><%= item.assigned_user_name || item.assigned_role || 'STRO queue' %></td>
+              <td><%= fmtDate(item.due_at) %> <% if (isOverdue(item)) { %><span class="status-pill status-critical">Overdue</span><% } %></td>
+              <td><a class="secondary-btn" href="/transactions/<%= item.transaction_id %>">Review Case</a></td>
+            </tr>
+          <% }) } else { %>
+            <tr><td colspan="12" class="empty-inline">No STRO cases match the selected filters.</td></tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+    <div class="pagination-row"><a class="secondary-btn <%= pagination.page <= 1 ? 'disabled' : '' %>" href="<%= pageLink(Math.max(1, pagination.page - 1)) %>">Previous</a><span>Page <%= pagination.page %> of <%= pagination.totalPages %> &middot; <%= pagination.total %> records</span><a class="secondary-btn <%= pagination.page >= pagination.totalPages ? 'disabled' : '' %>" href="<%= pageLink(Math.min(pagination.totalPages, pagination.page + 1)) %>">Next</a></div>
+  </section>
+</main>
+
+<%- include('partials/footer', { includeClientScript: true }) %>

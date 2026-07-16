@@ -1,0 +1,34 @@
+<%- include('partials/head', { title, activePage }) %>
+<%
+  const params = new URLSearchParams(filters);
+  const pageLink = (page) => { const next = new URLSearchParams(params); next.set('page', page); return `/admin/users?${next.toString()}`; };
+%>
+
+<main class="analyst-page">
+  <section class="analyst-page-header">
+    <div><p class="detail-eyebrow">UNIWEB administration</p><h1>User Management</h1><p>Create, edit, enable, disable or remove staff accounts.</p></div>
+    <button class="primary-btn" type="button" data-open-dialog="createUserDialog">Create User</button>
+  </section>
+
+  <form class="analyst-filter-bar" method="get">
+    <label><span>Role</span><select name="role"><option value="">All</option><% ['Analyst','Senior Analyst','STRO','Admin'].forEach((item) => { %><option value="<%= item %>" <%= filters.role === item ? 'selected' : '' %>><%= item %></option><% }) %></select></label>
+    <label><span>Status</span><select name="status"><option value="">All</option><option value="active" <%= filters.status === 'active' ? 'selected' : '' %>>Active</option><option value="inactive" <%= filters.status === 'inactive' ? 'selected' : '' %>>Inactive</option></select></label>
+    <label><span>Search</span><input name="q" value="<%= filters.q %>" placeholder="User ID or name"></label>
+    <button class="secondary-btn" type="submit">Apply</button>
+  </form>
+
+  <section class="panel">
+    <div class="table-wrap analyst-table-wrap"><table class="analyst-table">
+      <thead><tr><th>User ID</th><th>Name</th><th>Role</th><th>Status</th><th>Last Updated</th><th>Actions</th></tr></thead>
+      <tbody><% if (rows.length) { rows.forEach((user) => { %>
+        <tr><td><strong><%= user.user_id %></strong></td><td><%= user.user_name %></td><td><%= user.user_role %></td><td><span class="status-pill <%= user.is_active ? 'status-resolved' : 'status-critical' %>"><%= user.is_active ? 'Active' : 'Inactive' %></span></td><td>Not tracked</td><td class="management-actions"><button class="secondary-btn" type="button" data-open-dialog="editUserDialog-<%= user.user_id %>">Edit</button><form method="post" action="/admin/users/<%= user.user_id %>/toggle"><button class="secondary-btn" type="submit"><%= user.is_active ? 'Disable' : 'Enable' %></button></form><form method="post" action="/admin/users/<%= user.user_id %>/delete"><button class="secondary-btn danger" type="submit" data-confirm="true">Delete</button></form></td></tr>
+      <% }) } else { %><tr><td colspan="6" class="empty-inline">No users match the selected filters.</td></tr><% } %></tbody>
+    </table></div>
+    <div class="pagination-row"><a class="secondary-btn <%= pagination.page <= 1 ? 'disabled' : '' %>" href="<%= pageLink(Math.max(1, pagination.page - 1)) %>">Previous</a><span>Page <%= pagination.page %> of <%= pagination.totalPages %> &middot; <%= pagination.total %> records</span><a class="secondary-btn <%= pagination.page >= pagination.totalPages ? 'disabled' : '' %>" href="<%= pageLink(Math.min(pagination.totalPages, pagination.page + 1)) %>">Next</a></div>
+  </section>
+</main>
+
+<dialog class="management-dialog" id="createUserDialog"><form method="post" action="/admin/users"><h2>Create User</h2><label><span>User ID</span><input name="userId" required></label><label><span>Name</span><input name="userName" required></label><label><span>Role</span><select name="userRole" required><option>Analyst</option><option>Senior Analyst</option><option>STRO</option><option>Admin</option></select></label><label><span>Temporary Password</span><input name="password" type="password" required autocomplete="new-password"></label><label><span>Status</span><select name="isActive"><option value="1">Active</option><option value="0">Inactive</option></select></label><div class="modal-actions"><button class="secondary-btn" type="button" data-close-dialog>Cancel</button><button class="primary-btn" type="submit">Create User</button></div></form></dialog>
+<% rows.forEach((user) => { %><dialog class="management-dialog" id="editUserDialog-<%= user.user_id %>"><form method="post" action="/admin/users/<%= user.user_id %>"><h2>Edit User</h2><label><span>Name</span><input name="userName" value="<%= user.user_name %>" required></label><label><span>Role</span><select name="userRole"><% ['Analyst','Senior Analyst','STRO','Admin'].forEach((role) => { %><option value="<%= role %>" <%= user.user_role === role ? 'selected' : '' %>><%= role %></option><% }) %></select></label><label><span>Status</span><select name="isActive"><option value="1" <%= user.is_active ? 'selected' : '' %>>Active</option><option value="0" <%= !user.is_active ? 'selected' : '' %>>Inactive</option></select></label><label><span>Optional New Password</span><input name="password" type="password" autocomplete="new-password"></label><div class="modal-actions"><button class="secondary-btn" type="button" data-close-dialog>Cancel</button><button class="primary-btn" type="submit">Save Changes</button></div></form></dialog><% }) %>
+<script src="/management-dialogs.js"></script>
+<%- include('partials/footer', { includeClientScript: true }) %>

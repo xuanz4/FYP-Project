@@ -1,0 +1,73 @@
+<%- include('partials/head', { title, activePage }) %>
+
+<%
+  const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG') : 'Not assigned';
+%>
+
+<main class="analyst-page">
+  <section class="analyst-page-header">
+    <div>
+      <p class="detail-eyebrow">UNIWEB senior review workspace</p>
+      <h1>Senior Analyst Overview</h1>
+      <p>Focused review summary for <strong><%= currentUser.name %></strong> (<%= currentUser.id %>)</p>
+    </div>
+    <span class="role-chip">Senior Analyst</span>
+  </section>
+
+  <section class="summary-grid">
+    <article><span>Pending Senior Review</span><strong><%= summary.pendingReview %></strong><small>Critical or complex cases</small></article>
+    <article><span>Assigned to Me</span><strong><%= summary.assignedToMe %></strong><small>Your senior-review workload</small></article>
+    <article><span>Overdue Reviews</span><strong><%= summary.overdue %></strong><small>Past stored due date</small></article>
+    <article><span>Waiting for Information</span><strong><%= summary.waiting %></strong><small>Pending customer response</small></article>
+    <article><span>Referred to STRO</span><strong><%= summary.referredToStro %></strong><small>Routed for STR review</small></article>
+    <article><span>Resolved Today</span><strong><%= summary.resolvedToday %></strong><small>Closed in this review day</small></article>
+  </section>
+
+  <section class="analyst-preview-grid">
+    <article class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Priority Senior Reviews</h2>
+          <p>Top urgent cases escalated for senior assessment.</p>
+        </div>
+        <a class="secondary-link" href="/senior-analyst/cases">View All Cases</a>
+      </div>
+      <% if (casePreview.length) { %>
+        <div class="compact-list">
+          <% casePreview.forEach((item) => { %>
+            <a href="/transactions/<%= item.transaction_id %>">
+              <strong><%= item.case_id %></strong>
+              <span><%= item.merchant_name || 'Unknown Merchant' %> &middot; <%= item.risk_score ?? 'Not available' %> &middot; <%= item.risk_level || 'Not available' %></span>
+            </a>
+          <% }) %>
+        </div>
+      <% } else { %>
+        <p class="empty-inline">No priority senior-review cases currently require attention.</p>
+      <% } %>
+    </article>
+
+    <article class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Recent Senior Analyst Activity</h2>
+          <p>Latest senior-review, referral and resolution events.</p>
+        </div>
+        <a class="secondary-link" href="/senior-analyst/audit-log">View Audit Log</a>
+      </div>
+      <% if (auditPreview.length) { %>
+        <div class="compact-list">
+          <% auditPreview.forEach((entry) => { %>
+            <a href="<%= entry.transaction_id ? `/transactions/${entry.transaction_id}` : '/senior-analyst/audit-log' %>">
+              <strong><%= entry.action %></strong>
+              <span><%= entry.user_name || entry.user_id || 'System' %> &middot; <%= fmtDate(entry.created_at) %></span>
+            </a>
+          <% }) %>
+        </div>
+      <% } else { %>
+        <p class="empty-inline">No senior-review audit records match the current view.</p>
+      <% } %>
+    </article>
+  </section>
+</main>
+
+<%- include('partials/footer', { includeClientScript: true }) %>

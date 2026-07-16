@@ -1,0 +1,31 @@
+<%- include('partials/head', { title, activePage }) %>
+<% const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG') : 'Not assigned'; %>
+
+<main class="analyst-page">
+  <section class="analyst-page-header">
+    <div>
+      <p class="detail-eyebrow">UNIWEB administration</p>
+      <h1>Admin Overview</h1>
+      <p>System configuration summary for <strong><%= currentUser.name %></strong> (<%= currentUser.id %>)</p>
+    </div>
+    <span class="role-chip">Admin</span>
+  </section>
+
+  <section class="summary-grid">
+    <article><span>Active Users</span><strong><%= Number(summary.active_users || 0) %></strong><small>Enabled staff accounts</small></article>
+    <article><span>Disabled Users</span><strong><%= Number(summary.disabled_users || 0) %></strong><small>Inactive accounts</small></article>
+    <article><span>Active Merchants</span><strong><%= Number(summary.active_merchants || 0) %></strong><small>Monitored merchant profiles</small></article>
+    <article><span>Active Rules</span><strong><%= Number(summary.active_rules || 0) %></strong><small>Enabled monitoring rules</small></article>
+    <article><span>Transactions Today</span><strong><%= Number(summary.transactions_today || 0) %></strong><small>Screened today</small></article>
+    <article><span>Open Cases</span><strong><%= Number(summary.open_cases || 0) %></strong><small>Active workflow records</small></article>
+  </section>
+
+  <section class="analyst-preview-grid">
+    <article class="panel"><div class="panel-header"><div><h2>Recent User Records</h2><p>Latest user records by name.</p></div><a class="secondary-link" href="/admin/users">User Management</a></div><div class="compact-list"><% userPreview.forEach((item) => { %><a href="/admin/users"><strong><%= item.user_name %></strong><span><%= item.user_id %> &middot; <%= item.user_role %> &middot; <%= item.is_active ? 'Active' : 'Inactive' %></span></a><% }) %></div></article>
+    <article class="panel"><div class="panel-header"><div><h2>Recent Merchant Records</h2><p>Merchant profile records.</p></div><a class="secondary-link" href="/admin/merchants">Merchant Management</a></div><div class="compact-list"><% merchantPreview.forEach((item) => { %><a href="/admin/merchants"><strong><%= item.merchant_name %></strong><span><%= item.merchant_id %> &middot; MCC <%= item.mcc_code %> &middot; Score <%= item.mcc_risk_score %></span></a><% }) %></div></article>
+    <article class="panel"><div class="panel-header"><div><h2>Recent Rule Records</h2><p>Configured monitoring rules.</p></div><a class="secondary-link" href="/admin/rules">Rule Management</a></div><div class="compact-list"><% rulePreview.forEach((item) => { %><a href="/admin/rules"><strong><%= item.rule_name %></strong><span><%= item.rule_id %> &middot; <%= item.risk_level %> &middot; Weight <%= item.weight %></span></a><% }) %></div></article>
+    <article class="panel"><div class="panel-header"><div><h2>Latest Audit Activity</h2><p>Most recent traceability records.</p></div><a class="secondary-link" href="/admin/audit-log">Audit Log</a></div><div class="compact-list"><% auditPreview.forEach((entry) => { %><a href="<%= entry.transaction_id ? `/transactions/${entry.transaction_id}` : '/admin/audit-log' %>"><strong><%= entry.action %></strong><span><%= entry.user_name || entry.user_id || 'System' %> &middot; <%= fmtDate(entry.created_at) %></span></a><% }) %></div></article>
+  </section>
+</main>
+
+<%- include('partials/footer', { includeClientScript: true }) %>

@@ -1,0 +1,87 @@
+<%- include('partials/head', { title, activePage }) %>
+
+<%
+  const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG') : 'Not assigned';
+  const riskClass = (value) => `risk-badge risk-${String(value || 'low').toLowerCase()}`;
+%>
+
+<main class="analyst-page">
+  <section class="analyst-page-header">
+    <div>
+      <p class="detail-eyebrow">UNIWEB analyst workspace</p>
+      <h1>Analyst Overview</h1>
+      <p>Compact workload summary for <strong><%= currentUser.name %></strong> (<%= currentUser.id %>)</p>
+    </div>
+    <span class="role-chip">Analyst</span>
+  </section>
+
+  <section class="summary-grid">
+    <article><span>New Transactions</span><strong><%= summary.newTransactions %></strong><small>Screened in the latest monitoring window</small></article>
+    <article><span>Critical Queue</span><strong><%= summary.criticalQueue %></strong><small>Critical weighted-risk items</small></article>
+    <article><span>Open Cases</span><strong><%= summary.openCases %></strong><small>Active investigation cases</small></article>
+    <article><span>Assigned to Me</span><strong><%= summary.assignedToMe %></strong><small>Your current workload</small></article>
+    <article><span>Waiting for Information</span><strong><%= summary.waiting %></strong><small>Pending customer response</small></article>
+    <article><span>Overdue Cases</span><strong><%= summary.overdue %></strong><small>Past stored due date</small></article>
+  </section>
+
+  <section class="analyst-preview-grid">
+    <article class="panel">
+      <div class="panel-header">
+        <div><h2>Priority Queue Preview</h2><p>Top items requiring analyst attention.</p></div>
+        <a class="secondary-link" href="/analyst/working-queue">View Working Queue</a>
+      </div>
+      <% if (queuePreview.length) { %>
+        <div class="compact-list">
+          <% queuePreview.forEach((item) => { %>
+            <a href="/transactions/<%= item.transaction_id %>">
+              <strong><%= item.transaction_id %></strong>
+              <span><%= item.merchant_name || 'Unknown Merchant' %> · <%= item.risk_score %> · <%= item.risk_level %></span>
+            </a>
+          <% }) %>
+        </div>
+      <% } else { %>
+        <p class="empty-inline">No priority items currently require attention.</p>
+      <% } %>
+    </article>
+
+    <article class="panel">
+      <div class="panel-header">
+        <div><h2>Recent Cases</h2><p>Latest active case records.</p></div>
+        <a class="secondary-link" href="/analyst/cases">View All Cases</a>
+      </div>
+      <% if (casePreview.length) { %>
+        <div class="compact-list">
+          <% casePreview.forEach((item) => { %>
+            <a href="/transactions/<%= item.transaction_id %>">
+              <strong><%= item.case_id %></strong>
+              <span><%= item.status %> · <%= item.assigned_user_name || item.assigned_role || 'Unassigned' %> · <%= fmtDate(item.due_at) %></span>
+            </a>
+          <% }) %>
+        </div>
+      <% } else { %>
+        <p class="empty-inline">No cases match the current workload.</p>
+      <% } %>
+    </article>
+
+    <article class="panel">
+      <div class="panel-header">
+        <div><h2>Recent Activity</h2><p>Latest traceable system or analyst actions.</p></div>
+        <a class="secondary-link" href="/analyst/audit-log">View Audit Log</a>
+      </div>
+      <% if (auditPreview.length) { %>
+        <div class="compact-list">
+          <% auditPreview.forEach((entry) => { %>
+            <a href="<%= entry.transaction_id ? `/transactions/${entry.transaction_id}` : '/analyst/audit-log' %>">
+              <strong><%= entry.action %></strong>
+              <span><%= entry.user_name || entry.user_id || 'System' %> · <%= fmtDate(entry.created_at) %></span>
+            </a>
+          <% }) %>
+        </div>
+      <% } else { %>
+        <p class="empty-inline">No audit records match the selected filters.</p>
+      <% } %>
+    </article>
+  </section>
+</main>
+
+<%- include('partials/footer', { includeClientScript: true }) %>

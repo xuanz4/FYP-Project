@@ -1,0 +1,74 @@
+<%- include('partials/head', { title, activePage }) %>
+
+<%
+  const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG') : 'Not assigned';
+  const isOverdue = (item) => item.due_at && new Date(item.due_at).getTime() < Date.now() && !['Resolved','Dismissed as False Positive','STR Filed'].includes(item.case_status);
+  const statusLabel = (value) => ({ Open: 'New', 'Pending RFI': 'Waiting for Information', 'Pending Senior Review': 'Escalated' }[value] || value || 'New');
+  const params = new URLSearchParams(filters);
+  const pageLink = (page) => { const next = new URLSearchParams(params); next.set('page', page); return `/analyst/working-queue?${next.toString()}`; };
+%>
+
+<main class="analyst-page">
+  <section class="analyst-page-header">
+    <div>
+      <p class="detail-eyebrow">UNIWEB analyst workspace</p>
+      <h1>Operations Working Queue</h1>
+      <p>Transactions requiring analyst attention, prioritised by urgency.</p>
+    </div>
+    <span class="score-help" title="Weighted risk scores combine MCC, profile, screening and monitoring-rule contributions and may exceed 100.">Initial Weighted Score</span>
+  </section>
+
+  <section class="summary-grid compact">
+    <article><span>Critical</span><strong><%= Number(summary.critical || 0) %></strong></article>
+    <article><span>Overdue</span><strong><%= Number(summary.overdue || 0) %></strong></article>
+    <article><span>Unassigned</span><strong><%= Number(summary.unassigned || 0) %></strong></article>
+    <article><span>Assigned to Me</span><strong><%= Number(summary.assigned_to_me || 0) %></strong></article>
+    <article><span>Waiting for Information</span><strong><%= Number(summary.waiting || 0) %></strong></article>
+  </section>
+
+  <form class="analyst-filter-bar" method="get">
+    <label><span>Risk Level</span><select name="riskLevel"><option value="">All</option><% ['Low','Medium','High','Critical'].forEach((item) => { %><option value="<%= item %>" <%= filters.riskLevel === item ? 'selected' : '' %>><%= item %></option><% }) %></select></label>
+    <label><span>Assessment Status</span><select name="assessmentStatus"><option value="">All</option><% ['Open','Under Review','Pending RFI','Pending Senior Review','Escalated'].forEach((item) => { %><option value="<%= item %>" <%= filters.assessmentStatus === item ? 'selected' : '' %>><%= statusLabel(item) %></option><% }) %></select></label>
+    <label><span>Assigned To</span><select name="assignedTo"><option value="">All</option><% filterOptions.users.forEach((item) => { %><option value="<%= item.user_id %>" <%= filters.assignedTo === item.user_id ? 'selected' : '' %>><%= item.user_name %></option><% }) %></select></label>
+    <label><span>Decision</span><select name="decision"><option value="">All</option><% ['Accepted','Rejected'].forEach((item) => { %><option value="<%= item %>" <%= filters.decision === item ? 'selected' : '' %>><%= item %></option><% }) %></select></label>
+    <label><span>Due Status</span><select name="dueStatus"><option value="">All</option><option value="overdue" <%= filters.dueStatus === 'overdue' ? 'selected' : '' %>>Overdue</option><option value="notAssigned" <%= filters.dueStatus === 'notAssigned' ? 'selected' : '' %>>Not assigned</option></select></label>
+    <label><span>Sort</span><select name="sort"><option value="">Priority</option><option value="created" <%= filters.sort === 'created' ? 'selected' : '' %>>Created</option><option value="due" <%= filters.sort === 'due' ? 'selected' : '' %>>Due Date</option><option value="score" <%= filters.sort === 'score' ? 'selected' : '' %>>Initial Weighted Score</option><option value="rules" <%= filters.sort === 'rules' ? 'selected' : '' %>>Rules Triggered</option></select></label>
+    <label><span>Search</span><input name="q" value="<%= filters.q %>" placeholder="Transaction or merchant"></label>
+    <button class="secondary-btn" type="submit">Apply</button>
+  </form>
+
+  <section class="panel">
+    <div class="table-wrap analyst-table-wrap">
+      <table class="analyst-table">
+        <thead><tr><th>Transaction</th><th>Created</th><th>Merchant</th><th class="num">Amount</th><th>Due Date</th><th class="num">Initial Weighted Score</th><th class="center">Rules Triggered</th><th>Risk Level</th><th>Assessment Status</th><th>Assigned Analyst</th><th>Decision</th><th>Review</th></tr></thead>
+        <tbody>
+          <% if (rows.length) { rows.forEach((item) => { %>
+            <tr class="<%= item.risk_level === 'Critical' ? 'priority-critical' : '' %>">
+              <td><strong><%= item.transaction_id %></strong></td>
+              <td><%= fmtDate(item.created_at) %></td>
+              <td><strong><%= item.merchant_name || 'Unknown Merchant' %></strong><div class="muted">MCC <%= item.mcc_code || 'N/A' %></div></td>
+              <td class="num">SGD <%= Number(item.amount || 0).toFixed(2) %></td>
+              <td><%= fmtDate(item.due_at) %> <% if (isOverdue(item)) { %><span class="status-pill status-critical">Overdue</span><% } %></td>
+              <td class="num"><%= item.risk_score ?? 'Not available' %></td>
+              <td class="center"><%= item.rules_count ?? 'Not available' %></td>
+              <td><span class="risk-badge risk-<%= String(item.risk_level || 'low').toLowerCase() %>"><%= item.risk_level || 'Low' %></span></td>
+              <td><%= statusLabel(item.case_status || item.action_status) %></td>
+              <td><%= item.assigned_user_name || item.assigned_role || 'Unassigned' %></td>
+              <td><%= item.decision || 'Not assigned' %></td>
+              <td><a class="secondary-btn" href="/transactions/<%= item.transaction_id %>">Review</a></td>
+            </tr>
+          <% }) } else { %>
+            <tr><td colspan="12" class="empty-inline">No transactions currently require analyst review.</td></tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+    <div class="pagination-row">
+      <a class="secondary-btn <%= pagination.page <= 1 ? 'disabled' : '' %>" href="<%= pageLink(Math.max(1, pagination.page - 1)) %>">Previous</a>
+      <span>Page <%= pagination.page %> of <%= pagination.totalPages %> · <%= pagination.total %> records</span>
+      <a class="secondary-btn <%= pagination.page >= pagination.totalPages ? 'disabled' : '' %>" href="<%= pageLink(Math.min(pagination.totalPages, pagination.page + 1)) %>">Next</a>
+    </div>
+  </section>
+</main>
+
+<%- include('partials/footer', { includeClientScript: true }) %>
