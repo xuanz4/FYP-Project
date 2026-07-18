@@ -1,0 +1,12 @@
+[
+  { "merchantId": "M-11004", "merchantName": "Bright Star Money Changer", "merchantMid": "M-11004-MID01", "merchantCountry": "SG", "mccCode": "6051", "industry": "Money Changer / Remittance", "mccRiskScore": 25, "riskTier": "High" },
+  { "merchantId": "M-10502", "merchantName": "GoldMart Pawnshop", "merchantMid": "M-10502-MID01", "merchantCountry": "SG", "mccCode": "5933", "industry": "Pawnbroking", "mccRiskScore": 22, "riskTier": "High" },
+  { "merchantId": "M-11128", "merchantName": "Kopi & Kaya Café", "merchantMid": "M-11128-MID01", "merchantCountry": "SG", "mccCode": "5812", "industry": "Food & Beverage", "mccRiskScore": 5, "riskTier": "Standard" },
+  { "merchantId": "M-10391", "merchantName": "Aurora Wellness Spa", "merchantMid": "M-10391-MID01", "merchantCountry": "SG", "mccCode": "7298", "industry": "Wellness & Spa", "mccRiskScore": 8, "riskTier": "Standard" },
+  { "merchantId": "M-10428", "merchantName": "Song Fa Bak Kut Teh Pte Ltd", "merchantMid": "M-10428-MID01", "merchantCountry": "SG", "mccCode": "5812", "industry": "Food & Beverage", "mccRiskScore": 5, "riskTier": "Standard" },
+  { "merchantId": "M-10617", "merchantName": "Everbright Travel Pte Ltd", "merchantMid": "M-10617-MID01", "merchantCountry": "SG", "mccCode": "4722", "industry": "Travel Agency", "mccRiskScore": 12, "riskTier": "Standard" },
+  { "merchantId": "M-10733", "merchantName": "Nimbus Electronics Trading", "merchantMid": "M-10733-MID01", "merchantCountry": "SG", "mccCode": "5732", "industry": "Electronics Retail", "mccRiskScore": 10, "riskTier": "Standard" },
+  { "merchantId": "M-10845", "merchantName": "Lotus Leaf Catering", "merchantMid": "M-10845-MID01", "merchantCountry": "SG", "mccCode": "5812", "industry": "Catering", "mccRiskScore": 5, "riskTier": "Standard" },
+  { "merchantId": "M-10902", "merchantName": "Straits Freight Forwarders", "merchantMid": "M-10902-MID01", "merchantCountry": "SG", "mccCode": "4215", "industry": "Freight Forwarding", "mccRiskScore": 10, "riskTier": "Standard" },
+  { "merchantId": "M-11255", "merchantName": "Pinnacle Digital Marketing", "merchantMid": "M-11255-MID01", "merchantCountry": "SG", "mccCode": "7311", "industry": "Digital Marketing", "mccRiskScore": 6, "riskTier": "Standard" }
+]

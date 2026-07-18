@@ -30,7 +30,7 @@ function splitSqlStatements(sql) {
 }
 
 async function main() {
-  const sql = fs.readFileSync(path.join(__dirname, '..', 'FYP_Transaction_Monitoring.sql'), 'utf8');
+  const sql = fs.readFileSync(path.join(__dirname, '..', 'FYP_Transaction_Monitoring_test.sql'), 'utf8');
   const statements = splitSqlStatements(sql);
   const connection = await mysql.createConnection({
     host: process.env.DB_HOST || 'localhost',
@@ -43,7 +43,8 @@ async function main() {
     for (const statement of statements) {
       await connection.query(statement);
     }
-    console.log('Database created from FYP_Transaction_Monitoring.sql');
+    console.log('Database created from FYP_Transaction_Monitoring_test.sql');
+    console.log('Run `npm run import:test-data` next to load the partner transaction history.');
   } finally {
     await connection.end();
   }

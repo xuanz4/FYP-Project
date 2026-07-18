@@ -5,8 +5,9 @@
     "main": "app.js",
     "scripts": {
         "start": "node app.js",
-        "test": "node tests/complianceEngine.test.js",
-        "db:init": "node scripts/initDb.js"
+        "test": "node tests/riskEngine.test.js",
+        "db:init": "node scripts/initDb.js",
+        "import:test-data": "node scripts/importTestData.js"
     },
     "keywords": [
         "compliance",

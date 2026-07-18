@@ -29,15 +29,16 @@
   </form>
 
   <section class="panel">
-    <div class="table-wrap analyst-table-wrap">
+    <div class="table-wrap analyst-table-wrap" data-live-refresh>
       <table class="analyst-table">
-        <thead><tr><th>Transaction</th><th>Created</th><th>Merchant</th><th class="num">Amount</th><th>Risk Level</th><th>Transaction Status</th><th>Action Status</th><th>Review</th></tr></thead>
+        <thead><tr><th>Transaction</th><th>Created</th><th>Merchant</th><th>Card</th><th class="num">Amount</th><th>Risk Level</th><th>Transaction Status</th><th>Action Status</th><th>Review</th></tr></thead>
         <tbody>
           <% if (rows.length) { rows.forEach((item) => { %>
             <tr>
               <td><strong><%= item.transaction_id %></strong><div class="muted"><%= item.transaction_code || '' %></div></td>
-              <td><%= fmtDate(item.created_at) %></td>
+              <td><%= fmtDate(item.txn_time || item.created_at) %></td>
               <td title="<%= item.merchant_name || 'Unknown Merchant' %>"><strong><%= item.merchant_name || 'Unknown Merchant' %></strong><div class="muted">MCC <%= item.mcc_code || 'N/A' %></div></td>
+              <td><%= (item.scheme || '').toUpperCase() %><div class="muted"><%= item.issuer_country || '' %> · <%= item.entry_mode || '' %></div></td>
               <td class="num">SGD <%= Number(item.amount || 0).toFixed(2) %></td>
               <td><span class="risk-badge risk-<%= String(item.risk_level || 'low').toLowerCase() %>"><%= item.risk_level || 'Low' %></span></td>
               <td><span class="status-pill status-<%= String(item.status || '').toLowerCase() %>"><%= item.status || 'Not assigned' %></span></td>
@@ -45,7 +46,7 @@
               <td><a class="secondary-btn" href="/transactions/<%= item.transaction_id %>">Review</a></td>
             </tr>
           <% }) } else { %>
-            <tr><td colspan="8" class="empty-inline">No transactions match the selected filters.</td></tr>
+            <tr><td colspan="9" class="empty-inline">No transactions match the selected filters.</td></tr>
           <% } %>
         </tbody>
       </table>
