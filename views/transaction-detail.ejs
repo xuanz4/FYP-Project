@@ -46,7 +46,7 @@
         'None': 'New'
     };
     const assessmentStatus = assessmentStatusMap[rawCaseStatus] || rawCaseStatus;
-    const decision = tx.decision || (rawCaseStatus === 'Dismissed as False Positive' ? 'Accepted' : rawCaseStatus === 'STR Filed' ? 'Escalated' : 'Not assigned');
+    const decision = caseInfo?.decision || tx.decision || (rawCaseStatus === 'Dismissed as False Positive' ? 'Accepted' : rawCaseStatus === 'STR Filed' ? 'Escalated' : 'Not assigned');
     const initialScore = tx.initial_risk_score ?? tx.initialRiskScore ?? tx.risk_score ?? tx.riskScore ?? 'Not assigned';
     const initialLevel = tx.initial_risk_level || tx.initialRiskLevel || tx.risk_level || tx.riskBand || 'Not assigned';
     const finalScore = tx.final_risk_score ?? tx.finalRiskScore ?? null;
@@ -233,9 +233,9 @@
                         <small><%= finalLevel || 'Not assigned' %></small>
                         <dl>
                             <div><dt>Decision</dt><dd><%= decision %></dd></div>
-                            <div><dt>Resolution reason</dt><dd><%= tx.resolutionReason || tx.resolution_reason || (isResolved ? rawCaseStatus : 'Not assigned') %></dd></div>
-                            <div><dt>Resolved by</dt><dd><%= tx.resolvedBy || 'Not assigned' %></dd></div>
-                            <div><dt>Resolved at</dt><dd><%= tx.resolvedAt || tx.resolved_at ? new Date(tx.resolvedAt || tx.resolved_at).toLocaleString('en-SG') : 'Not assigned' %></dd></div>
+                            <div><dt>Resolution reason</dt><dd><%= caseInfo?.resolution_reason || tx.resolutionReason || tx.resolution_reason || (isResolved ? rawCaseStatus : 'Not assigned') %></dd></div>
+                            <div><dt>Resolved by</dt><dd><%= caseInfo?.resolved_by_name || tx.resolvedBy || 'Not assigned' %></dd></div>
+                            <div><dt>Resolved at</dt><dd><%= (caseInfo?.resolved_at || tx.resolvedAt || tx.resolved_at) ? new Date(caseInfo?.resolved_at || tx.resolvedAt || tx.resolved_at).toLocaleString('en-SG') : 'Not assigned' %></dd></div>
                         </dl>
                     </div>
                 </div>

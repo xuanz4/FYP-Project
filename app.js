@@ -559,7 +559,7 @@ const ensureDatabaseResolveColumns = memoizeAsync(async function ensureDatabaseR
      FROM INFORMATION_SCHEMA.COLUMNS
      WHERE TABLE_SCHEMA = ?
        AND TABLE_NAME IN ('transactions', 'cases')
-       AND COLUMN_NAME IN ('final_risk_score', 'final_risk_level', 'decision', 'resolution_reason', 'analyst_notes', 'resolved_at')`,
+       AND COLUMN_NAME IN ('final_risk_score', 'final_risk_level', 'decision', 'resolution_reason', 'analyst_notes', 'resolved_at', 'resolved_by')`,
     [dbName],
   );
   const hasColumn = (table, column) => columns.some((row) => row.TABLE_NAME === table && row.COLUMN_NAME === column);
@@ -581,6 +581,9 @@ const ensureDatabaseResolveColumns = memoizeAsync(async function ensureDatabaseR
   }
   if (!hasColumn('cases', 'resolved_at')) {
     await database.execute('ALTER TABLE cases ADD COLUMN resolved_at DATETIME NULL AFTER analyst_notes');
+  }
+  if (!hasColumn('cases', 'resolved_by')) {
+    await database.execute('ALTER TABLE cases ADD COLUMN resolved_by VARCHAR(40) NULL AFTER resolved_at');
   }
 
   const [caseStatusColumn] = await database.query(
@@ -773,9 +776,9 @@ async function handleDatabaseResolveRequest(req, res) {
   if (row.case_id) {
     await database.execute(
       `UPDATE cases
-       SET status = ?, decision = ?, resolution_reason = ?, analyst_notes = ?, resolved_at = ?, updated_at = CURRENT_TIMESTAMP
+       SET status = ?, decision = ?, resolution_reason = ?, analyst_notes = ?, resolved_at = ?, resolved_by = ?, updated_at = CURRENT_TIMESTAMP
        WHERE case_id = ?`,
-      [nextStatus, decision, resolutionReason, analystNotes, resolvedAtSql, row.case_id],
+      [nextStatus, decision, resolutionReason, analystNotes, resolvedAtSql, req.session.user.id, row.case_id],
     );
   }
   await database.execute(
@@ -1952,6 +1955,7 @@ app.get('/stro/audit-log', requireRole('STRO'), async (req, res) => {
 app.get('/transactions/:id', requireAuth, async (req, res) => {
   await ensureCaseAssignmentColumns();
   await ensureStrWorkflowSchema();
+  await ensureDatabaseResolveColumns();
 
   const [transactionRows, caseRows, ruleRows, activityRows] = await Promise.all([
     database.query(
@@ -1966,6 +1970,8 @@ app.get('/transactions/:id', requireAuth, async (req, res) => {
       `SELECT c.case_id, c.transaction_id, c.created_by, c.assigned_to, c.status, c.notes,
               c.assigned_role, c.escalation_destination, c.referred_to_stro_at, c.referred_to_stro_by,
               c.due_at, c.created_at, c.updated_at, u.user_name AS assigned_user_name,
+              c.decision, c.resolution_reason, c.analyst_notes, c.resolved_at, c.resolved_by,
+              resolver.user_name AS resolved_by_name,
               sr.str_id, sr.str_status, sr.reference_number, sr.reporting_reason, sr.suspicion_summary,
               sr.transaction_summary, sr.supporting_evidence, sr.stro_notes, sr.referral_reason,
               sr.referral_summary, sr.senior_analyst_notes, sr.prepared_by,
@@ -1979,6 +1985,7 @@ app.get('/transactions/:id', requireAuth, async (req, res) => {
        LEFT JOIN users prepared ON prepared.user_id = sr.prepared_by
        LEFT JOIN users filed ON filed.user_id = sr.filed_by
        LEFT JOIN users referred ON referred.user_id = c.referred_to_stro_by
+       LEFT JOIN users resolver ON resolver.user_id = c.resolved_by
        WHERE c.transaction_id = ?
        ORDER BY c.created_at DESC`,
       [req.params.id],
@@ -2547,13 +2554,22 @@ app.patch('/api/transactions/:id/str', requireAuth, async (req, res) => {
     ],
   );
   if (nextStatus === 'Filed') {
+    await ensureDatabaseResolveColumns();
+    const resolvedAtSql = new Date();
+    const finalRiskScore = context.final_risk_score ?? context.risk_score;
+    const finalRiskLevel = context.final_risk_level || context.risk_level;
     await database.execute(
-      "UPDATE cases SET status = 'STR Filed', updated_at = CURRENT_TIMESTAMP WHERE case_id = ?",
-      [context.case_id],
+      `UPDATE cases
+       SET status = 'STR Filed', decision = 'Escalated', resolution_reason = 'STR Filed',
+           resolved_at = ?, resolved_by = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE case_id = ?`,
+      [resolvedAtSql, req.session.user.id, context.case_id],
     );
     await database.execute(
-      "UPDATE transactions SET action_status = 'STR Filed', updated_at = CURRENT_TIMESTAMP WHERE transaction_id = ?",
-      [context.transaction_id],
+      `UPDATE transactions
+       SET action_status = 'STR Filed', final_risk_score = ?, final_risk_level = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE transaction_id = ?`,
+      [finalRiskScore, finalRiskLevel, context.transaction_id],
     );
   }
   await auditCaseAction({
