@@ -2,70 +2,113 @@
 
 <%
   const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG') : 'Not assigned';
+  const initials = String(currentUser.name || 'Senior Analyst').split(/\s+/).filter(Boolean).map((part) => part[0]).slice(0, 2).join('').toUpperCase();
+  const terminalStatuses = ['Resolved', 'Dismissed as False Positive', 'STR Filed'];
+  const statusLabel = (value) => ({ Open: 'Under Review', 'Pending RFI': 'Pending RFI', 'Pending Senior Review': 'Pending Review' }[value] || value || 'Pending Review');
+  const ageLabel = (value) => {
+    if (!value) return 'N/A';
+    const hours = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 3600000));
+    if (hours < 24) return `${hours}h`;
+    return `${Math.floor(hours / 24)}d`;
+  };
+  const activityTone = (action = '') => {
+    const value = String(action).toLowerCase();
+    if (value.includes('rfi') || value.includes('information')) return 'senior-timeline-amber';
+    if (value.includes('stro') || value.includes('refer')) return 'senior-timeline-orange';
+    if (value.includes('resolv') || value.includes('risk')) return 'senior-timeline-green';
+    return 'senior-timeline-purple';
+  };
+  const activitySymbol = (action = '') => {
+    const value = String(action).toLowerCase();
+    if (value.includes('rfi') || value.includes('information')) return '\u2709';
+    if (value.includes('stro') || value.includes('refer')) return '\u2191';
+    if (value.includes('resolv') || value.includes('risk')) return '\u2713';
+    return '\u21E7';
+  };
+  const statusItems = [
+    { label: 'Under Review', value: Number(statusOverview.underReview || 0), className: 'donut-under-review' },
+    { label: 'Pending RFI', value: Number(statusOverview.pendingRfi || 0), className: 'donut-pending-rfi' },
+    { label: 'Escalated', value: Number(statusOverview.escalated || 0), className: 'donut-escalated' },
+    { label: 'Pending Senior Review', value: Number(statusOverview.pendingSenior || 0), className: 'donut-pending-senior' },
+    { label: 'Resolved', value: Number(statusOverview.resolved || 0), className: 'donut-resolved' },
+  ];
+  const knownStatusTotal = statusItems.reduce((total, item) => total + item.value, 0);
+  const statusTotal = Number(statusOverview.total || knownStatusTotal);
+  const otherCount = Math.max(0, statusTotal - knownStatusTotal);
+  if (otherCount) statusItems.push({ label: 'Other', value: otherCount, className: 'donut-other' });
+  let donutCursor = 0;
+  const donutColours = ['#347cf0', '#f59e0b', '#f97316', '#7c3aed', '#18a572', '#9aa6b5'];
+  const donutSegments = statusItems.map((item, index) => {
+    const start = statusTotal ? (donutCursor / statusTotal) * 100 : 0;
+    donutCursor += item.value;
+    const end = statusTotal ? (donutCursor / statusTotal) * 100 : 0;
+    return `${donutColours[index]} ${start}% ${end}%`;
+  }).join(', ');
 %>
 
-<main class="analyst-page">
-  <section class="analyst-page-header">
-    <div>
-      <p class="detail-eyebrow">UNIWEB senior review workspace</p>
-      <h1>Senior Analyst Overview</h1>
-      <p>Focused review summary for <strong><%= currentUser.name %></strong> (<%= currentUser.id %>)</p>
+<main class="analyst-page senior-overview">
+  <section class="senior-overview-topbar">
+    <div class="senior-overview-greeting">
+      <span class="senior-greeting-icon" aria-hidden="true">&#9728;</span>
+      <div><h1>Good morning, <%= currentUser.name %></h1><p>Here is your senior review workload today.</p></div>
     </div>
-    <span class="role-chip">Senior Analyst</span>
+    <div class="senior-user-actions">
+      <div class="senior-user"><span><strong><%= currentUser.name %></strong> (<%= currentUser.id %>)</span><span class="role-chip">Senior Analyst</span><span class="senior-user-avatar" aria-hidden="true"><%= initials %></span></div>
+      <a class="senior-queue-button" href="/senior-analyst/cases">Review Senior Review Queue <span aria-hidden="true">&rarr;</span></a>
+    </div>
   </section>
 
-  <section class="summary-grid">
-    <article><span>Pending Senior Review</span><strong><%= summary.pendingReview %></strong><small>Critical or complex cases</small></article>
-    <article><span>Assigned to Me</span><strong><%= summary.assignedToMe %></strong><small>Your senior-review workload</small></article>
-    <article><span>Overdue Reviews</span><strong><%= summary.overdue %></strong><small>Past stored due date</small></article>
-    <article><span>Waiting for Information</span><strong><%= summary.waiting %></strong><small>Pending customer response</small></article>
-    <article><span>Referred to STRO</span><strong><%= summary.referredToStro %></strong><small>Routed for STR review</small></article>
-    <article><span>Resolved Today</span><strong><%= summary.resolvedToday %></strong><small>Closed in this review day</small></article>
+  <section class="senior-kpi-layout" aria-label="Senior Analyst workload summary">
+    <div class="senior-kpi-main">
+      <article class="senior-kpi senior-kpi-purple"><span class="senior-kpi-icon" aria-hidden="true">&#9675;</span><div><span>Pending Senior Review</span><strong><%= summary.pendingReview %></strong><small>Cases awaiting senior review</small></div></article>
+      <article class="senior-kpi senior-kpi-red"><span class="senior-kpi-icon" aria-hidden="true">!</span><div><span>Critical Cases</span><strong><%= summary.criticalCases %></strong><small>Critical high-risk cases</small></div></article>
+      <article class="senior-kpi senior-kpi-orange"><span class="senior-kpi-icon" aria-hidden="true">?</span><div><span>Pending RFI</span><strong><%= summary.waiting %></strong><small>Awaiting customer response</small></div></article>
+      <article class="senior-kpi senior-kpi-blue"><span class="senior-kpi-icon" aria-hidden="true">&#8593;</span><div><span>Referred to STRO</span><strong><%= summary.referredToStro %></strong><small>Referred for STR evaluation</small></div></article>
+      <article class="senior-kpi senior-kpi-green"><span class="senior-kpi-icon" aria-hidden="true">&#10003;</span><div><span>Resolved This Week</span><strong><%= summary.resolvedThisWeek %></strong><small>Cases resolved this week</small></div></article>
+    </div>
+    <div class="senior-kpi-stack">
+      <article><span class="stack-icon" aria-hidden="true">&#9716;</span><div><span>Overdue Reviews</span><strong><%= summary.overdue %></strong><small>Past stored due dates</small></div></article>
+      <article><span class="stack-icon" aria-hidden="true">&#9633;</span><div><span>Open Cases</span><strong><%= summary.pendingReview %></strong><small>Active senior-review cases</small></div></article>
+    </div>
   </section>
 
-  <section class="analyst-preview-grid">
-    <article class="panel">
-      <div class="panel-header">
-        <div>
-          <h2>Priority Senior Reviews</h2>
-          <p>Top urgent cases escalated for senior assessment.</p>
-        </div>
-        <a class="secondary-link" href="/senior-analyst/cases">View All Cases</a>
-      </div>
+  <section class="senior-dashboard-grid">
+    <article class="senior-dashboard-card senior-queue-card">
+      <header class="senior-card-header"><div><h2>Senior Review Queue</h2><p>Top cases requiring your attention.</p></div><a href="/senior-analyst/cases">View All Cases</a></header>
       <% if (casePreview.length) { %>
-        <div class="compact-list">
-          <% casePreview.forEach((item) => { %>
-            <a href="/transactions/<%= item.transaction_id %>">
-              <strong><%= item.case_id %></strong>
-              <span><%= item.merchant_name || 'Unknown Merchant' %> &middot; <%= item.risk_score ?? 'Not available' %> &middot; <%= item.risk_level || 'Not available' %></span>
-            </a>
-          <% }) %>
-        </div>
-      <% } else { %>
-        <p class="empty-inline">No priority senior-review cases currently require attention.</p>
-      <% } %>
+        <div class="senior-queue-table-wrap"><table class="senior-queue-table">
+          <thead><tr><th>Case ID</th><th>Transaction ID</th><th>Merchant</th><th>Risk Score</th><th>Risk Level</th><th>Status</th><th>Age</th><th>Action</th></tr></thead>
+          <tbody><% casePreview.forEach((item) => { %><tr>
+            <td><strong><%= item.case_id %></strong></td><td><%= item.transaction_id %></td><td><%= item.merchant_name || 'Unknown Merchant' %></td><td><strong><%= item.risk_score ?? 'N/A' %></strong></td>
+            <td><span class="risk-badge risk-<%= String(item.risk_level || 'low').toLowerCase() %>"><%= item.risk_level || 'Low' %></span></td>
+            <td><span class="senior-status-badge"><%= statusLabel(item.status) %></span></td><td><%= ageLabel(item.updated_at || item.created_at) %></td><td><a class="senior-review-button" href="/transactions/<%= item.transaction_id %>">Review</a></td>
+          </tr><% }) %></tbody>
+        </table></div>
+        <footer class="senior-card-footer">Showing top <%= casePreview.length %> of <%= summary.pendingReview %> cases</footer>
+      <% } else { %><p class="senior-empty">No senior-review cases currently require attention.</p><% } %>
     </article>
 
-    <article class="panel">
-      <div class="panel-header">
-        <div>
-          <h2>Recent Senior Analyst Activity</h2>
-          <p>Latest senior-review, referral and resolution events.</p>
-        </div>
-        <a class="secondary-link" href="/senior-analyst/audit-log">View Audit Log</a>
-      </div>
-      <% if (auditPreview.length) { %>
-        <div class="compact-list">
-          <% auditPreview.forEach((entry) => { %>
-            <a href="<%= entry.transaction_id ? `/transactions/${entry.transaction_id}` : '/senior-analyst/audit-log' %>">
-              <strong><%= entry.action %></strong>
-              <span><%= entry.user_name || entry.user_id || 'System' %> &middot; <%= fmtDate(entry.created_at) %></span>
-            </a>
+    <article class="senior-dashboard-card senior-status-card">
+      <header class="senior-card-header"><div><h2>Case Status Overview</h2><p>Distribution of all active cases.</p></div></header>
+      <div class="senior-donut-layout">
+        <div class="senior-donut" style="--donut-segments: <%= donutSegments || '#e7ecf3 0% 100%' %>"><div><strong><%= statusTotal %></strong><span>Total</span></div></div>
+        <div class="senior-donut-legend">
+          <% statusItems.forEach((item, index) => { const percentage = statusTotal ? ((item.value / statusTotal) * 100).toFixed(1) : '0.0'; %>
+            <div><i style="background:<%= donutColours[index] %>"></i><span><%= item.label %></span><strong><%= item.value %> (<%= percentage %>%)</strong></div>
           <% }) %>
         </div>
-      <% } else { %>
-        <p class="empty-inline">No senior-review audit records match the current view.</p>
-      <% } %>
+      </div>
+    </article>
+
+    <article class="senior-dashboard-card senior-activity-card">
+      <header class="senior-card-header"><div><h2>Recent Activity</h2><p>Latest system and analyst actions.</p></div></header>
+      <% if (auditPreview.length) { %><div class="senior-activity-timeline"><% auditPreview.forEach((entry) => { %>
+        <a class="senior-timeline-item <%= activityTone(entry.action) %>" href="<%= entry.transaction_id ? `/transactions/${entry.transaction_id}` : '/senior-analyst/audit-log' %>">
+          <span class="senior-timeline-icon" aria-hidden="true"><%= activitySymbol(entry.action) %></span>
+          <div><strong><%= entry.action %></strong><span><%= entry.entity_id || entry.transaction_id || 'System activity' %></span></div>
+          <div class="senior-timeline-meta"><strong><%= entry.user_name || entry.user_id || 'System' %></strong><span><%= fmtDate(entry.created_at) %></span></div>
+        </a>
+      <% }) %></div><footer class="senior-card-footer"><a href="/senior-analyst/audit-log">View Audit Log &nbsp;&rarr;</a></footer><% } else { %><p class="senior-empty">No senior-review audit activity matches the current view.</p><% } %>
     </article>
   </section>
 </main>

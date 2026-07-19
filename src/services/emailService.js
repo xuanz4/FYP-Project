@@ -3,40 +3,58 @@ const nodemailer = require('nodemailer');
 const restrictedPhrases = [
   'suspicious transaction report',
   'suspicious transaction',
-  'STR',
+  'suspicious activity',
+  'str',
   'money laundering',
   'terrorist financing',
   'sanctions match',
   'sanction match',
   'watchlist match',
-  'PEP match',
+  'pep match',
   'adverse media match',
   'risk score',
   'critical risk',
   'high risk customer',
-  'AML investigation',
+  'aml investigation',
+  'investigation case',
   'police investigation',
   'law enforcement',
   'reported to authorities',
 ];
 
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+let cachedTransporter = null;
+let cachedConfigKey = null;
+let transporterVerified = false;
+
+function normalizeForRestrictedPhraseCheck(value) {
+  const normalized = String(value || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return normalized.replace(/\b(?:[a-z]\s+){2,}[a-z]\b/g, (match) => match.replace(/\s+/g, ''));
 }
 
-// Prototype safeguard only. This keyword check does not replace legal or compliance review.
 function findRestrictedPhrase(...values) {
-  const text = values.filter(Boolean).join(' ');
+  const normalized = normalizeForRestrictedPhraseCheck(values.filter(Boolean).join(' '));
+  if (!normalized) return null;
   return restrictedPhrases.find((phrase) => {
-    const escaped = escapeRegExp(phrase);
-    const startsWithWord = /^[a-z0-9]/i.test(phrase) ? '\\b' : '';
-    const endsWithWord = /[a-z0-9]$/i.test(phrase) ? '\\b' : '';
-    return new RegExp(`${startsWithWord}${escaped}${endsWithWord}`, 'i').test(text);
+    const candidate = normalizeForRestrictedPhraseCheck(phrase);
+    return (` ${normalized} `).includes(` ${candidate} `);
   }) || null;
 }
 
 function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+}
+
+function parseMailbox(value) {
+  const mailbox = String(value || '').trim();
+  if (isValidEmail(mailbox)) return { address: mailbox, name: null };
+  const match = mailbox.match(/^\s*"?([^"<>\r\n]+?)"?\s*<([^<>\s@]+@[^<>\s@]+\.[^<>\s@]+)>\s*$/);
+  if (!match || !isValidEmail(match[2])) return null;
+  return { address: match[2], name: match[1].trim() || null };
 }
 
 function maskEmail(value) {
@@ -46,29 +64,59 @@ function maskEmail(value) {
   return `${name.slice(0, 2)}***@${domain}`;
 }
 
-function maskEmailList(values) {
-  return (values || []).map((value) => maskEmail(value)).filter(Boolean);
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
-function getEmailRuntimeConfig() {
-  const provider = String(process.env.EMAIL_PROVIDER || 'smtp').toLowerCase();
-  return {
-    provider,
-    etherealMode: provider === 'ethereal',
-    testMode: provider === 'ethereal',
-  };
-}
-
-function validateSmtpConfig() {
-  if (String(process.env.EMAIL_PROVIDER || 'smtp').toLowerCase() === 'ethereal') return;
-
-  const required = ['EMAIL_HOST', 'EMAIL_PORT', 'EMAIL_SECURE', 'EMAIL_USER', 'EMAIL_PASSWORD', 'EMAIL_FROM'];
-  const missing = required.filter((key) => !String(process.env[key] || '').trim());
+function parseSmtpConfig(env = process.env) {
+  const required = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURE', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM'];
+  const missing = required.filter((key) => !String(env[key] || '').trim());
   if (missing.length) {
-    const error = new Error(`Missing email configuration: ${missing.join(', ')}`);
+    const error = new Error(`Missing SMTP configuration: ${missing.join(', ')}`);
     error.code = 'EMISSINGCONFIG';
     throw error;
   }
+
+  const port = Number(env.SMTP_PORT);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    const error = new Error('SMTP_PORT must be a whole number from 1 to 65535');
+    error.code = 'EINVALIDCONFIG';
+    throw error;
+  }
+
+  const secureValue = String(env.SMTP_SECURE).trim().toLowerCase();
+  if (!['true', 'false'].includes(secureValue)) {
+    const error = new Error('SMTP_SECURE must be true or false');
+    error.code = 'EINVALIDCONFIG';
+    throw error;
+  }
+  const secure = secureValue === 'true';
+  if (port === 465 && !secure) {
+    const error = new Error('SMTP_SECURE must be true when SMTP_PORT is 465');
+    error.code = 'EINVALIDCONFIG';
+    throw error;
+  }
+  const fromMailbox = parseMailbox(env.SMTP_FROM);
+  if (!fromMailbox) {
+    const error = new Error('SMTP_FROM must be a valid email address or mailbox');
+    error.code = 'EINVALIDCONFIG';
+    throw error;
+  }
+
+  return {
+    host: String(env.SMTP_HOST).trim(),
+    port,
+    secure,
+    user: String(env.SMTP_USER).trim(),
+    pass: String(env.SMTP_PASS),
+    from: fromMailbox.address,
+    fromName: String(env.SMTP_FROM_NAME || fromMailbox.name || 'UNIWEB Transaction Monitoring Team').trim(),
+  };
 }
 
 function formatAmount(currency, amount) {
@@ -80,138 +128,143 @@ function formatAmount(currency, amount) {
 
 function buildRfiEmail({
   recipientName,
-  companyName,
   transactionId,
   transactionDate,
   currency,
   amount,
   informationRequested,
 }) {
-  return [
-    `Dear ${recipientName},`,
+  const greetingName = String(recipientName || 'Customer').trim() || 'Customer';
+  const request = String(informationRequested || '').trim();
+  const formattedAmount = formatAmount(currency, amount);
+  const text = [
+    `Dear ${greetingName},`,
     '',
-    'As part of our periodic account information update, we ask all customers to occasionally confirm certain account and transaction details on file.',
+    'We are reviewing a recent transaction and require some additional information to complete our standard verification process.',
     '',
-    'Could you please provide the following:',
-    '',
-    String(informationRequested || '').trim(),
-    '',
-    'For reference, this relates to the following account activity:',
     `Transaction reference: ${transactionId}`,
     `Transaction date: ${transactionDate}`,
-    `Transaction amount: ${formatAmount(currency, amount)}`,
+    `Transaction amount: ${formattedAmount}`,
     '',
-    'Providing this promptly helps us avoid any interruption to your account services. Simply reply to this email with the requested details or documents within 7 business days.',
+    'Please provide the following information:',
+    '',
+    request,
+    '',
+    'Please reply with the requested information and any relevant supporting documents.',
     '',
     'Thank you for your cooperation.',
     '',
-    'Account Services',
-    companyName,
-  ].filter((line) => line !== null).join('\n');
+    'Regards,',
+    'UNIWEB Transaction Monitoring Team',
+  ].join('\n');
+
+  const htmlRequest = escapeHtml(request).replace(/\r?\n/g, '<br>');
+  const html = [
+    `<p>Dear ${escapeHtml(greetingName)},</p>`,
+    '<p>We are reviewing a recent transaction and require some additional information to complete our standard verification process.</p>',
+    '<dl>',
+    `<dt><strong>Transaction reference</strong></dt><dd>${escapeHtml(transactionId)}</dd>`,
+    `<dt><strong>Transaction date</strong></dt><dd>${escapeHtml(transactionDate)}</dd>`,
+    `<dt><strong>Transaction amount</strong></dt><dd>${escapeHtml(formattedAmount)}</dd>`,
+    '</dl>',
+    '<p><strong>Please provide the following information:</strong></p>',
+    `<p>${htmlRequest}</p>`,
+    '<p>Please reply with the requested information and any relevant supporting documents.</p>',
+    '<p>Thank you for your cooperation.</p>',
+    '<p>Regards,<br>UNIWEB Transaction Monitoring Team</p>',
+  ].join('');
+
+  return { text, html };
 }
 
-function getTransporter() {
-  return nodemailer.createTransport({
-    host: process.env.EMAIL_HOST,
-    port: Number(process.env.EMAIL_PORT || 587),
-    secure: process.env.EMAIL_SECURE === 'true',
-    auth: process.env.EMAIL_USER || process.env.EMAIL_PASSWORD
-      ? {
-          user: process.env.EMAIL_USER,
-          pass: process.env.EMAIL_PASSWORD,
-        }
-      : undefined,
-  });
+function smtpConfigKey(config) {
+  return JSON.stringify([config.host, config.port, config.secure, config.user, config.from]);
 }
 
-async function getEtherealTransporter() {
-  const account = await nodemailer.createTestAccount();
-  return nodemailer.createTransport({
-    host: account.smtp.host,
-    port: account.smtp.port,
-    secure: account.smtp.secure,
-    auth: {
-      user: account.user,
-      pass: account.pass,
-    },
-  });
+function getSmtpTransporter(config, createTransport = nodemailer.createTransport) {
+  const key = smtpConfigKey(config);
+  if (!cachedTransporter || cachedConfigKey !== key) {
+    cachedTransporter = createTransport({
+      host: config.host,
+      port: config.port,
+      secure: config.secure,
+      auth: { user: config.user, pass: config.pass },
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 20_000,
+    });
+    cachedConfigKey = key;
+    transporterVerified = false;
+  }
+  return cachedTransporter;
 }
 
-async function sendRfiEmail(options) {
-  validateSmtpConfig();
-  const provider = String(process.env.EMAIL_PROVIDER || 'smtp').toLowerCase();
-  const etherealMode = provider === 'ethereal';
-  const to = options.to;
+async function verifyTransporter(transporter) {
+  if (transporterVerified) return;
+  await transporter.verify();
+  transporterVerified = true;
+}
+
+function acceptedRecipient(info, intendedRecipient) {
+  const intended = String(intendedRecipient || '').trim().toLowerCase();
+  return (Array.isArray(info?.accepted) ? info.accepted : [])
+    .some((value) => String(value || '').trim().toLowerCase() === intended);
+}
+
+async function sendRfiEmail(options, dependencies = {}) {
+  const config = parseSmtpConfig(dependencies.env || process.env);
+  const to = String(options.to || '').trim();
   if (!isValidEmail(to)) {
-    const error = new Error('Customer email is missing or invalid');
+    const error = new Error('Recipient email is missing or invalid');
     error.code = 'EENVELOPE';
     throw error;
   }
 
-  const subject = `${etherealMode ? '[TEST] ' : ''}${options.subject}`;
-  const text = buildRfiEmail(options);
-  const fromName = process.env.EMAIL_FROM_NAME || 'Customer Review Team';
-  const fromAddress = etherealMode ? 'no-reply@ethereal.email' : process.env.EMAIL_FROM;
-  const from = fromAddress ? `${fromName} <${fromAddress}>` : fromName;
-
-  const transporter = etherealMode ? await getEtherealTransporter() : getTransporter();
+  const subject = String(options.subject || '').trim();
+  const { text, html } = buildRfiEmail(options);
+  const transporter = getSmtpTransporter(config, dependencies.createTransport || nodemailer.createTransport);
   let info;
   try {
-    await transporter.verify();
-    console.log('SMTP connection verified.');
+    await verifyTransporter(transporter);
     info = await transporter.sendMail({
-      from,
+      from: `${config.fromName} <${config.from}>`,
       to,
       subject,
       text,
+      html,
     });
   } catch (error) {
-    console.error('SMTP delivery failed', {
-      code: error.code || null,
-      command: error.command || null,
-      message: error.message,
-    });
+    transporterVerified = false;
     throw error;
   }
 
-  if (!etherealMode && !(Array.isArray(info.accepted) && info.accepted.length > 0)) {
-    const error = new Error('SMTP provider did not accept any recipients');
+  if (!acceptedRecipient(info, to)) {
+    const error = new Error('SMTP provider did not accept the intended recipient');
     error.code = 'EDELIVERYNOTACCEPTED';
-    error.response = info.response;
-    throw error;
-  }
-
-  const previewUrl = etherealMode ? nodemailer.getTestMessageUrl(info) : null;
-  if (etherealMode && !previewUrl) {
-    const error = new Error('Ethereal preview URL was not available for this message');
-    error.code = 'EPREVIEWUNAVAILABLE';
     throw error;
   }
 
   return {
-    info,
-    testMode: etherealMode,
-    etherealMode,
-    provider: etherealMode ? 'ethereal' : 'smtp',
-    previewUrl,
-    subject,
-    body: text,
-    delivery: {
-      accepted: maskEmailList(info.accepted),
-      rejected: maskEmailList(info.rejected),
-      pending: maskEmailList(info.pending),
-      response: info.response || null,
-      messageId: info.messageId || null,
-    },
+    provider: 'smtp',
+    recipient: to,
+    messageId: info.messageId || null,
   };
+}
+
+function resetTransporterForTests() {
+  cachedTransporter = null;
+  cachedConfigKey = null;
+  transporterVerified = false;
 }
 
 module.exports = {
   buildRfiEmail,
+  escapeHtml,
   findRestrictedPhrase,
-  getEmailRuntimeConfig,
   isValidEmail,
   maskEmail,
-  maskEmailList,
+  parseMailbox,
+  parseSmtpConfig,
   sendRfiEmail,
+  resetTransporterForTests,
 };

@@ -5,7 +5,7 @@
   const pageLink = (page) => { const next = new URLSearchParams(params); next.set('page', page); return `/stro/str-reports?${next.toString()}`; };
 %>
 
-<main class="analyst-page">
+<main class="analyst-page stro-list-page stro-reports-page">
   <section class="analyst-page-header">
     <div><p class="detail-eyebrow">UNIWEB STRO workspace</p><h1>STR Reports</h1><p>Internal suspicious transaction reporting records. Confidential narratives stay inside Transaction Review.</p></div>
     <span class="role-chip">STRO</span>
@@ -20,20 +20,22 @@
   </form>
 
   <section class="panel">
+    <div class="panel-header"><div><h2>STR Reports</h2><p><%= pagination.total %> report<%= pagination.total === 1 ? '' : 's' %> match the current filters.</p></div></div>
     <div class="table-wrap analyst-table-wrap">
       <table class="analyst-table">
-        <thead><tr><th>STR Reference</th><th>Case ID</th><th>Transaction</th><th>Prepared By</th><th>STR Status</th><th>Last Updated</th><th>Filing Date</th><th>Action</th></tr></thead>
+        <thead><tr><th>STR Reference</th><th>Case ID</th><th>Transaction</th><th>Status</th><th>Prepared By</th><th>Filed By</th><th>Filing Date</th><th>Last Updated</th><th>Action</th></tr></thead>
         <tbody>
           <% if (rows.length) { rows.forEach((item) => { %>
             <tr>
               <td><strong><%= item.reference_number || item.str_id %></strong></td>
               <td><%= item.case_id %></td>
               <td><%= item.transaction_id %></td>
+              <td><span class="stro-str-badge stro-str-<%= String(item.str_status).toLowerCase().replaceAll(' ', '-') %>"><%= item.str_status %></span></td>
               <td><%= item.prepared_by_name || item.prepared_by || 'Not assigned' %></td>
-              <td><%= item.str_status %></td>
-              <td><%= fmtDate(item.updated_at || item.created_at) %></td>
+              <td><%= item.filed_by || 'Not filed' %></td>
               <td><%= item.filing_date ? new Date(item.filing_date).toLocaleDateString('en-SG') : 'Not filed' %></td>
-              <td><a class="secondary-btn" href="/transactions/<%= item.transaction_id %>">View STR</a></td>
+              <td><%= fmtDate(item.updated_at || item.created_at) %></td>
+              <td><a class="secondary-btn" href="/transactions/<%= item.transaction_id %>">View Details</a></td>
             </tr>
           <% }) } else { %>
             <tr><td colspan="9" class="empty-inline">No STR reports match the selected filters.</td></tr>

@@ -8,11 +8,11 @@
   const pageLink = (page) => { const next = new URLSearchParams(params); next.set('page', page); return `/senior-analyst/cases?${next.toString()}`; };
 %>
 
-<main class="analyst-page">
+<main class="analyst-page senior-list-page">
   <section class="analyst-page-header">
     <div>
-      <p class="detail-eyebrow">UNIWEB senior review workspace</p>
-      <h1>Cases Pending Senior Review</h1>
+      <p class="detail-eyebrow">Senior Analyst workspace</p>
+      <h1>Senior Review Cases</h1>
       <p>Critical or complex cases escalated for senior assessment.</p>
     </div>
     <span class="role-chip">Senior Analyst</span>
@@ -20,8 +20,6 @@
 
   <section class="summary-grid compact">
     <article><span>Pending Review</span><strong><%= Number(summary.pending_review || 0) %></strong></article>
-    <article><span>Assigned to Me</span><strong><%= Number(summary.assigned_to_me || 0) %></strong></article>
-    <article><span>Unassigned</span><strong><%= Number(summary.unassigned || 0) %></strong></article>
     <article><span>Overdue</span><strong><%= Number(summary.overdue || 0) %></strong></article>
     <article><span>Waiting for Information</span><strong><%= Number(summary.waiting || 0) %></strong></article>
     <article><span>Ready for STRO Referral</span><strong><%= Number(summary.ready_for_stro || 0) %></strong></article>
@@ -30,8 +28,6 @@
   <form class="analyst-filter-bar" method="get">
     <label><span>Risk Level</span><select name="riskLevel"><option value="">All</option><% ['Low','Medium','High','Critical'].forEach((item) => { %><option value="<%= item %>" <%= filters.riskLevel === item ? 'selected' : '' %>><%= item %></option><% }) %></select></label>
     <label><span>Assessment Status</span><select name="assessmentStatus"><option value="">All</option><% ['Open','Under Review','Pending RFI','Pending Senior Review','Escalated','Resolved','Dismissed as False Positive','STR Filed'].forEach((item) => { %><option value="<%= item %>" <%= filters.assessmentStatus === item ? 'selected' : '' %>><%= statusLabel(item) %></option><% }) %></select></label>
-    <label><span>Assigned Analyst</span><select name="assignedTo"><option value="">All</option><% filterOptions.users.forEach((item) => { %><option value="<%= item.user_id %>" <%= filters.assignedTo === item.user_id ? 'selected' : '' %>><%= item.user_name %></option><% }) %></select></label>
-    <label><span>Assignment Status</span><select name="assignmentStatus"><option value="">All</option><option value="assigned" <%= filters.assignmentStatus === 'assigned' ? 'selected' : '' %>>Assigned</option><option value="unassigned" <%= filters.assignmentStatus === 'unassigned' ? 'selected' : '' %>>Unassigned</option></select></label>
     <label><span>Due Status</span><select name="dueStatus"><option value="">All</option><option value="overdue" <%= filters.dueStatus === 'overdue' ? 'selected' : '' %>>Overdue</option><option value="notAssigned" <%= filters.dueStatus === 'notAssigned' ? 'selected' : '' %>>Not assigned</option></select></label>
     <label><span>Decision</span><select name="decision"><option value="">All</option><option value="Accepted" <%= filters.decision === 'Accepted' ? 'selected' : '' %>>Accepted</option><option value="Rejected" <%= filters.decision === 'Rejected' ? 'selected' : '' %>>Rejected</option></select></label>
     <label><span>Referral Status</span><select name="referralStatus"><option value="">All</option><option value="notReferred" <%= filters.referralStatus === 'notReferred' ? 'selected' : '' %>>Not referred</option><option value="stro" <%= filters.referralStatus === 'stro' ? 'selected' : '' %>>Referred to STRO</option></select></label>
@@ -44,12 +40,12 @@
     <div class="panel-header">
       <div>
         <h2>Senior Review Cases</h2>
-        <p title="Weighted risk scores combine profile, merchant, screening and monitoring-rule contributions and may exceed 100.">Initial Weighted Score is the stored initial-risk score. Rules Triggered uses persisted matched monitoring-rule records.</p>
+        <p><%= pagination.total %> case<%= pagination.total === 1 ? '' : 's' %> match the current filters.</p>
       </div>
     </div>
     <div class="table-wrap analyst-table-wrap">
       <table class="analyst-table">
-        <thead><tr><th>Case ID</th><th>Transaction</th><th>Created</th><th>Merchant</th><th class="num">Amount</th><th>Due Date</th><th class="num">Initial Weighted Score</th><th class="center">Rules Triggered</th><th>Risk Level</th><th>Escalated By</th><th>Assigned To</th><th>Assessment Status</th><th>Decision</th><th>Action</th></tr></thead>
+        <thead><tr><th>Case ID</th><th>Transaction</th><th>Created</th><th>Merchant</th><th class="num">Amount</th><th>Due Date</th><th class="num">Risk Score</th><th class="center">Rules</th><th>Risk Level</th><th>Escalated By</th><th>Assessment Status</th><th>Decision</th><th>Action</th></tr></thead>
         <tbody>
           <% if (rows.length) { rows.forEach((item) => { %>
             <tr class="<%= item.risk_level === 'Critical' ? 'priority-critical' : '' %>">
@@ -63,13 +59,12 @@
               <td class="center"><%= item.rules_count ?? 'Not available' %></td>
               <td><span class="risk-badge risk-<%= String(item.risk_level || 'low').toLowerCase() %>"><%= item.risk_level || 'Low' %></span></td>
               <td><%= item.referred_by_user_name || item.created_by_name || item.created_by_role || 'System' %></td>
-              <td><%= item.assigned_user_name || item.assigned_role || 'Unassigned' %></td>
-              <td><%= statusLabel(item.status) %></td>
+              <td><span class="senior-status-badge"><%= statusLabel(item.status) %></span></td>
               <td><%= item.decision || 'Not assigned' %></td>
               <td><a class="secondary-btn" href="/transactions/<%= item.transaction_id %>">Review Case</a></td>
             </tr>
           <% }) } else { %>
-            <tr><td colspan="14" class="empty-inline">No senior-review cases match the selected filters.</td></tr>
+            <tr><td colspan="13" class="empty-inline">No senior-review cases match the selected filters.</td></tr>
           <% } %>
         </tbody>
       </table>

@@ -5,9 +5,9 @@
   const threshold = (rule) => rule.amount_threshold ? `Amount > SGD ${Number(rule.amount_threshold).toFixed(2)}` : rule.count_threshold ? `${rule.count_threshold} transactions` : 'No threshold';
 %>
 
-<main class="analyst-page">
+<main class="analyst-page admin-list-page admin-rules-page">
   <section class="analyst-page-header">
-    <div><p class="detail-eyebrow">UNIWEB administration</p><h1>Rule Management</h1><p>Configure monitoring rules and merchant-specific thresholds.</p></div>
+    <div><p class="detail-eyebrow">System administration</p><h1>Monitoring Rules</h1><p>Configure monitoring rules and merchant-specific thresholds.</p></div>
     <button class="primary-btn" type="button" data-open-dialog="createRuleDialog">Create Rule</button>
   </section>
 
@@ -22,10 +22,10 @@
 
   <section class="panel">
     <div class="table-wrap analyst-table-wrap"><table class="analyst-table">
-      <thead><tr><th>Rule ID</th><th>Merchant</th><th>Rule Name</th><th>Risk Level</th><th class="num">Weight</th><th>Threshold</th><th>Rule Type</th><th>Status</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Rule ID</th><th>Rule Name</th><th>Rule Type</th><th>Risk Level</th><th class="num">Weight</th><th>Merchant Scope</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody><% if (rows.length) { rows.forEach((rule) => { %>
-        <tr><td><strong><%= rule.rule_id %></strong></td><td><%= rule.merchant_name || rule.merchant_id || 'All merchants' %></td><td><%= rule.rule_name %><div class="muted"><%= rule.reason %></div></td><td><span class="risk-badge risk-<%= String(rule.risk_level || 'low').toLowerCase() %>"><%= rule.risk_level %></span></td><td class="num"><%= rule.weight %></td><td><%= threshold(rule) %></td><td><%= rule.rule_type %></td><td><span class="status-pill <%= rule.is_active ? 'status-resolved' : 'status-critical' %>"><%= rule.is_active ? 'Active' : 'Inactive' %></span></td><td class="management-actions"><button class="secondary-btn" type="button" data-open-dialog="editRuleDialog-<%= rule.rule_id %>">Edit Rule</button><form method="post" action="/admin/rules/<%= rule.rule_id %>"><input type="hidden" name="isActive" value="<%= rule.is_active ? '0' : '1' %>"><button class="secondary-btn" type="submit"><%= rule.is_active ? 'Disable' : 'Enable' %></button></form><form method="post" action="/admin/rules/<%= rule.rule_id %>/delete"><button class="secondary-btn danger" type="submit" data-confirm="true">Delete</button></form></td></tr>
-      <% }) } else { %><tr><td colspan="9" class="empty-inline">No rules match the selected filters.</td></tr><% } %></tbody>
+        <tr><td><strong><%= rule.rule_id %></strong></td><td><%= rule.rule_name %><div class="muted"><%= rule.reason %></div></td><td><%= rule.rule_type %></td><td><span class="risk-badge risk-<%= String(rule.risk_level || 'low').toLowerCase() %>"><%= rule.risk_level %></span></td><td class="num"><%= rule.weight %></td><td><%= rule.merchant_name || rule.merchant_id || 'All merchants' %><div class="muted"><%= threshold(rule) %></div></td><td><span class="admin-state-badge <%= rule.is_active ? 'is-active' : 'is-inactive' %>"><%= rule.is_active ? 'Active' : 'Inactive' %></span></td><td class="management-actions"><button class="secondary-btn" type="button" data-open-dialog="editRuleDialog-<%= rule.rule_id %>">Edit</button><form method="post" action="/admin/rules/<%= rule.rule_id %>"><input type="hidden" name="isActive" value="<%= rule.is_active ? '0' : '1' %>"><button class="secondary-btn" type="submit"><%= rule.is_active ? 'Disable' : 'Enable' %></button></form><form method="post" action="/admin/rules/<%= rule.rule_id %>/delete"><button class="secondary-btn danger" type="submit" data-confirm="true">Delete</button></form></td></tr>
+      <% }) } else { %><tr><td colspan="8" class="empty-inline">No rules match the selected filters.</td></tr><% } %></tbody>
     </table></div>
     <div class="pagination-row"><a class="secondary-btn <%= pagination.page <= 1 ? 'disabled' : '' %>" href="<%= pageLink(Math.max(1, pagination.page - 1)) %>">Previous</a><span>Page <%= pagination.page %> of <%= pagination.totalPages %> &middot; <%= pagination.total %> records</span><a class="secondary-btn <%= pagination.page >= pagination.totalPages ? 'disabled' : '' %>" href="<%= pageLink(Math.min(pagination.totalPages, pagination.page + 1)) %>">Next</a></div>
   </section>

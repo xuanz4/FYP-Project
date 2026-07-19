@@ -1,30 +1,61 @@
 <%- include('partials/head', { title, activePage }) %>
-<% const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG') : 'Not assigned'; %>
+<%
+  const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG') : 'Not assigned';
+  const initials = String(currentUser.name || 'Administrator').split(/\s+/).filter(Boolean).map((part) => part[0]).slice(0, 2).join('').toUpperCase();
+  const totalUsers = userRoleDistribution.reduce((total, item) => total + Number(item.count || 0), 0);
+  const roleColours = ['#347cf0', '#7c3aed', '#f97316', '#0f9f91'];
+  let roleCursor = 0;
+  const roleSegments = userRoleDistribution.map((item, index) => {
+    const start = totalUsers ? (roleCursor / totalUsers) * 100 : 0;
+    roleCursor += Number(item.count || 0);
+    const end = totalUsers ? (roleCursor / totalUsers) * 100 : 0;
+    return `${roleColours[index]} ${start}% ${end}%`;
+  }).join(', ');
+  const activityIcon = (action = '') => {
+    const value = String(action).toLowerCase();
+    if (value.includes('user')) return '\u263A';
+    if (value.includes('merchant')) return '\u25A3';
+    if (value.includes('rule')) return '\u2699';
+    return '\u25C7';
+  };
+%>
 
-<main class="analyst-page">
-  <section class="analyst-page-header">
-    <div>
-      <p class="detail-eyebrow">UNIWEB administration</p>
-      <h1>Admin Overview</h1>
-      <p>System configuration summary for <strong><%= currentUser.name %></strong> (<%= currentUser.id %>)</p>
-    </div>
-    <span class="role-chip">Admin</span>
+<main class="analyst-page admin-overview">
+  <section class="admin-overview-topbar">
+    <div class="admin-overview-greeting"><span class="admin-greeting-icon" aria-hidden="true">&#9728;</span><div><h1>Good morning, <%= currentUser.name %></h1><p>Here is your system administration overview.</p></div></div>
+    <div class="admin-user"><span><strong><%= currentUser.name %></strong> (<%= currentUser.id %>)</span><span class="role-chip">Administrator</span><span class="admin-user-avatar" aria-hidden="true"><%= initials %></span></div>
   </section>
 
-  <section class="summary-grid">
-    <article><span>Active Users</span><strong><%= Number(summary.active_users || 0) %></strong><small>Enabled staff accounts</small></article>
-    <article><span>Disabled Users</span><strong><%= Number(summary.disabled_users || 0) %></strong><small>Inactive accounts</small></article>
-    <article><span>Active Merchants</span><strong><%= Number(summary.active_merchants || 0) %></strong><small>Monitored merchant profiles</small></article>
-    <article><span>Active Rules</span><strong><%= Number(summary.active_rules || 0) %></strong><small>Enabled monitoring rules</small></article>
-    <article><span>Transactions Today</span><strong><%= Number(summary.transactions_today || 0) %></strong><small>Screened today</small></article>
-    <article><span>Open Cases</span><strong><%= Number(summary.open_cases || 0) %></strong><small>Active workflow records</small></article>
+  <section class="admin-kpi-main" aria-label="Administration summary">
+    <article class="admin-kpi admin-kpi-blue"><span class="admin-kpi-icon" aria-hidden="true">&#9675;</span><div><span>Active Users</span><strong><%= Number(summary.active_users || 0) %></strong><small>Enabled staff accounts</small></div></article>
+    <article class="admin-kpi admin-kpi-teal"><span class="admin-kpi-icon" aria-hidden="true">&#9638;</span><div><span>Active Merchants</span><strong><%= Number(summary.active_merchants || 0) %></strong><small>Monitored merchant profiles</small></div></article>
+    <article class="admin-kpi admin-kpi-green"><span class="admin-kpi-icon" aria-hidden="true">&#9881;</span><div><span>Active Rules</span><strong><%= Number(summary.active_rules || 0) %></strong><small>Enabled monitoring rules</small></div></article>
+    <article class="admin-kpi admin-kpi-red"><span class="admin-kpi-icon" aria-hidden="true">!</span><div><span>Disabled Accounts</span><strong><%= Number(summary.disabled_users || 0) %></strong><small>Inactive staff accounts</small></div></article>
+    <article class="admin-kpi admin-kpi-teal"><span class="admin-kpi-icon" aria-hidden="true">&#9716;</span><div><span>Recent Changes</span><strong><%= auditPreview.length %></strong><small>Latest audit records shown</small></div></article>
   </section>
 
-  <section class="analyst-preview-grid">
-    <article class="panel"><div class="panel-header"><div><h2>Recent User Records</h2><p>Latest user records by name.</p></div><a class="secondary-link" href="/admin/users">User Management</a></div><div class="compact-list"><% userPreview.forEach((item) => { %><a href="/admin/users"><strong><%= item.user_name %></strong><span><%= item.user_id %> &middot; <%= item.user_role %> &middot; <%= item.is_active ? 'Active' : 'Inactive' %></span></a><% }) %></div></article>
-    <article class="panel"><div class="panel-header"><div><h2>Recent Merchant Records</h2><p>Merchant profile records.</p></div><a class="secondary-link" href="/admin/merchants">Merchant Management</a></div><div class="compact-list"><% merchantPreview.forEach((item) => { %><a href="/admin/merchants"><strong><%= item.merchant_name %></strong><span><%= item.merchant_id %> &middot; MCC <%= item.mcc_code %> &middot; Score <%= item.mcc_risk_score %></span></a><% }) %></div></article>
-    <article class="panel"><div class="panel-header"><div><h2>Recent Rule Records</h2><p>Configured monitoring rules.</p></div><a class="secondary-link" href="/admin/rules">Rule Management</a></div><div class="compact-list"><% rulePreview.forEach((item) => { %><a href="/admin/rules"><strong><%= item.rule_name %></strong><span><%= item.rule_id %> &middot; <%= item.risk_level %> &middot; Weight <%= item.weight %></span></a><% }) %></div></article>
-    <article class="panel"><div class="panel-header"><div><h2>Latest Audit Activity</h2><p>Most recent traceability records.</p></div><a class="secondary-link" href="/admin/audit-log">Audit Log</a></div><div class="compact-list"><% auditPreview.forEach((entry) => { %><a href="<%= entry.transaction_id ? `/transactions/${entry.transaction_id}` : '/admin/audit-log' %>"><strong><%= entry.action %></strong><span><%= entry.user_name || entry.user_id || 'System' %> &middot; <%= fmtDate(entry.created_at) %></span></a><% }) %></div></article>
+  <section class="admin-dashboard-grid">
+    <article class="admin-dashboard-card admin-role-card">
+      <header class="admin-card-header"><div><h2>User Role Distribution</h2><p>Breakdown of all users by role.</p></div></header>
+      <div class="admin-donut-layout"><div class="admin-donut" style="--admin-donut:<%= roleSegments || '#e7ecf3 0% 100%' %>"><div><strong><%= totalUsers %></strong><span>Total</span></div></div><div class="admin-donut-legend"><% userRoleDistribution.forEach((item, index) => { const pct = totalUsers ? ((item.count / totalUsers) * 100).toFixed(1) : '0.0'; %><div><i style="background:<%= roleColours[index] %>"></i><span><%= item.role %></span><strong><%= item.count %> (<%= pct %>%)</strong></div><% }) %></div></div>
+    </article>
+
+    <article class="admin-dashboard-card admin-summary-card">
+      <header class="admin-card-header"><div><h2>System Summary</h2><p>Available real-time administration counts.</p></div></header>
+      <div class="admin-system-summary">
+        <div><span>Transactions Today</span><strong><%= Number(summary.transactions_today || 0) %></strong></div>
+        <div><span>Open Cases</span><strong><%= Number(summary.open_cases || 0) %></strong></div>
+        <div><span>Audit Entries</span><strong><%= Number(auditTotal || 0) %></strong></div>
+        <div><span>Active Users</span><strong><%= Number(summary.active_users || 0) %></strong></div>
+        <div><span>Active Merchants</span><strong><%= Number(summary.active_merchants || 0) %></strong></div>
+        <div><span>Active Monitoring Rules</span><strong><%= Number(summary.active_rules || 0) %></strong></div>
+      </div>
+    </article>
+
+    <article class="admin-dashboard-card admin-activity-card">
+      <header class="admin-card-header"><div><h2>Recent Admin Activity</h2><p>Latest administrative actions.</p></div></header>
+      <% if (auditPreview.length) { %><div class="admin-activity-list"><% auditPreview.forEach((entry) => { %><a href="<%= entry.transaction_id ? `/transactions/${entry.transaction_id}` : '/admin/audit-log' %>"><span class="admin-activity-icon" aria-hidden="true"><%= activityIcon(entry.action) %></span><div><strong><%= entry.action %></strong><span><%= entry.entity_id || entry.transaction_id || entry.notes || 'Administrative record' %></span></div><div class="admin-activity-meta"><strong><%= entry.user_name || entry.user_id || 'System' %></strong><span><%= fmtDate(entry.created_at) %></span></div></a><% }) %></div><footer class="admin-card-footer"><a href="/admin/audit-log">View Complete Audit Log &nbsp;&rarr;</a></footer><% } else { %><p class="admin-empty">No administrative activity is available.</p><% } %>
+    </article>
   </section>
 </main>
 

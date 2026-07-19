@@ -9,11 +9,3 @@ ALTER TABLE customers
 UPDATE customers
 SET account_type = 'Individual'
 WHERE account_type IS NULL;
-
-UPDATE customers
-SET account_type = 'Organisation',
-    customer_name = 'Sophia Chen Trading Pte Ltd',
-    email = NULL,
-    authorised_contact_name = 'Sophia Chen',
-    authorised_contact_email = 'sophia.chen@example.com'
-WHERE customer_id = 'CUS-1005';

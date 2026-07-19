@@ -5,7 +5,7 @@
   const pageLink = (page) => { const next = new URLSearchParams(params); next.set('page', page); return `/stro/audit-log?${next.toString()}`; };
 %>
 
-<main class="analyst-page">
+<main class="analyst-page stro-list-page stro-audit-page">
   <section class="analyst-page-header">
     <div><p class="detail-eyebrow">UNIWEB STRO workspace</p><h1>STRO Audit Log</h1><p>STRO-relevant reporting activity recorded for traceability.</p></div>
     <span class="role-chip">STRO</span>
@@ -23,12 +23,13 @@
   </form>
 
   <section class="panel">
+    <div class="panel-header"><div><h2>STRO Activity Records</h2><p><%= pagination.total %> record<%= pagination.total === 1 ? '' : 's' %> match the current filters.</p></div></div>
     <div class="table-wrap analyst-table-wrap">
       <table class="analyst-table">
         <thead><tr><th>Time</th><th>Action</th><th>User</th><th>Role</th><th>Affected Record</th><th>Notes</th></tr></thead>
         <tbody>
           <% if (rows.length) { rows.forEach((entry) => { %>
-            <tr><td><%= fmtDate(entry.created_at) %></td><td><strong><%= entry.action %></strong></td><td><%= entry.user_name || entry.user_id || 'System' %></td><td><%= entry.user_role || 'System' %></td><td><% if (entry.transaction_id) { %><a href="/transactions/<%= entry.transaction_id %>"><%= entry.transaction_id %></a><% } else if (entry.entity_type) { %><%= entry.entity_type %>: <%= entry.entity_id || 'Not assigned' %><% } else { %>Not assigned<% } %></td><td><%= entry.notes || 'No notes recorded' %></td></tr>
+            <tr><td><%= fmtDate(entry.created_at) %></td><td><span class="stro-action-badge"><%= entry.action %></span></td><td><%= entry.user_name || entry.user_id || 'System' %></td><td><span class="stro-role-badge"><%= entry.user_role || 'System' %></span></td><td><% if (entry.transaction_id) { %><a href="/transactions/<%= entry.transaction_id %>"><%= entry.transaction_id %></a><% } else if (entry.entity_type) { %><%= entry.entity_type %>: <%= entry.entity_id || 'Not assigned' %><% } else { %>Not assigned<% } %></td><td><%= entry.notes || 'No notes recorded' %></td></tr>
           <% }) } else { %><tr><td colspan="6" class="empty-inline">No audit records match the selected filters.</td></tr><% } %>
         </tbody>
       </table>

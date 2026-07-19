@@ -37,6 +37,25 @@ async function execute(sql, params = []) {
   return pool.execute(sql, params);
 }
 
+async function withTransaction(callback) {
+  if (!enabled) throw new Error('Database is not enabled');
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const result = await callback({
+      query: (sql, params = []) => connection.query(sql, params),
+      execute: (sql, params = []) => connection.execute(sql, params),
+    });
+    await connection.commit();
+    return result;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
 function isEnabled() {
   return enabled;
 }
@@ -119,6 +138,12 @@ async function ensurePartnerSchema() {
   if (!hasMerchantColumn('risk_tier')) {
     await execute("ALTER TABLE merchants ADD COLUMN risk_tier ENUM('Standard', 'High') NOT NULL DEFAULT 'Standard' AFTER mcc_risk_score");
   }
+  if (!hasMerchantColumn('authorised_contact_name')) {
+    await execute('ALTER TABLE merchants ADD COLUMN authorised_contact_name VARCHAR(100) NULL AFTER merchant_country');
+  }
+  if (!hasMerchantColumn('authorised_contact_email')) {
+    await execute('ALTER TABLE merchants ADD COLUMN authorised_contact_email VARCHAR(255) NULL AFTER authorised_contact_name');
+  }
 }
 
 module.exports = {
@@ -127,4 +152,5 @@ module.exports = {
   ensurePartnerSchema,
   query,
   execute,
+  withTransaction,
 };

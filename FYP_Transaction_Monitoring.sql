@@ -224,11 +224,11 @@ VALUES
 
 INSERT INTO customers (customer_id, customer_name, email, account_type, authorised_contact_name, authorised_contact_email, segment, kyc_status, customer_risk_level)
 VALUES
-    ('CUS-1001', 'Ava Lim', 'ava.lim@example.com', 'Individual', NULL, NULL, 'Retail', 'Verified', 'LOW'),
-    ('CUS-1002', 'Noah Tan', 'noah.tan@example.com', 'Individual', NULL, NULL, 'SME', 'Verified', 'MEDIUM'),
-    ('CUS-1003', 'Maya Wong', 'maya.wong@example.com', 'Individual', NULL, NULL, 'Private Client', 'Enhanced Due Diligence', 'HIGH'),
-    ('CUS-1004', 'Ethan Koh', 'ethan.koh@example.com', 'Individual', NULL, NULL, 'Retail', 'Pending Review', 'HIGH'),
-    ('CUS-1005', 'Sophia Chen Trading Pte Ltd', NULL, 'Organisation', 'Sophia Chen', 'sophia.chen@example.com', 'Corporate', 'Verified', 'LOW');
+    ('CUS-1001', 'Ava Lim', NULL, 'Individual', NULL, NULL, 'Retail', 'Verified', 'LOW'),
+    ('CUS-1002', 'Noah Tan', NULL, 'Individual', NULL, NULL, 'SME', 'Verified', 'MEDIUM'),
+    ('CUS-1003', 'Maya Wong', NULL, 'Individual', NULL, NULL, 'Private Client', 'Enhanced Due Diligence', 'HIGH'),
+    ('CUS-1004', 'Ethan Koh', NULL, 'Individual', NULL, NULL, 'Retail', 'Pending Review', 'HIGH'),
+    ('CUS-1005', 'Sophia Chen Trading Pte Ltd', NULL, 'Organisation', 'Sophia Chen', NULL, 'Corporate', 'Verified', 'LOW');
 
 INSERT INTO compliance_rules
     (rule_id, company_id, rule_name, risk_level, reason, weight, amount_threshold, count_threshold, rule_type)

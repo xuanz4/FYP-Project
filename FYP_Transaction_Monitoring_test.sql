@@ -6,9 +6,14 @@ USE fyp_transaction_monitoring_test;
 CREATE TABLE merchants (
     merchant_id VARCHAR(20) PRIMARY KEY,
     merchant_name VARCHAR(100) NOT NULL,
+    merchant_mid VARCHAR(30) NULL,
+    merchant_country VARCHAR(5) NULL,
+    authorised_contact_name VARCHAR(100) NULL,
+    authorised_contact_email VARCHAR(255) NULL,
     mcc_code VARCHAR(4) NOT NULL,
     industry VARCHAR(100) NOT NULL,
     mcc_risk_score INT NOT NULL DEFAULT 0,
+    risk_tier ENUM('Standard', 'High') NOT NULL DEFAULT 'Standard',
     is_active TINYINT(1) NOT NULL DEFAULT 1
 );
 

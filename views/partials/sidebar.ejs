@@ -1,35 +1,35 @@
 ﻿<aside class="sidebar">
   <div class="brand">
-    <div class="brand-mark">TC</div>
+    <div class="brand-mark" aria-hidden="true">U</div>
     <div>
       <strong>UNIWEB</strong>
       <span>Transaction Monitor</span>
     </div>
   </div>
-  <nav>
+  <nav class="primary-navigation" aria-label="Role workspace">
     <% if (currentRole==='Admin' ) { %>
-      <a class="<%= activePage === 'admin' ? 'active' : '' %>" href="/admin">Admin Overview</a>
-      <a class="<%= activePage === 'admin-users' ? 'active' : '' %>" href="/admin/users">User Management</a>
-      <a class="<%= activePage === 'admin-merchants' ? 'active' : '' %>" href="/admin/merchants">Merchant Management</a>
-      <a class="<%= activePage === 'admin-rules' ? 'active' : '' %>" href="/admin/rules">Rule Management</a>
-      <a class="<%= activePage === 'admin-audit-log' ? 'active' : '' %>" href="/admin/audit-log">Audit Log</a>
+      <a class="<%= activePage === 'admin' ? 'active' : '' %>" href="/admin"><span class="nav-icon nav-home" aria-hidden="true"></span><span>Admin Overview</span></a>
+      <a class="<%= activePage === 'admin-users' ? 'active' : '' %>" href="/admin/users"><span class="nav-icon nav-queue" aria-hidden="true"></span><span>Users</span></a>
+      <a class="<%= activePage === 'admin-merchants' ? 'active' : '' %>" href="/admin/merchants"><span class="nav-icon nav-folder" aria-hidden="true"></span><span>Merchants</span></a>
+      <a class="<%= activePage === 'admin-rules' ? 'active' : '' %>" href="/admin/rules"><span class="nav-icon nav-live" aria-hidden="true"></span><span>Monitoring Rules</span></a>
+      <a class="<%= activePage === 'admin-audit-log' ? 'active' : '' %>" href="/admin/audit-log"><span class="nav-icon nav-audit" aria-hidden="true"></span><span>Complete Audit Log</span></a>
       <% } else if (currentRole==='Analyst' ) { %>
-        <a class="<%= activePage === 'analyst' ? 'active' : '' %>" href="/analyst">Analyst Overview</a>
-        <a class="<%= activePage === 'analyst-live-transactions' ? 'active' : '' %>" href="/analyst/live-transactions">Live Transaction Feed</a>
-        <a class="<%= activePage === 'analyst-working-queue' ? 'active' : '' %>" href="/analyst/working-queue">Operations Working Queue</a>
-        <a class="<%= activePage === 'analyst-cases' ? 'active' : '' %>" href="/analyst/cases">Cases</a>
-        <a class="<%= activePage === 'analyst-audit-log' ? 'active' : '' %>" href="/analyst/audit-log">Audit Log</a>
+        <a class="<%= activePage === 'analyst' ? 'active' : '' %>" href="/analyst"><span class="nav-icon nav-home" aria-hidden="true"></span><span>Analyst Overview</span></a>
+        <a class="<%= activePage === 'analyst-live-transactions' ? 'active' : '' %>" href="/analyst/live-transactions"><span class="nav-icon nav-live" aria-hidden="true"></span><span>Live Transaction Feed</span></a>
+        <a class="<%= activePage === 'analyst-working-queue' ? 'active' : '' %>" href="/analyst/working-queue"><span class="nav-icon nav-queue" aria-hidden="true"></span><span>Operations Working Queue</span></a>
+        <a class="<%= activePage === 'analyst-cases' ? 'active' : '' %>" href="/analyst/cases"><span class="nav-icon nav-folder" aria-hidden="true"></span><span>Cases</span></a>
+        <a class="<%= activePage === 'analyst-audit-log' ? 'active' : '' %>" href="/analyst/audit-log"><span class="nav-icon nav-audit" aria-hidden="true"></span><span>Audit Log</span></a>
         <% } else if (currentRole==='Senior Analyst' ) { %>
-          <a class="<%= activePage === 'senior-analyst' ? 'active' : '' %>" href="/senior-analyst">Senior Analyst Overview</a>
-          <a class="<%= activePage === 'senior-analyst-cases' ? 'active' : '' %>" href="/senior-analyst/cases">Cases Pending Review</a>
-          <a class="<%= activePage === 'senior-analyst-audit-log' ? 'active' : '' %>" href="/senior-analyst/audit-log">Audit Log</a>
+          <a class="<%= activePage === 'senior-analyst' ? 'active' : '' %>" href="/senior-analyst"><span class="nav-icon nav-home" aria-hidden="true"></span><span>Senior Analyst Overview</span></a>
+          <a class="<%= activePage === 'senior-analyst-cases' ? 'active' : '' %>" href="/senior-analyst/cases"><span class="nav-icon nav-queue" aria-hidden="true"></span><span>Senior Review Cases</span></a>
+          <a class="<%= activePage === 'senior-analyst-audit-log' ? 'active' : '' %>" href="/senior-analyst/audit-log"><span class="nav-icon nav-audit" aria-hidden="true"></span><span>Audit Log</span></a>
           <% } else if (currentRole==='STRO' ) { %>
-            <a class="<%= activePage === 'stro' ? 'active' : '' %>" href="/stro">STRO Overview</a>
-            <a class="<%= activePage === 'stro-cases' ? 'active' : '' %>" href="/stro/cases">Cases</a>
-            <a class="<%= activePage === 'stro-str-reports' ? 'active' : '' %>" href="/stro/str-reports">STR Reports</a>
-            <a class="<%= activePage === 'stro-audit-log' ? 'active' : '' %>" href="/stro/audit-log">Audit Log</a>
+            <a class="<%= activePage === 'stro' ? 'active' : '' %>" href="/stro"><span class="nav-icon nav-home" aria-hidden="true"></span><span>STRO Overview</span></a>
+            <a class="<%= activePage === 'stro-cases' ? 'active' : '' %>" href="/stro/cases"><span class="nav-icon nav-queue" aria-hidden="true"></span><span>Referred Cases</span></a>
+            <a class="<%= activePage === 'stro-str-reports' ? 'active' : '' %>" href="/stro/str-reports"><span class="nav-icon nav-audit" aria-hidden="true"></span><span>STR Reports</span></a>
+            <a class="<%= activePage === 'stro-audit-log' ? 'active' : '' %>" href="/stro/audit-log"><span class="nav-icon nav-live" aria-hidden="true"></span><span>Audit Log</span></a>
             <% } %>
-              <a href="/logout">Logout</a>
+              <a class="logout-link" href="/logout"><span class="nav-icon nav-logout" aria-hidden="true"></span><span>Logout</span></a>
   </nav>
   <div class="connection">
     <span id="connectionDot"></span>

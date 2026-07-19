@@ -2,86 +2,210 @@
 
 <%
   const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG') : 'Not assigned';
-  const riskClass = (value) => `risk-badge risk-${String(value || 'low').toLowerCase()}`;
+  const shortDate = (value) => value ? new Date(value).toLocaleDateString('en-SG', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'Not assigned';
+  const initials = String(currentUser.name || 'Analyst').split(/\s+/).filter(Boolean).map((part) => part[0]).slice(0, 2).join('').toUpperCase();
+  const statusLabel = (value) => ({ Open: 'Under Review', 'Pending RFI': 'Waiting for Information', 'Pending Senior Review': 'Escalated' }[value] || value || 'Open');
+  const activityTone = (action = '') => {
+    const value = String(action).toLowerCase();
+    if (value.includes('rfi') || value.includes('information')) return 'timeline-warning';
+    if (value.includes('escalat') || value.includes('refer')) return 'timeline-orange';
+    if (value.includes('resolv') || value.includes('close') || value.includes('filed')) return 'timeline-blue';
+    return 'timeline-green';
+  };
+  const activitySymbol = (action = '') => {
+    const value = String(action).toLowerCase();
+    if (value.includes('rfi') || value.includes('information')) return '\u2709';
+    if (value.includes('escalat') || value.includes('refer')) return '\u2191';
+    if (value.includes('resolv') || value.includes('close') || value.includes('filed')) return '\u2713';
+    return '\u25CF';
+  };
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const weekDays = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(today);
+    date.setDate(today.getDate() - (6 - index));
+    return { date, opened: 0, escalated: 0, resolved: 0 };
+  });
+  auditPreview.forEach((entry) => {
+    if (!entry.created_at) return;
+    const entryDate = new Date(entry.created_at);
+    entryDate.setHours(0, 0, 0, 0);
+    const day = weekDays.find((item) => item.date.getTime() === entryDate.getTime());
+    if (!day) return;
+    const action = String(entry.action || '').toLowerCase();
+    if (action.includes('resolv') || action.includes('close') || action.includes('filed')) day.resolved += 1;
+    else if (action.includes('escalat') || action.includes('refer')) day.escalated += 1;
+    else day.opened += 1;
+  });
+  const chartMaximum = Math.max(1, ...weekDays.flatMap((item) => [item.opened, item.escalated, item.resolved]));
+  const chartTotals = weekDays.reduce((totals, item) => ({
+    opened: totals.opened + item.opened,
+    escalated: totals.escalated + item.escalated,
+    resolved: totals.resolved + item.resolved,
+  }), { opened: 0, escalated: 0, resolved: 0 });
 %>
 
-<main class="analyst-page">
-  <section class="analyst-page-header">
-    <div>
-      <p class="detail-eyebrow">UNIWEB analyst workspace</p>
-      <h1>Analyst Overview</h1>
-      <p>Compact workload summary for <strong><%= currentUser.name %></strong> (<%= currentUser.id %>)</p>
+<main class="analyst-page analyst-overview">
+  <section class="overview-topbar">
+    <div class="overview-greeting">
+      <span class="greeting-icon" aria-hidden="true">&#9728;</span>
+      <div>
+        <h1>Good morning, <%= currentUser.name %></h1>
+        <p>Here is what needs your attention today.</p>
+      </div>
     </div>
-    <span class="role-chip">Analyst</span>
-  </section>
-
-  <section class="summary-grid">
-    <article><span>New Transactions</span><strong><%= summary.newTransactions %></strong><small>Screened in the latest monitoring window</small></article>
-    <article><span>Critical Queue</span><strong><%= summary.criticalQueue %></strong><small>Critical weighted-risk items</small></article>
-    <article><span>Open Cases</span><strong><%= summary.openCases %></strong><small>Active investigation cases</small></article>
-    <article><span>Assigned to Me</span><strong><%= summary.assignedToMe %></strong><small>Your current workload</small></article>
-    <article><span>Waiting for Information</span><strong><%= summary.waiting %></strong><small>Pending customer response</small></article>
-    <article><span>Overdue Cases</span><strong><%= summary.overdue %></strong><small>Past stored due date</small></article>
-  </section>
-
-  <section class="analyst-preview-grid">
-    <article class="panel">
-      <div class="panel-header">
-        <div><h2>Priority Queue Preview</h2><p>Top items requiring analyst attention.</p></div>
-        <a class="secondary-link" href="/analyst/working-queue">View Working Queue</a>
+    <div class="overview-user-actions">
+      <div class="overview-user">
+        <span><strong><%= currentUser.name %></strong> (<%= currentUser.id %>)</span>
+        <span class="role-chip">Analyst</span>
+        <span class="user-avatar" aria-hidden="true"><%= initials %></span>
       </div>
+      <a class="priority-queue-button" href="/analyst/working-queue">Review Priority Queue <span aria-hidden="true">&rarr;</span></a>
+    </div>
+  </section>
+
+  <section class="overview-kpi-layout" aria-label="Analyst workload summary">
+    <div class="overview-kpi-main">
+      <article class="overview-kpi kpi-critical">
+        <span class="kpi-icon" aria-hidden="true">!</span>
+        <div><span class="kpi-label">Critical Queue</span><strong><%= summary.criticalQueue %></strong><small>Critical high-risk items</small></div>
+      </article>
+      <article class="overview-kpi kpi-pending">
+        <span class="kpi-icon" aria-hidden="true">?</span>
+        <div><span class="kpi-label">Pending RFI</span><strong><%= summary.waiting %></strong><small>Pending customer response</small></div>
+      </article>
+      <article class="overview-kpi kpi-success">
+        <span class="kpi-icon" aria-hidden="true">&#9201;</span>
+        <div><span class="kpi-label">Overdue</span><strong><%= summary.overdue %></strong><small>Past stored due date</small></div>
+      </article>
+      <article class="overview-kpi kpi-primary">
+        <span class="kpi-icon" aria-hidden="true">&#9633;</span>
+        <div><span class="kpi-label">Open Cases</span><strong><%= summary.openCases %></strong><small>Active investigation cases</small></div>
+      </article>
+    </div>
+    <div class="overview-kpi-stack">
+      <article class="overview-mini-kpi">
+        <span class="mini-kpi-icon" aria-hidden="true">&#9776;</span>
+        <div><span>New Transactions</span><strong><%= summary.newTransactions %></strong><small>Latest monitoring window</small></div>
+      </article>
+      <article class="overview-mini-kpi live-monitoring-kpi">
+        <span class="mini-kpi-icon" aria-hidden="true">&#9679;</span>
+        <div><span>Live Monitoring</span><strong id="overviewConnectionState">Connecting</strong><small>Real-time transaction feed</small></div>
+      </article>
+    </div>
+  </section>
+
+  <section class="overview-dashboard-grid">
+    <article class="overview-card priority-queue-card">
+      <header class="overview-card-header">
+        <div class="overview-card-title"><span class="section-icon icon-critical" aria-hidden="true">!</span><div><h2>Priority Queue</h2><p>Top items requiring analyst attention</p></div></div>
+        <a class="overview-card-link" href="/analyst/working-queue">View Working Queue <span aria-hidden="true">&#8599;</span></a>
+      </header>
       <% if (queuePreview.length) { %>
-        <div class="compact-list">
+        <div class="priority-queue-list">
           <% queuePreview.forEach((item) => { %>
-            <a href="/transactions/<%= item.transaction_id %>">
-              <strong><%= item.transaction_id %></strong>
-              <span><%= item.merchant_name || 'Unknown Merchant' %> · <%= item.risk_score %> · <%= item.risk_level %></span>
-            </a>
+            <div class="priority-queue-row">
+              <span class="queue-score"><%= item.risk_score ?? 'N/A' %></span>
+              <div class="queue-identity"><strong><%= item.transaction_id %></strong><span><%= item.merchant_name || 'Unknown Merchant' %></span></div>
+              <span class="risk-badge risk-<%= String(item.risk_level || 'low').toLowerCase() %>"><%= item.risk_level || 'Low' %></span>
+              <div class="queue-data"><span>Risk Score</span><strong><%= item.risk_score ?? 'N/A' %></strong></div>
+              <div class="queue-data"><span>Status</span><strong><%= statusLabel(item.case_status || item.action_status) %></strong></div>
+              <a class="queue-review-button" href="/transactions/<%= item.transaction_id %>">Review</a>
+            </div>
           <% }) %>
         </div>
+        <footer class="overview-card-footer">Showing top <%= queuePreview.length %> of <%= summary.criticalQueue %> critical items</footer>
       <% } else { %>
-        <p class="empty-inline">No priority items currently require attention.</p>
+        <p class="overview-empty">No priority items currently require attention.</p>
       <% } %>
     </article>
 
-    <article class="panel">
-      <div class="panel-header">
-        <div><h2>Recent Cases</h2><p>Latest active case records.</p></div>
-        <a class="secondary-link" href="/analyst/cases">View All Cases</a>
+    <article class="overview-card case-activity-card">
+      <header class="overview-card-header">
+        <div class="overview-card-title"><span class="section-icon icon-chart" aria-hidden="true">&#9614;</span><div><h2>Case Activity This Week</h2><p>Recent audit activity by lifecycle event</p></div></div>
+        <span class="chart-period">This Week</span>
+      </header>
+      <div class="chart-legend" aria-hidden="true"><span><i class="legend-opened"></i>Opened</span><span><i class="legend-escalated"></i>Escalated</span><span><i class="legend-resolved"></i>Resolved</span></div>
+      <div class="case-activity-chart" role="img" aria-label="Case lifecycle activity available in the recent audit preview for the last seven days">
+        <div class="chart-grid-lines" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+        <% weekDays.forEach((day) => { %>
+          <div class="chart-day">
+            <div class="chart-bars">
+              <i class="bar-opened" style="height: <%= Math.max(2, (day.opened / chartMaximum) * 100) %>%" title="Opened: <%= day.opened %>"><%= day.opened || '' %></i>
+              <i class="bar-escalated" style="height: <%= Math.max(2, (day.escalated / chartMaximum) * 100) %>%" title="Escalated: <%= day.escalated %>"><%= day.escalated || '' %></i>
+              <i class="bar-resolved" style="height: <%= Math.max(2, (day.resolved / chartMaximum) * 100) %>%" title="Resolved: <%= day.resolved %>"><%= day.resolved || '' %></i>
+            </div>
+            <span><%= day.date.toLocaleDateString('en-SG', { weekday: 'short' }) %></span>
+            <small><%= day.date.toLocaleDateString('en-SG', { day: '2-digit', month: 'short' }) %></small>
+          </div>
+        <% }) %>
       </div>
+      <footer class="chart-summary">
+        <div><span class="summary-dot opened-dot"></span><span>Opened</span><strong><%= chartTotals.opened %></strong></div>
+        <div><span class="summary-dot escalated-dot"></span><span>Escalated</span><strong><%= chartTotals.escalated %></strong></div>
+        <div><span class="summary-dot resolved-dot"></span><span>Resolved</span><strong><%= chartTotals.resolved %></strong></div>
+      </footer>
+    </article>
+
+    <article class="overview-card recent-cases-card">
+      <header class="overview-card-header">
+        <div class="overview-card-title"><span class="section-icon icon-folder" aria-hidden="true">&#9633;</span><div><h2>Recent Cases</h2><p>Latest active case records</p></div></div>
+        <a class="overview-card-link" href="/analyst/cases">View All Cases <span aria-hidden="true">&#8599;</span></a>
+      </header>
       <% if (casePreview.length) { %>
-        <div class="compact-list">
-          <% casePreview.forEach((item) => { %>
-            <a href="/transactions/<%= item.transaction_id %>">
-              <strong><%= item.case_id %></strong>
-              <span><%= item.status %> · <%= item.assigned_user_name || item.assigned_role || 'Unassigned' %> · <%= fmtDate(item.due_at) %></span>
-            </a>
-          <% }) %>
+        <div class="recent-cases-table-wrap">
+          <table class="recent-cases-table">
+            <thead><tr><th>Case ID</th><th>Status</th><th>Assigned To</th><th>Due Date</th></tr></thead>
+            <tbody>
+              <% casePreview.forEach((item) => { %>
+                <tr data-href="/transactions/<%= item.transaction_id %>">
+                  <td><a href="/transactions/<%= item.transaction_id %>"><%= item.case_id %></a></td>
+                  <td><span class="case-status-badge"><%= statusLabel(item.status) %></span></td>
+                  <td><%= item.assigned_user_name || item.assigned_role || 'Unassigned' %></td>
+                  <td><%= shortDate(item.due_at) %></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
         </div>
+        <footer class="overview-card-footer"><a href="/analyst/cases">View all cases</a></footer>
       <% } else { %>
-        <p class="empty-inline">No cases match the current workload.</p>
+        <p class="overview-empty">No cases match the current workload.</p>
       <% } %>
     </article>
 
-    <article class="panel">
-      <div class="panel-header">
-        <div><h2>Recent Activity</h2><p>Latest traceable system or analyst actions.</p></div>
-        <a class="secondary-link" href="/analyst/audit-log">View Audit Log</a>
-      </div>
+    <article class="overview-card recent-activity-card">
+      <header class="overview-card-header">
+        <div class="overview-card-title"><span class="section-icon icon-activity" aria-hidden="true">&#8767;</span><div><h2>Recent Activity</h2><p>Latest transaction monitoring and analyst actions</p></div></div>
+        <a class="overview-card-link" href="/analyst/audit-log">View Audit Log <span aria-hidden="true">&#8599;</span></a>
+      </header>
       <% if (auditPreview.length) { %>
-        <div class="compact-list">
+        <div class="activity-timeline">
           <% auditPreview.forEach((entry) => { %>
-            <a href="<%= entry.transaction_id ? `/transactions/${entry.transaction_id}` : '/analyst/audit-log' %>">
-              <strong><%= entry.action %></strong>
-              <span><%= entry.user_name || entry.user_id || 'System' %> · <%= fmtDate(entry.created_at) %></span>
+            <a class="activity-timeline-item <%= activityTone(entry.action) %>" href="<%= entry.transaction_id ? `/transactions/${entry.transaction_id}` : '/analyst/audit-log' %>">
+              <span class="timeline-icon" aria-hidden="true"><%= activitySymbol(entry.action) %></span>
+              <div class="timeline-content"><strong><%= entry.action %></strong><span><%= entry.notes || (entry.transaction_id ? `Transaction ${entry.transaction_id}` : 'System activity') %></span></div>
+              <div class="timeline-meta"><strong><%= entry.user_name || entry.user_id || 'System' %></strong><span><%= fmtDate(entry.created_at) %></span></div>
             </a>
           <% }) %>
         </div>
+        <footer class="overview-card-footer"><a href="/analyst/audit-log">View all activity</a></footer>
       <% } else { %>
-        <p class="empty-inline">No audit records match the selected filters.</p>
+        <p class="overview-empty">No audit records match the current view.</p>
       <% } %>
     </article>
   </section>
 </main>
+
+<script>
+  (() => {
+    const source = document.querySelector('#connectionText');
+    const target = document.querySelector('#overviewConnectionState');
+    if (!source || !target) return;
+    const sync = () => { target.textContent = source.textContent || 'Connecting'; };
+    sync();
+    new MutationObserver(sync).observe(source, { childList: true, characterData: true, subtree: true });
+  })();
+</script>
 
 <%- include('partials/footer', { includeClientScript: true }) %>

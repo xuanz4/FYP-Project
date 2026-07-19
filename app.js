@@ -227,45 +227,57 @@ function broadcast(event, data) {
   io.emit(event, data);
 }
 
-function slugForTestEmail(value, fallback) {
-  const slug = String(value || fallback || 'recipient')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 36);
-  return slug || fallback || 'recipient';
-}
-
-function generateEtherealTestRecipientEmail({ recipientName, transactionId }) {
-  const recipientSlug = slugForTestEmail(recipientName, 'recipient').slice(0, 30);
-  const transactionSlug = slugForTestEmail(transactionId, 'transaction').slice(0, 24);
-  return `${recipientSlug}-${transactionSlug}@example.com`;
-}
-
-function selectRfiDeliveryRecipient({ savedEmail, recipientName, transactionId, accountType, isEtherealMode }) {
+function selectRfiDeliveryRecipient({ savedEmail, accountType }) {
   const trimmedEmail = String(savedEmail || '').trim();
   if (trimmedEmail) {
     return {
       email: trimmedEmail,
       source: accountType === 'Organisation' ? 'saved-organisation-contact' : 'saved-individual',
-      generated: false,
-    };
-  }
-  if (isEtherealMode) {
-    return {
-      email: generateEtherealTestRecipientEmail({ recipientName, transactionId }),
-      source: 'generated-test',
-      generated: true,
     };
   }
   return {
     email: null,
     source: 'missing',
-    generated: false,
   };
+}
+
+function isValidTransactionId(value) {
+  return /^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/.test(String(value || '').trim());
+}
+
+function validateRfiAccess(role, context) {
+  if (!['Analyst', 'Senior Analyst', 'STRO'].includes(role)) {
+    return { allowed: false, status: 403, message: 'You do not have permission to perform this action.' };
+  }
+  if (!context) return { allowed: false, status: 404, message: 'Transaction not found' };
+  if (['Resolved', 'Dismissed as False Positive', 'STR Filed'].includes(context.currentStatus)) {
+    return { allowed: false, status: 409, message: 'An RFI cannot be sent for a terminal assessment.' };
+  }
+  if (['Filed', 'Not Required'].includes(context.strStatus)) {
+    return { allowed: false, status: 409, message: `An RFI cannot be sent when the STR status is ${context.strStatus}.` };
+  }
+  if (role === 'Senior Analyst') {
+    const routedToSenior = context.assignedRole === 'Senior Analyst'
+      || context.escalationDestination === 'Senior Analyst'
+      || context.currentStatus === 'Pending Senior Review';
+    if (!context.caseId) {
+      return { allowed: false, status: 409, message: 'A related investigation case is required for Senior Analyst RFI.' };
+    }
+    if (!routedToSenior) {
+      return { allowed: false, status: 403, message: 'This case is not routed for Senior Analyst review.' };
+    }
+  }
+  if (role === 'STRO') {
+    const routedToStro = context.assignedRole === 'STRO' || context.escalationDestination === 'STRO';
+    if (!context.caseId || !routedToStro || context.strStatus !== 'Recommended') {
+      return {
+        allowed: false,
+        status: 403,
+        message: 'STRO may request information only for a STRO-routed case with STR status Recommended.',
+      };
+    }
+  }
+  return { allowed: true };
 }
 
 function validateRfiRequestBody(body) {
@@ -292,17 +304,17 @@ function validateRfiRequestBody(body) {
 
 function getSafeEmailError(error) {
   const code = error.code || 'EMAIL_SEND_FAILED';
-  const production = process.env.NODE_ENV === 'production';
   if (code === 'EMISSINGCONFIG') {
-    return { message: 'Email delivery is not configured for this deployment.', code };
+    return { message: 'SMTP email delivery is not fully configured. Contact an administrator.', code };
   }
-  if (production) return { message: 'The RFI email could not be sent.', code };
-
+  if (code === 'EINVALIDCONFIG') {
+    return { message: 'SMTP email delivery configuration is invalid. Contact an administrator.', code };
+  }
   if (code === 'EAUTH') {
-    return { message: 'Email authentication failed. Check EMAIL_USER and EMAIL_PASSWORD.', code };
+    return { message: 'SMTP authentication failed. Contact an administrator.', code };
   }
   if (code === 'ECONNECTION' || code === 'ETIMEDOUT' || code === 'ESOCKET') {
-    return { message: 'Unable to connect to the email server.', code };
+    return { message: 'Unable to connect to the SMTP server before the request timed out.', code };
   }
   if (code === 'EENVELOPE') {
     return { message: 'Invalid sender or recipient email.', code };
@@ -310,14 +322,7 @@ function getSafeEmailError(error) {
   if (code === 'EDELIVERYNOTACCEPTED') {
     return { message: 'The email provider did not accept the RFI recipient.', code };
   }
-  if (code === 'EPREVIEWUNAVAILABLE') {
-    return { message: 'The test email was created but no preview URL was available.', code };
-  }
   return { message: 'The RFI email could not be sent.', code };
-}
-
-function isEmailDevelopmentMode() {
-  return String(process.env.EMAIL_PROVIDER || 'smtp').toLowerCase() === 'ethereal';
 }
 
 async function findDatabaseRfiContext(transactionId) {
@@ -371,7 +376,8 @@ async function findDatabaseRfiContext(transactionId) {
 
   const [rows] = await database.query(
     `SELECT t.transaction_id, t.amount, t.created_at, t.action_status,
-            m.merchant_name, c.case_id, c.status AS case_status,
+            m.merchant_name, m.authorised_contact_name, m.authorised_contact_email,
+            c.case_id, c.status AS case_status,
             c.assigned_role, c.escalation_destination, sr.str_status
      FROM transactions t
      LEFT JOIN merchants m ON t.merchant_id = m.merchant_id
@@ -391,9 +397,9 @@ async function findDatabaseRfiContext(transactionId) {
     currency: 'SGD',
     createdAt: row.created_at,
     companyName: row.merchant_name || 'Customer Review Team',
-    recipientName: 'Customer',
-    recipientEmail: null,
-    accountType: 'Individual',
+    recipientName: row.authorised_contact_name || 'Authorised Contact',
+    recipientEmail: row.authorised_contact_email,
+    accountType: 'Organisation',
     caseId: row.case_id || null,
     currentStatus: row.case_status || row.action_status || 'New',
     assignedRole: row.assigned_role || null,
@@ -407,10 +413,15 @@ async function handleDatabaseRfiRequest(req, res) {
     return forbidJson(res);
   }
 
+  const transactionId = String(req.params.id || '').trim();
+  if (!isValidTransactionId(transactionId)) {
+    return res.status(400).json({ success: false, message: 'Invalid transaction ID.' });
+  }
+
   let context;
   try {
     await ensureStrWorkflowSchema();
-    context = await findDatabaseRfiContext(req.params.id);
+    context = await findDatabaseRfiContext(transactionId);
   } catch (error) {
     console.error('Unable to load database RFI context', {
       transactionId: req.params.id,
@@ -419,29 +430,16 @@ async function handleDatabaseRfiRequest(req, res) {
     return res.status(500).json({ success: false, message: 'Unable to load transaction details' });
   }
 
-  if (!context) return res.status(404).json({ success: false, message: 'Transaction not found' });
-  if (['Resolved', 'Dismissed as False Positive', 'STR Filed'].includes(context.currentStatus)) {
-    return res.status(409).json({ success: false, message: 'Assessment already resolved' });
-  }
-  if (req.session.user.role === 'STRO') {
-    const routedToStro = context.assignedRole === 'STRO' || context.escalationDestination === 'STRO';
-    const openStrStatus = context.strStatus === 'Recommended';
-    if (!routedToStro || !openStrStatus) {
-      return res.status(403).json({ success: false, message: 'You do not have permission to perform this action.' });
-    }
-  }
+  const access = validateRfiAccess(req.session.user.role, context);
+  if (!access.allowed) return res.status(access.status).json({ success: false, message: access.message });
 
   const validationMessage = validateRfiRequestBody(req.body);
   if (validationMessage) {
     return res.status(400).json({ success: false, message: validationMessage });
   }
-  const isEtherealMode = String(process.env.EMAIL_PROVIDER || 'smtp').toLowerCase() === 'ethereal';
   const recipient = selectRfiDeliveryRecipient({
     savedEmail: context.recipientEmail,
-    recipientName: context.recipientName,
-    transactionId: context.transactionId,
     accountType: context.accountType,
-    isEtherealMode,
   });
   if (!recipient.email) {
     return res.status(400).json({ success: false, message: 'Saved recipient email is missing' });
@@ -465,75 +463,73 @@ async function handleDatabaseRfiRequest(req, res) {
       informationRequested: String(req.body.informationRequested || '').trim(),
     });
   } catch (error) {
-    console.error('RFI email service failure', {
+    console.error('RFI SMTP delivery failed', {
       transactionId: context.transactionId,
+      code: error.code || 'EMAIL_SEND_FAILED',
       message: error.message,
     });
     const safeError = getSafeEmailError(error);
     return res.status(502).json({ success: false, ...safeError });
   }
 
-  if (context.schema === 'compliance') {
-    if (context.caseId) {
-      await database.execute('UPDATE compliance_cases SET case_status = ?, updated_at = CURRENT_TIMESTAMP WHERE case_id = ?', ['Waiting for Information', context.caseId]);
-    }
-    await database.execute(
-      `INSERT INTO audit_logs (audit_id, action, actor, entity_type, entity_id, transaction_id, case_id, message, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [
-        id('AUD'),
-        req.session.user.role === 'STRO' ? 'Additional Information Requested by STRO' : 'Request for Information Sent',
-        req.session?.user?.user_name || req.session?.user?.name || 'Analyst',
-        context.caseId ? 'Case' : 'Transaction',
-        context.caseId || context.transactionId,
-        context.transactionId,
-        context.caseId,
-        req.session.user.role === 'STRO'
-          ? 'Additional supporting information requested for STR review.'
-          : delivery?.etherealMode
-            ? 'Test RFI email created requesting supporting transaction information.'
-            : 'RFI email sent requesting supporting transaction information.',
-      ],
-    );
-  } else {
-    if (context.caseId) {
-      await database.execute('UPDATE cases SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE case_id = ?', ['Pending RFI', context.caseId]);
-    }
-    await database.execute('UPDATE transactions SET action_status = ?, updated_at = CURRENT_TIMESTAMP WHERE transaction_id = ?', ['Pending RFI', context.transactionId]);
-    await database.execute(
-      `INSERT INTO audit_logs (audit_id, transaction_id, action, user_id, notes, created_at)
-       VALUES (?, ?, ?, ?, ?, NOW())`,
-      [
-        id('AUD'),
-        context.transactionId,
-        req.session.user.role === 'STRO' ? 'Additional Information Requested by STRO' : 'Request for Information Sent',
-        req.session?.user?.id || null,
-        req.session.user.role === 'STRO'
-          ? 'Additional supporting information requested for STR review.'
-          : delivery?.etherealMode
-            ? 'Test RFI email created requesting supporting transaction information.'
-            : 'RFI email sent requesting supporting transaction information.',
-      ],
-    );
+  const action = req.session.user.role === 'STRO'
+    ? 'Additional Information Requested by STRO'
+    : 'Request for Information Sent';
+  const auditSummary = [
+    'RFI sent by SMTP.',
+    `Recipient: ${emailService.maskEmail(recipient.email)}.`,
+    `Role: ${req.session.user.role}.`,
+    delivery.messageId ? `Provider message ID: ${delivery.messageId}.` : '',
+  ].filter(Boolean).join(' ');
+
+  try {
+    await database.withTransaction(async (tx) => {
+      if (context.schema === 'compliance') {
+        if (context.caseId) {
+          await tx.execute('UPDATE compliance_cases SET case_status = ?, updated_at = CURRENT_TIMESTAMP WHERE case_id = ?', ['Waiting for Information', context.caseId]);
+        }
+        await tx.execute('UPDATE transactions SET action_status = ?, updated_at = CURRENT_TIMESTAMP WHERE transaction_id = ?', ['Pending RFI', context.transactionId]);
+        await tx.execute(
+          `INSERT INTO audit_logs (audit_id, action, actor, entity_type, entity_id, transaction_id, case_id, message, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+          [id('AUD'), action, req.session.user.name, context.caseId ? 'Case' : 'Transaction',
+            context.caseId || context.transactionId, context.transactionId, context.caseId, auditSummary],
+        );
+      } else {
+        if (context.caseId) {
+          await tx.execute('UPDATE cases SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE case_id = ?', ['Pending RFI', context.caseId]);
+        }
+        await tx.execute('UPDATE transactions SET action_status = ?, updated_at = CURRENT_TIMESTAMP WHERE transaction_id = ?', ['Pending RFI', context.transactionId]);
+        await tx.execute(
+          `INSERT INTO audit_logs (audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+          [id('AUD'), context.transactionId, context.caseId ? 'Case' : 'Transaction',
+            context.caseId || context.transactionId, action, req.session.user.id, auditSummary],
+        );
+      }
+    });
+  } catch (error) {
+    console.error('RFI email sent but database persistence failed', {
+      transactionId: context.transactionId,
+      messageId: delivery.messageId || null,
+      message: error.message,
+    });
+    return res.status(500).json({
+      success: false,
+      code: 'EMAIL_SENT_DATABASE_UPDATE_FAILED',
+      message: 'The email was sent, but the case status and audit record could not be saved. Do not resend; contact an administrator.',
+    });
   }
 
   return res.status(200).json({
     success: true,
-    provider: delivery?.etherealMode ? 'ethereal' : 'smtp',
+    deliveryMethod: 'SMTP',
+    recipient: recipient.email,
     recipientSource: recipient.source,
-    message: delivery?.etherealMode
-      ? 'Test RFI email created successfully. No real email was delivered.'
-      : 'RFI email accepted for delivery.',
-    previewUrl: delivery?.etherealMode ? delivery.previewUrl : undefined,
-    delivery: {
-      provider: delivery?.etherealMode ? 'ethereal' : 'smtp',
-      recipientSource: recipient.generated ? 'generated-test' : 'stored',
-      accepted: delivery?.delivery?.accepted || [],
-      rejected: delivery?.delivery?.rejected || [],
-      pending: delivery?.delivery?.pending || [],
-      response: delivery?.delivery?.response || null,
-      messageId: delivery?.delivery?.messageId || null,
-    },
+    messageId: delivery.messageId || null,
+    message: `RFI email accepted for delivery to ${recipient.email}.`,
+    caseStatus: context.caseId ? 'Pending RFI' : null,
+    transactionStatus: 'Pending RFI',
   });
 }
 
@@ -1306,7 +1302,15 @@ async function loadSeniorCases(req) {
        SUM(c.due_at IS NOT NULL AND c.due_at < NOW() AND c.status NOT IN ('Resolved', 'Dismissed as False Positive', 'STR Filed')) AS overdue,
        SUM(c.status = 'Pending RFI') AS waiting,
        SUM(c.escalation_destination = 'STRO') AS referred_to_stro,
-       SUM(c.status IN ('Pending Senior Review', 'Under Review', 'Escalated') AND (c.escalation_destination IS NULL OR c.escalation_destination <> 'STRO')) AS ready_for_stro
+       SUM(c.status IN ('Pending Senior Review', 'Under Review', 'Escalated') AND (c.escalation_destination IS NULL OR c.escalation_destination <> 'STRO')) AS ready_for_stro,
+       SUM(t.risk_level = 'Critical' AND c.status NOT IN ('Resolved', 'Dismissed as False Positive', 'STR Filed')) AS critical_cases,
+       SUM(c.status IN ('Resolved', 'Dismissed as False Positive', 'STR Filed') AND YEARWEEK(c.updated_at, 1) = YEARWEEK(CURDATE(), 1)) AS resolved_this_week,
+       SUM(c.status IN ('Open', 'Under Review') AND (c.escalation_destination IS NULL OR c.escalation_destination <> 'STRO')) AS status_under_review,
+       SUM(c.status = 'Pending RFI') AS status_pending_rfi,
+       SUM(c.escalation_destination = 'STRO' AND c.status <> 'Pending RFI' AND c.status NOT IN ('Resolved', 'Dismissed as False Positive', 'STR Filed')) AS status_escalated,
+       SUM(c.status = 'Pending Senior Review' AND (c.escalation_destination IS NULL OR c.escalation_destination <> 'STRO')) AS status_pending_senior,
+       SUM(c.status IN ('Resolved', 'Dismissed as False Positive', 'STR Filed')) AS status_resolved,
+       COUNT(DISTINCT c.case_id) AS status_total
      FROM cases c
      JOIN transactions t ON t.transaction_id = c.transaction_id
      LEFT JOIN merchants m ON m.merchant_id = t.merchant_id
@@ -1572,7 +1576,9 @@ async function loadAdminMerchants(req) {
   const [countRows] = await database.query(`SELECT COUNT(*) AS total FROM merchants ${whereSql}`, values);
   const pagination = paginationMeta(req, Number(countRows[0]?.total || 0), 15);
   const [rows] = await database.query(
-    `SELECT merchant_id, merchant_name, merchant_mid, merchant_country, mcc_code, industry, mcc_risk_score, risk_tier, is_active FROM merchants ${whereSql} ORDER BY merchant_name ASC LIMIT ? OFFSET ?`,
+    `SELECT merchant_id, merchant_name, merchant_mid, merchant_country, authorised_contact_name,
+            authorised_contact_email, mcc_code, industry, mcc_risk_score, risk_tier, is_active
+     FROM merchants ${whereSql} ORDER BY merchant_name ASC LIMIT ? OFFSET ?`,
     [...values, pagination.limit, pagination.offset],
   );
   const [industries] = await database.query('SELECT DISTINCT industry FROM merchants ORDER BY industry ASC');
@@ -1719,6 +1725,10 @@ app.get('/admin', requireRole('Admin'), async (req, res) => {
          (SELECT COUNT(*) FROM cases WHERE status NOT IN ('Resolved', 'Dismissed as False Positive', 'STR Filed')) AS open_cases`,
     ).then(([rows]) => rows),
   ]);
+  const userRoleDistribution = ['Analyst', 'Senior Analyst', 'STRO', 'Admin'].map((role) => ({
+    role,
+    count: auditData.users.filter((user) => user.user_role === role).length,
+  }));
   return res.render('admin-dashboard', {
     title: 'Admin Overview',
     activePage: 'admin',
@@ -1728,6 +1738,8 @@ app.get('/admin', requireRole('Admin'), async (req, res) => {
     merchantPreview: merchantsData.rows.slice(0, 5),
     rulePreview: rulesData.rows.slice(0, 5),
     auditPreview: auditData.rows.slice(0, 5),
+    auditTotal: auditData.pagination.total,
+    userRoleDistribution,
   });
 });
 
@@ -1845,17 +1857,9 @@ app.get('/senior-analyst', requireRole('Senior Analyst'), async (req, res) => {
   const previewReq = Object.create(req);
   previewReq.session = req.session;
   previewReq.query = { limit: 5 };
-  const [caseData, auditData, resolvedRows] = await Promise.all([
+  const [caseData, auditData] = await Promise.all([
     loadSeniorCases(previewReq),
     loadSeniorAudit(previewReq),
-    database.query(
-      `SELECT COUNT(*) AS total
-       FROM cases c
-       JOIN transactions t ON t.transaction_id = c.transaction_id
-       WHERE ${seniorCaseWhereAndValues({}).where.join(' AND ')}
-         AND c.status IN ('Resolved', 'Dismissed as False Positive', 'STR Filed')
-         AND DATE(c.updated_at) = CURDATE()`,
-    ).then(([rows]) => rows),
   ]);
 
   return res.render('senior-analyst-dashboard', {
@@ -1868,7 +1872,16 @@ app.get('/senior-analyst', requireRole('Senior Analyst'), async (req, res) => {
       overdue: Number(caseData.summary.overdue || 0),
       waiting: Number(caseData.summary.waiting || 0),
       referredToStro: Number(caseData.summary.referred_to_stro || 0),
-      resolvedToday: Number(resolvedRows[0]?.total || 0),
+      criticalCases: Number(caseData.summary.critical_cases || 0),
+      resolvedThisWeek: Number(caseData.summary.resolved_this_week || 0),
+    },
+    statusOverview: {
+      underReview: Number(caseData.summary.status_under_review || 0),
+      pendingRfi: Number(caseData.summary.status_pending_rfi || 0),
+      escalated: Number(caseData.summary.status_escalated || 0),
+      pendingSenior: Number(caseData.summary.status_pending_senior || 0),
+      resolved: Number(caseData.summary.status_resolved || 0),
+      total: Number(caseData.summary.status_total || 0),
     },
     casePreview: caseData.rows.slice(0, 5),
     auditPreview: auditData.rows.slice(0, 5),
@@ -1914,6 +1927,8 @@ app.get('/stro', requireRole('STRO'), async (req, res) => {
       recommended: Number(caseData.summary.recommended || 0),
       filed: Number(caseData.summary.filed || 0),
       waiting: Number(caseData.summary.waiting || 0),
+      overdue: Number(caseData.summary.overdue || 0),
+      totalReports: Number(reportData.pagination.total || 0),
     },
     casePreview: caseData.rows.slice(0, 5),
     reportPreview: reportData.rows.slice(0, 5),
@@ -1959,7 +1974,8 @@ app.get('/transactions/:id', requireAuth, async (req, res) => {
 
   const [transactionRows, caseRows, ruleRows, activityRows] = await Promise.all([
     database.query(
-      `SELECT t.*, m.merchant_name, m.mcc_risk_score
+      `SELECT t.*, m.merchant_name, m.mcc_risk_score,
+              m.authorised_contact_name, m.authorised_contact_email
        FROM transactions t
        LEFT JOIN merchants m ON t.merchant_id = m.merchant_id
        WHERE t.transaction_id = ?
@@ -2033,7 +2049,6 @@ app.get('/transactions/:id', requireAuth, async (req, res) => {
       riskContributions: [],
       activityLogs: [],
       strAutoFill: emptyStrAutoFill,
-      emailTestMode: isEmailDevelopmentMode(),
     });
   }
 
@@ -2054,7 +2069,6 @@ app.get('/transactions/:id', requireAuth, async (req, res) => {
     strAutoFill,
     currentUser: req.session.user,
     currentRole: req.session.user.role,
-    emailTestMode: isEmailDevelopmentMode(),
   });
 });
 
@@ -2742,13 +2756,17 @@ app.post('/admin/merchants', requireRole('Admin'), async (req, res) => {
   const mccRiskScore = Number(req.body.mccRiskScore || 0);
   const merchantMid = String(req.body.merchantMid || '').trim() || null;
   const merchantCountry = String(req.body.merchantCountry || '').trim() || null;
+  const authorisedContactName = String(req.body.authorisedContactName || '').trim() || null;
+  const authorisedContactEmail = String(req.body.authorisedContactEmail || '').trim() || null;
   const riskTier = req.body.riskTier === 'High' ? 'High' : 'Standard';
   const isActive = req.body.isActive !== '0';
   if (!merchantId || !merchantName || !mccCode || !industry) return res.redirect('/admin/merchants');
+  if (authorisedContactEmail && !emailService.isValidEmail(authorisedContactEmail)) return res.redirect('/admin/merchants');
 
   const [result] = await database.execute(
-    `INSERT INTO merchants (merchant_id, merchant_name, mcc_code, industry, mcc_risk_score, merchant_mid, merchant_country, risk_tier, is_active)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO merchants (merchant_id, merchant_name, mcc_code, industry, mcc_risk_score, merchant_mid, merchant_country,
+                            authorised_contact_name, authorised_contact_email, risk_tier, is_active)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        merchant_name = VALUES(merchant_name),
        mcc_code = VALUES(mcc_code),
@@ -2756,9 +2774,12 @@ app.post('/admin/merchants', requireRole('Admin'), async (req, res) => {
        mcc_risk_score = VALUES(mcc_risk_score),
        merchant_mid = VALUES(merchant_mid),
        merchant_country = VALUES(merchant_country),
+       authorised_contact_name = VALUES(authorised_contact_name),
+       authorised_contact_email = VALUES(authorised_contact_email),
        risk_tier = VALUES(risk_tier),
        is_active = VALUES(is_active)`,
-    [merchantId, merchantName, mccCode, industry, mccRiskScore, merchantMid, merchantCountry, riskTier, isActive ? 1 : 0],
+    [merchantId, merchantName, mccCode, industry, mccRiskScore, merchantMid, merchantCountry,
+      authorisedContactName, authorisedContactEmail, riskTier, isActive ? 1 : 0],
   );
 
   await logAdminAudit({
@@ -2781,6 +2802,12 @@ app.post('/admin/merchants/:id', requireRole('Admin'), async (req, res) => {
   if (req.body.mccRiskScore !== undefined) { updates.push('mcc_risk_score = ?'); values.push(Number(req.body.mccRiskScore || 0)); }
   if (req.body.merchantMid !== undefined) { updates.push('merchant_mid = ?'); values.push(String(req.body.merchantMid).trim() || null); }
   if (req.body.merchantCountry !== undefined) { updates.push('merchant_country = ?'); values.push(String(req.body.merchantCountry).trim() || null); }
+  if (req.body.authorisedContactName !== undefined) { updates.push('authorised_contact_name = ?'); values.push(String(req.body.authorisedContactName).trim() || null); }
+  if (req.body.authorisedContactEmail !== undefined) {
+    const contactEmail = String(req.body.authorisedContactEmail).trim() || null;
+    if (contactEmail && !emailService.isValidEmail(contactEmail)) return res.redirect('/admin/merchants');
+    updates.push('authorised_contact_email = ?'); values.push(contactEmail);
+  }
   if (req.body.riskTier !== undefined) { updates.push('risk_tier = ?'); values.push(req.body.riskTier === 'High' ? 'High' : 'Standard'); }
   if (typeof req.body.isActive !== 'undefined') { updates.push('is_active = ?'); values.push(req.body.isActive === '1' || req.body.isActive === 'true' ? 1 : 0); }
   if (updates.length) {
@@ -3126,6 +3153,12 @@ app.locals.assignmentHelpers = {
 };
 app.locals.strWorkflowHelpers = {
   validateStrTransition,
+};
+app.locals.rfiWorkflowHelpers = {
+  isValidTransactionId,
+  selectRfiDeliveryRecipient,
+  validateRfiAccess,
+  validateRfiRequestBody,
 };
 
 if (require.main === module) {

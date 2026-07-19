@@ -1,4 +1,4 @@
-<%- include('partials/head', { title, activePage }) %>
+<%- include('partials/head', { title, activePage, bodyClass: 'transaction-review-shell' }) %>
 
 <%
     const tx = transaction || {};
@@ -16,23 +16,11 @@
     const merchantName = tx.merchant_name || tx.companyName || tx.merchant_id || 'UNIWEB merchant';
     const customerName = tx.customer_name || tx.customerName || tx.card_holder_name || tx.accountName || merchantName || 'Unknown customer';
     const savedRfiRecipientEmail = tx.customer_email || tx.customerEmail || tx.authorised_contact_email || tx.authorisedContactEmail || '';
-    const rfiSlug = (value, fallback) => {
-        const slug = String(value || fallback || 'recipient')
-            .trim()
-            .toLowerCase()
-            .replace(/[^a-z0-9\s-]/g, '')
-            .replace(/\s+/g, '-')
-            .replace(/-+/g, '-')
-            .replace(/^-|-$/g, '')
-            .slice(0, 36);
-        return slug || fallback || 'recipient';
-    };
-    const generatedRfiTestEmail = `${rfiSlug(customerName, 'recipient').slice(0, 30)}-${rfiSlug(transactionId, 'transaction').slice(0, 24)}@example.com`;
-    const isEmailTestModeForRecipient = typeof emailTestMode !== 'undefined' && emailTestMode;
-    const displayedRfiRecipientEmail = savedRfiRecipientEmail || (isEmailTestModeForRecipient ? generatedRfiTestEmail : '');
+    const rfiRecipientName = tx.authorised_contact_name || tx.authorisedContactName || customerName || 'Customer';
+    const displayedRfiRecipientEmail = savedRfiRecipientEmail;
     const rfiRecipientSource = savedRfiRecipientEmail
         ? ((tx.accountType || tx.account_type) === 'Organisation' ? 'saved-organisation-contact' : 'saved-individual')
-        : (isEmailTestModeForRecipient ? 'generated-test' : 'missing');
+        : 'missing';
     const amount = Number(tx.amount || 0);
     const currency = tx.currency || 'SGD';
     const transactionStatus = tx.status || 'Flagged';
@@ -117,13 +105,18 @@
     const screeningResult = transactionStatus === 'Flagged' ? 'Potential review required' : 'Cleared';
     const recommendedAction = tx.recommendedAction || (initialLevel === 'Critical' ? 'Manual Review or Hold Settlement' : initialLevel === 'High' ? 'Request OTP' : initialLevel === 'Medium' ? 'Monitor' : 'Allow');
     const backHref = role === 'Admin' ? '/admin' : role === 'STRO' ? '/stro' : role === 'Senior Analyst' ? '/senior-analyst' : '/analyst';
-    const canSendRfi = !isResolved && ((isAnalyst || isSenior) || canStroRequestInfo);
+    const routedToSenior = caseInfo?.assigned_role === 'Senior Analyst'
+        || caseInfo?.assignedRole === 'Senior Analyst'
+        || caseInfo?.escalation_destination === 'Senior Analyst'
+        || caseInfo?.escalationDestination === 'Senior Analyst'
+        || rawCaseStatus === 'Pending Senior Review';
+    const isRfiTerminal = isResolved || ['Filed', 'Not Required'].includes(strStatus);
+    const canSendRfi = !isRfiTerminal && (isAnalyst || (isSenior && !!caseInfo && routedToSenior) || canStroRequestInfo);
     const canEscalate = !isResolved && isAnalyst && !!caseInfo && escalationDestination === 'Not assigned' && strStatus === 'Not Started';
     const canResolve = !isResolved && ((isAnalyst && rawCaseStatus !== 'Escalated' && rawCaseStatus !== 'Pending Senior Review' && initialLevel !== 'Critical') || isSenior);
     const canFileStr = false;
     const canRecommendStr = false;
-    const canAssignToMe = !isResolved && isUnassignedCase && role === requiredAssignmentRole && (isAnalyst || isSenior || isStro);
-    const hasEmailTestMode = typeof emailTestMode !== 'undefined' && emailTestMode;
+    const canAssignToMe = false;
     const strDraft = (typeof strAutoFill !== 'undefined' && strAutoFill) ? strAutoFill : {
         referenceNumber: '', filingDate: '', reportingReason: '', suspicionSummary: '', stroNotes: '', supportingEvidence: []
     };
@@ -193,15 +186,17 @@
                 <span>STR Status</span>
                 <strong id="strStatusValue"><%= strStatus %></strong>
             </article>
-            <article>
-                <span>Assigned Analyst</span>
-                <strong id="assignedAnalystValue"><%= assignedAnalyst %></strong>
-                <% if (canAssignToMe) { %>
-                    <button id="assignToMeButton" type="button" class="inline-action-button"
-                        data-case-id="<%= caseInfo.case_id %>">Assign to Me</button>
-                    <small id="assignToMeFeedback" class="inline-feedback"></small>
-                <% } %>
-            </article>
+            <% if (!isSenior && !isStro) { %>
+                <article>
+                    <span>Assigned Analyst</span>
+                    <strong id="assignedAnalystValue"><%= assignedAnalyst %></strong>
+                    <% if (canAssignToMe) { %>
+                        <button id="assignToMeButton" type="button" class="inline-action-button"
+                            data-case-id="<%= caseInfo.case_id %>">Assign to Me</button>
+                        <small id="assignToMeFeedback" class="inline-feedback"></small>
+                    <% } %>
+                </article>
+            <% } %>
             <article>
                 <span>Due Date</span>
                 <strong id="caseDueDateValue"><%= dueDate === 'Not assigned' ? dueDate : new Date(dueDate).toLocaleString('en-SG') %></strong>
@@ -265,7 +260,7 @@
                             </article>
                         <% }) %>
                         <% contributions.forEach((rule) => { %>
-                            <article class="contribution-item">
+                            <article class="contribution-item matched-rule-contribution">
                                 <div>
                                     <strong><%= rule.rule_name || rule.name || rule.label || rule.ruleId || 'Matched rule' %></strong>
                                     <p><%= rule.reason || rule.description || rule.message || 'Rule matched this transaction.' %></p>
@@ -312,7 +307,7 @@
             <section class="review-tab-panel active" data-review-panel="overview" role="tabpanel">
                 <div class="overview-grid">
                     <article class="review-info-card">
-                        <h3>Transaction Information</h3>
+                        <h3><%= (isSenior || isStro) ? 'Transaction Details' : 'Transaction Information' %></h3>
                         <dl class="review-definition-grid">
                             <div><dt>Amount</dt><dd><%= currency %> <%= amount.toFixed(2) %></dd></div>
                             <div><dt>Direction</dt><dd><%= tx.direction || 'Local card payment' %></dd></div>
@@ -325,7 +320,7 @@
                         </dl>
                     </article>
                     <article class="review-info-card">
-                        <h3>Customer or Organisation Profile</h3>
+                        <h3><%= (isSenior || isStro) ? 'Merchant Details' : 'Customer or Organisation Profile' %></h3>
                         <dl class="review-definition-grid">
                             <div><dt>Account type</dt><dd><%= tx.accountType || 'Merchant card account' %></dd></div>
                             <div><dt>Name</dt><dd><%= customerName %></dd></div>
@@ -336,6 +331,61 @@
                             <div><dt>Authorised contact</dt><dd><%= tx.authorisedContactName || tx.authorised_contact_name || 'Not assigned' %></dd></div>
                         </dl>
                     </article>
+                    <% if (caseInfo) { %>
+                        <article class="review-info-card overview-case-card">
+                            <h3>Case Context</h3>
+                            <dl class="review-definition-grid">
+                                <div><dt>Case ID</dt><dd><%= caseInfo.case_id %></dd></div>
+                                <div><dt>Status</dt><dd><%= rawCaseStatus %></dd></div>
+                                <div><dt>Created by</dt><dd><%= caseInfo.created_by || 'System' %></dd></div>
+                                <div><dt>Assigned role</dt><dd><%= caseInfo.assigned_role || 'Not assigned' %></dd></div>
+                                <div><dt>Escalated to</dt><dd><%= escalationDestination %></dd></div>
+                                <div><dt>Referred by</dt><dd><%= referredBy %></dd></div>
+                            </dl>
+                        </article>
+                    <% } %>
+                    <% if (!isAdmin && caseInfo) { %>
+                        <article class="review-info-card action-priority-card overview-action-card">
+                            <h3><%= roleLabel %> Actions</h3>
+                            <p class="muted">Only actions permitted for <%= roleLabel %> are shown.</p>
+                            <div class="role-action-list">
+                                <% if (canSendRfi) { %>
+                                    <button id="openRfiModalButton" type="button" class="secondary-btn <%= isSenior ? 'senior-action-rfi' : isStro ? 'stro-action-rfi' : '' %>"
+                                        data-transaction-id="<%= transactionId %>"
+                                        data-recipient-type="<%= tx.accountType || 'Individual' %>"
+                                        data-recipient-name="<%= rfiRecipientName %>"
+                                        data-recipient-email="<%= displayedRfiRecipientEmail %>"
+                                        data-recipient-source="<%= rfiRecipientSource %>"
+                                        data-transaction-date="<%= tx.created_at || tx.createdAt ? new Date(tx.created_at || tx.createdAt).toLocaleString('en-SG') : '' %>"
+                                        data-transaction-amount="<%= amount.toFixed(2) %>"
+                                        data-currency="<%= currency %>"><%= isStro ? 'Request More Information' : isSenior ? 'Send Request for Information' : 'Request for Information' %></button>
+                                <% } %>
+                                <% if (canEscalate) { %>
+                                    <button id="openEscalationModalButton" type="button" class="secondary-btn warning"
+                                        data-transaction-id="<%= transactionId %>">Escalate</button>
+                                <% } %>
+                                <% if (canReferToStro) { %>
+                                    <button id="openReferStroModalButton" type="button" class="secondary-btn warning senior-action-refer"
+                                        data-transaction-id="<%= transactionId %>">Refer to STRO</button>
+                                <% } %>
+                                <% if (canResolve) { %>
+                                    <button id="openResolveModalButton" type="button" class="secondary-btn danger senior-action-resolve"
+                                        data-transaction-id="<%= transactionId %>"><%= isSenior ? 'Resolve Assessment' : 'Resolve' %></button>
+                                <% } %>
+                                <% if (canPrepareStr) { %>
+                                    <button id="openStrModalButton" type="button" class="secondary-btn stro-action-file"
+                                        data-transaction-id="<%= transactionId %>">Prepare and File STR</button>
+                                <% } %>
+                                <% if (canMarkStrNotRequired) { %>
+                                    <button id="openStrNotRequiredModalButton" type="button" class="secondary-btn danger stro-action-not-required"
+                                        data-transaction-id="<%= transactionId %>">Mark STR Not Required</button>
+                                <% } %>
+                                <% if (!canSendRfi && !canEscalate && !canResolve && !canReferToStro && !canPrepareStr && !canMarkStrNotRequired) { %>
+                                    <div class="read-only-notice">This assessment is read-only for your current role or status.</div>
+                                <% } %>
+                            </div>
+                        </article>
+                    <% } %>
                     <article class="review-info-card wide">
                         <h3>Screening Evidence</h3>
                         <div class="screening-evidence-grid">
@@ -363,8 +413,10 @@
                                 <div><dt>Case ID</dt><dd><%= caseInfo.case_id %></dd></div>
                                 <div><dt>Raw status</dt><dd><%= rawCaseStatus %></dd></div>
                                 <div><dt>Created by</dt><dd><%= caseInfo.created_by || 'System' %></dd></div>
-                                <div><dt>Assigned to</dt><dd><%= assignedAnalyst %></dd></div>
-                                <div><dt>Assigned role</dt><dd id="assignedRoleValue"><%= caseInfo.assigned_role || 'Not assigned' %></dd></div>
+                                <% if (!isSenior && !isStro) { %>
+                                    <div><dt>Assigned to</dt><dd><%= assignedAnalyst %></dd></div>
+                                    <div><dt>Assigned role</dt><dd id="assignedRoleValue"><%= caseInfo.assigned_role || 'Not assigned' %></dd></div>
+                                <% } %>
                                 <div><dt>Escalated to</dt><dd id="caseEscalatedToValue"><%= escalationDestination %></dd></div>
                                 <div><dt>Referred by</dt><dd id="caseReferredByValue"><%= referredBy %></dd></div>
                                 <div class="wide"><dt>Notes</dt><dd><%= caseInfo.notes || 'No notes recorded' %></dd></div>
@@ -383,46 +435,25 @@
                                 </dl>
                             </article>
                         <% } %>
-                        <article class="review-info-card action-priority-card">
-                            <h3><%= roleLabel %> Actions</h3>
-                            <p class="muted">Only actions permitted for <%= roleLabel %> are shown.</p>
-                            <div class="role-action-list">
-                                <% if (canSendRfi) { %>
-                                    <button id="openRfiModalButton" type="button" class="secondary-btn"
-                                        data-transaction-id="<%= transactionId %>"
-                                        data-recipient-type="<%= tx.accountType || 'Individual' %>"
-                                        data-recipient-name="<%= customerName %>"
-                                        data-recipient-email="<%= displayedRfiRecipientEmail %>"
-                                        data-recipient-source="<%= rfiRecipientSource %>"
-                                        data-transaction-date="<%= tx.created_at || tx.createdAt ? new Date(tx.created_at || tx.createdAt).toLocaleString('en-SG') : '' %>"
-                                        data-transaction-amount="<%= amount.toFixed(2) %>"
-                                        data-currency="<%= currency %>"><%= isStro ? 'Request More Information' : 'Request for Information' %></button>
-                                <% } %>
-                                <% if (canEscalate) { %>
-                                    <button id="openEscalationModalButton" type="button" class="secondary-btn warning"
-                                        data-transaction-id="<%= transactionId %>">Escalate</button>
-                                <% } %>
-                                <% if (canReferToStro) { %>
-                                    <button id="openReferStroModalButton" type="button" class="secondary-btn warning"
-                                        data-transaction-id="<%= transactionId %>">Refer to STRO</button>
-                                <% } %>
-                                <% if (canResolve) { %>
-                                    <button id="openResolveModalButton" type="button" class="secondary-btn danger"
-                                        data-transaction-id="<%= transactionId %>">Resolve</button>
-                                <% } %>
-                                <% if (canPrepareStr) { %>
-                                    <button id="openStrModalButton" type="button" class="secondary-btn"
-                                        data-transaction-id="<%= transactionId %>">Prepare STR</button>
-                                <% } %>
-                                <% if (canMarkStrNotRequired) { %>
-                                    <button id="openStrNotRequiredModalButton" type="button" class="secondary-btn danger"
-                                        data-transaction-id="<%= transactionId %>">Mark Not Required</button>
-                                <% } %>
-                                <% if (!canSendRfi && !canEscalate && !canResolve && !canReferToStro && !canPrepareStr && !canMarkStrNotRequired) { %>
-                                    <div class="read-only-notice">This assessment is read-only for your current role or status.</div>
-                                <% } %>
-                            </div>
-                        </article>
+                        <% if (contributions.length > 0) { %>
+                            <article class="review-info-card wide matched-rules-card">
+                                <h3>Matched Monitoring Rules</h3>
+                                <div class="matched-rules-grid">
+                                    <% contributions.forEach((rule) => { %>
+                                        <article>
+                                            <div>
+                                                <strong><%= rule.rule_name || rule.name || rule.label || rule.ruleId || 'Matched rule' %></strong>
+                                                <p><%= rule.reason || rule.description || rule.message || 'Rule matched this transaction.' %></p>
+                                            </div>
+                                            <dl>
+                                                <div><dt>Severity</dt><dd><%= rule.risk_level || rule.severity || initialLevel %></dd></div>
+                                                <div><dt>Contribution</dt><dd><%= rule.weight ?? rule.score ?? rule.riskContribution ?? 'Not assigned' %> pts</dd></div>
+                                            </dl>
+                                        </article>
+                                    <% }) %>
+                                </div>
+                            </article>
+                        <% } %>
                     </div>
                 <% } %>
             </section>
@@ -462,29 +493,26 @@
                         <p class="rfi-warning">
                             Use neutral verification wording. Do not disclose internal risk scores, screening results, suspicious transaction reporting, or investigation details to the customer.
                         </p>
-                        <% if (hasEmailTestMode) { %>
-                            <p class="rfi-test-mode-notice">Development mode: Email will be captured by Ethereal and will not be delivered to the real customer.</p>
-                        <% } %>
                         <label>
                             <span>Recipient Type</span>
-                            <input id="rfiRecipientType" type="text" readonly value="<%= tx.accountType || 'Individual' %>">
+                            <input id="rfiRecipientType" type="text" readonly value="<%= tx.accountType || tx.account_type || (tx.authorised_contact_email ? 'Organisation' : 'Individual') %>">
                         </label>
                         <label>
                             <span>Recipient Name</span>
-                            <input id="rfiRecipientName" type="text" readonly value="<%= customerName %>">
+                            <input id="rfiRecipientName" type="text" readonly value="<%= rfiRecipientName %>">
                         </label>
                         <label>
-                            <span><%= rfiRecipientSource === 'generated-test' ? 'Development Test Recipient' : 'Customer or Authorised Contact Email' %></span>
+                            <span>Customer or Authorised Contact Email</span>
                             <input id="rfiRecipientEmail" type="email" readonly value="<%= displayedRfiRecipientEmail %>">
-                            <% if (rfiRecipientSource === 'generated-test') { %>
-                                <small>No saved recipient email was available. A temporary test address was generated for this Ethereal preview. No email will be delivered to this address.</small>
+                            <% if (rfiRecipientSource === 'missing') { %>
+                                <small class="field-error">No saved recipient email is available. Ask an administrator to add a real authorised-contact email to the merchant profile.</small>
                             <% } else { %>
-                                <small>Saved customer contact. In Ethereal test mode, the email is captured in a preview inbox and is not delivered to this address.</small>
+                                <small>This saved contact will receive the email through SMTP.</small>
                             <% } %>
                         </label>
                         <label>
                             <span>Subject</span>
-                            <input id="rfiSubject" name="subject" type="text" required value="Please Confirm Your Account Details">
+                            <input id="rfiSubject" name="subject" type="text" required value="Request for Additional Transaction Information">
                         </label>
                         <label>
                             <span>Information Requested</span>
@@ -515,13 +543,11 @@
 
         <section id="rfiSuccessPanel" class="panel rfi-success-panel is-hidden" aria-live="polite">
             <div>
-                <h2>Test RFI Email Created</h2>
-                <p>This is a safe email preview for demonstration. It was not delivered to the customer.</p>
-                <p class="muted">Generated email preview - this does not prove real delivery.</p>
+                <h2>RFI Email Sent</h2>
+                <p id="rfiSuccessMessage">The SMTP provider accepted the email for delivery.</p>
             </div>
             <div id="rfiSuccessPreview" class="email-preview"></div>
             <div class="modal-actions">
-                <button id="openRfiPreviewButton" type="button" class="action-submit">Open Test Email</button>
                 <button id="closeRfiSuccessPanel" type="button" class="secondary-btn">Close</button>
             </div>
         </section>
@@ -625,13 +651,13 @@
                     <button type="button" class="detail-close" data-close-str-modal aria-label="Close STR form">Close</button>
                     <div class="panel-header">
                         <div>
-                            <h2 id="strWorkflowTitle">Prepare STR</h2>
+                            <h2 id="strWorkflowTitle">Prepare and File STR</h2>
                             <p>Review the details, then mark the STR as filed.</p>
                         </div>
                     </div>
                     <form id="strWorkflowForm" class="action-form">
                         <% if (strHasDraftValues) { %>
-                            <p class="rfi-warning">Fields below have been pre-filled from the transaction, matched monitoring rules and case referral history. Review and edit every field before submitting — this is a draft, not a final report.</p>
+                            <p class="rfi-warning">Fields below have been pre-filled from the transaction, matched monitoring rules and case referral history. Review every field before filing the report.</p>
                         <% } %>
                         <label>
                             <span>STR Reference Number</span>
@@ -766,11 +792,13 @@
 
 <script>
     (() => {
+        document.body.dataset.activeReviewTab = 'overview';
         const tabButtons = document.querySelectorAll('[data-review-tab]');
         const tabPanels = document.querySelectorAll('[data-review-panel]');
         tabButtons.forEach((button) => {
             button.addEventListener('click', () => {
                 const target = button.dataset.reviewTab;
+                document.body.dataset.activeReviewTab = target;
                 tabButtons.forEach((item) => {
                     item.classList.toggle('active', item === button);
                     item.setAttribute('aria-selected', item === button ? 'true' : 'false');
@@ -902,7 +930,6 @@
         const previewButton = document.querySelector('#rfiPreviewButton');
         const successPanel = document.querySelector('#rfiSuccessPanel');
         const successPreview = document.querySelector('#rfiSuccessPreview');
-        const openPreviewButton = document.querySelector('#openRfiPreviewButton');
         const closeSuccessPanel = document.querySelector('#closeRfiSuccessPanel');
         const assignToMeButton = document.querySelector('#assignToMeButton');
         const assignToMeFeedback = document.querySelector('#assignToMeFeedback');
@@ -935,12 +962,11 @@
         const strNotRequiredModal = document.querySelector('#strNotRequiredModal');
         const strNotRequiredForm = document.querySelector('#strNotRequiredForm');
         const strNotRequiredFeedback = document.querySelector('#strNotRequiredFeedback');
-        let currentRfiPreviewUrl = '';
         const restrictedPhrases = [
-            'suspicious transaction report', 'suspicious transaction', 'STR', 'money laundering',
+            'suspicious transaction report', 'suspicious transaction', 'suspicious activity', 'STR', 'money laundering',
             'terrorist financing', 'sanctions match', 'sanction match', 'watchlist match',
             'PEP match', 'adverse media match', 'risk score', 'critical risk',
-            'high risk customer', 'AML investigation', 'police investigation',
+            'high risk customer', 'AML investigation', 'investigation case', 'police investigation',
             'law enforcement', 'reported to authorities',
         ];
         const escapeHtml = (value) => String(value || '')
@@ -1276,12 +1302,20 @@
             return text.length >= 10 && !['test', 'testing', 'n/a', 'na'].includes(text.toLowerCase());
         };
         const restrictedPhraseFound = (...values) => {
-            const text = values.filter(Boolean).join(' ');
-            return restrictedPhrases.some((phrase) => new RegExp(`\\b${phrase.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}\\b`, 'i').test(text));
+            const normalize = (value) => {
+                const normalized = String(value || '').normalize('NFKC').toLowerCase()
+                    .replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+                return normalized.replace(/\b(?:[a-z]\s+){2,}[a-z]\b/g, (match) => match.replace(/\s+/g, ''));
+            };
+            const text = ` ${normalize(values.filter(Boolean).join(' '))} `;
+            return restrictedPhrases.some((phrase) => text.includes(` ${normalize(phrase)} `));
         };
         const validate = () => {
+            const recipient = document.querySelector('#rfiRecipientEmail')?.value.trim() || '';
             const subject = subjectField?.value.trim() || '';
             const informationRequested = infoField?.value.trim() || '';
+            if (!recipient) return 'No saved recipient email is available. Ask an administrator to update the merchant contact.';
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) return 'The saved recipient email is invalid. Ask an administrator to correct it.';
             if (!subject) return 'Subject is required.';
             if (!hasMeaningfulText(informationRequested)) return 'Please provide a meaningful information request of at least 10 characters.';
             if (restrictedPhraseFound(subject, informationRequested)) return 'This message may disclose internal compliance information. Please use neutral verification wording.';
@@ -1290,38 +1324,31 @@
         const buildBody = () => [
             `Dear ${openButton?.dataset.recipientName || 'Customer'},`,
             '',
-            'As part of our periodic account information update, we ask all customers to occasionally confirm certain account and transaction details on file.',
+            'We are reviewing a recent transaction and require some additional information to complete our standard verification process.',
             '',
-            'Could you please provide the following:',
+            `Transaction reference: ${openButton?.dataset.transactionId || ''}`,
+            `Transaction date: ${openButton?.dataset.transactionDate || ''}`,
+            `Transaction amount: ${openButton?.dataset.currency || 'SGD'} ${Number(openButton?.dataset.transactionAmount || 0).toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            '',
+            'Please provide the following information:',
             '',
             infoField?.value.trim() || '',
             '',
-            'For reference, this relates to the following account activity:',
-            `Transaction reference: ${openButton?.dataset.transactionId || ''}`,
-            `Transaction date: ${openButton?.dataset.transactionDate || ''}`,
-            `Transaction amount: ${openButton?.dataset.currency || 'SGD'} ${openButton?.dataset.transactionAmount || ''}`,
-            '',
-            'Providing this promptly helps us avoid any interruption to your account services. Simply reply to this email with the requested details or documents within 7 business days.',
+            'Please reply with the requested information and any relevant supporting documents.',
             '',
             'Thank you for your cooperation.',
             '',
-            'Account Services',
-            <%- JSON.stringify(merchantName) %>,
+            'Regards,',
+            'UNIWEB Transaction Monitoring Team',
         ].join('\n');
-        const renderGeneratedPreview = ({ container = preview, provider = '', subject = subjectField?.value.trim() || '', previewUrl = '' } = {}) => {
+        const renderGeneratedPreview = ({ container = preview, subject = subjectField?.value.trim() || '', recipient = openButton?.dataset.recipientEmail || '' } = {}) => {
             if (!container) return;
-            const providerLabel = provider === 'ethereal' ? 'Ethereal test' : provider === 'smtp' ? 'Live SMTP' : 'Not sent';
-            const recipientSource = openButton?.dataset.recipientSource || '';
-            const recipientLabel = recipientSource === 'generated-test' ? 'Development test recipient' : 'Intended recipient';
             container.classList.remove('is-hidden');
             container.innerHTML = `
-                <strong>Generated email preview - this does not prove real delivery.</strong>
-                <div><strong>Provider status:</strong> ${escapeHtml(providerLabel)}</div>
-                <div><strong>${escapeHtml(recipientLabel)}:</strong> ${escapeHtml(openButton?.dataset.recipientEmail || 'Saved customer contact')}</div>
-                ${recipientSource === 'generated-test' ? '<div class="muted">No saved recipient email was available. This example.com address is only for the Ethereal preview.</div>' : ''}
+                <strong>Local email preview — no email has been sent.</strong>
+                <div><strong>Recipient:</strong> ${escapeHtml(recipient)}</div>
                 <div><strong>Subject:</strong> ${escapeHtml(subject)}</div>
                 <pre>${escapeHtml(buildBody())}</pre>
-                ${previewUrl ? '<div><strong>External preview:</strong> Available through Open Test Email.</div>' : ''}
             `;
         };
         const openModal = () => {
@@ -1404,30 +1431,20 @@
                 }
                 const result = await response.json();
                 if (!response.ok) throw new Error(result.message || 'The RFI email could not be sent.');
-                if (result.provider === 'ethereal' && !result.previewUrl) {
-                    throw new Error('The test email was created but no preview URL was returned.');
-                }
                 closeModal();
-                currentRfiPreviewUrl = result.previewUrl || '';
+                if (assessmentStatusValue) assessmentStatusValue.textContent = 'Waiting for Information';
+                appendActivity({
+                    action: <%- JSON.stringify(isStro ? 'Additional Information Requested by STRO' : 'Request for Information Sent') %>,
+                    notes: `RFI sent by SMTP to ${result.recipient || openButton?.dataset.recipientEmail || 'saved recipient'}.`,
+                });
                 if (successPanel) {
-                    const heading = successPanel.querySelector('h2');
-                    const messageText = successPanel.querySelector('p');
-                    if (heading) heading.textContent = result.provider === 'ethereal' ? 'Test RFI Email Created' : 'RFI Email Accepted';
-                    if (messageText) {
-                        messageText.textContent = result.provider === 'ethereal'
-                            ? 'This is a safe email preview for demonstration. It was not delivered to the customer.'
-                            : 'The email provider accepted this message for delivery.';
-                    }
+                    const messageText = successPanel.querySelector('#rfiSuccessMessage');
+                    if (messageText) messageText.textContent = result.message || 'The SMTP provider accepted the email for delivery.';
                     renderGeneratedPreview({
                         container: successPreview,
-                        provider: result.provider || '',
                         subject: subjectField?.value.trim() || '',
-                        previewUrl: currentRfiPreviewUrl,
+                        recipient: result.recipient || openButton?.dataset.recipientEmail || '',
                     });
-                    if (openPreviewButton) {
-                        openPreviewButton.hidden = !currentRfiPreviewUrl;
-                        openPreviewButton.disabled = !currentRfiPreviewUrl;
-                    }
                     successPanel.classList.remove('is-hidden');
                     successPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
@@ -1440,14 +1457,8 @@
                 }
             }
         });
-        openPreviewButton?.addEventListener('click', (event) => {
-            event.preventDefault();
-            if (!currentRfiPreviewUrl) return;
-            window.open(currentRfiPreviewUrl, '_blank', 'noopener,noreferrer');
-        });
         closeSuccessPanel?.addEventListener('click', (event) => {
             event.preventDefault();
-            currentRfiPreviewUrl = '';
             successPanel?.classList.add('is-hidden');
             if (successPreview) successPreview.innerHTML = '';
         });

@@ -6,17 +6,21 @@ const { evaluateTransaction } = require('./riskEngine');
 
 async function ensureMerchant(database, merchant) {
   await database.execute(
-    `INSERT INTO merchants (merchant_id, merchant_name, merchant_mid, merchant_country, mcc_code, industry, mcc_risk_score, risk_tier, is_active)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+    `INSERT INTO merchants (merchant_id, merchant_name, merchant_mid, merchant_country, authorised_contact_name, authorised_contact_email, mcc_code, industry, mcc_risk_score, risk_tier, is_active)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
      ON DUPLICATE KEY UPDATE
        merchant_name = VALUES(merchant_name),
        merchant_mid = VALUES(merchant_mid),
-       merchant_country = VALUES(merchant_country)`,
+       merchant_country = VALUES(merchant_country),
+       authorised_contact_name = COALESCE(VALUES(authorised_contact_name), authorised_contact_name),
+       authorised_contact_email = COALESCE(VALUES(authorised_contact_email), authorised_contact_email)`,
     [
       merchant.merchantId,
       merchant.merchantName,
       merchant.merchantMid || null,
       merchant.merchantCountry || null,
+      merchant.authorisedContactName || null,
+      merchant.authorisedContactEmail || null,
       merchant.mccCode || '0000',
       merchant.industry || 'Unclassified',
       merchant.mccRiskScore || 0,

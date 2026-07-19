@@ -6,10 +6,10 @@
   const pageLink = (page) => { const next = new URLSearchParams(params); next.set('page', page); return `/senior-analyst/audit-log?${next.toString()}`; };
 %>
 
-<main class="analyst-page">
+<main class="analyst-page senior-list-page senior-audit-page">
   <section class="analyst-page-header">
     <div>
-      <p class="detail-eyebrow">UNIWEB senior review workspace</p>
+      <p class="detail-eyebrow">Senior Analyst workspace</p>
       <h1>Senior Analyst Audit Log</h1>
       <p>Senior-review, referral and resolution activity recorded for traceability.</p>
     </div>
@@ -35,9 +35,9 @@
           <% if (rows.length) { rows.forEach((entry) => { %>
             <tr>
               <td><%= fmtDate(entry.created_at) %></td>
-              <td><strong><%= entry.action %></strong></td>
+              <td><span class="senior-action-badge"><%= entry.action %></span></td>
               <td><%= entry.user_name || entry.user_id || 'System' %></td>
-              <td><%= entry.user_role || 'System' %></td>
+              <td><span class="senior-role-badge"><%= entry.user_role || 'System' %></span></td>
               <td>
                 <% if (entry.transaction_id) { %>
                   <a href="/transactions/<%= entry.transaction_id %>"><%= entry.transaction_id %></a>

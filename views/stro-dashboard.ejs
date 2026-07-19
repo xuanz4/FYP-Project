@@ -1,43 +1,71 @@
 <%- include('partials/head', { title, activePage }) %>
-<% const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG') : 'Not assigned'; %>
+<%
+  const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG') : 'Not assigned';
+  const shortDate = (value) => value ? new Date(value).toLocaleDateString('en-SG') : 'Not assigned';
+  const initials = String(currentUser.name || 'STRO').split(/\s+/).filter(Boolean).map((part) => part[0]).slice(0, 2).join('').toUpperCase();
+  const notRequired = Math.max(0, Number(summary.totalReports || 0) - Number(summary.recommended || 0) - Number(summary.filed || 0));
+  const totalReports = Number(summary.totalReports || 0);
+  const filedEnd = totalReports ? (Number(summary.filed || 0) / totalReports) * 100 : 0;
+  const recommendedEnd = totalReports ? filedEnd + (Number(summary.recommended || 0) / totalReports) * 100 : 0;
+  const percentage = (value) => totalReports ? ((Number(value || 0) / totalReports) * 100).toFixed(1) : '0.0';
+  const strBadgeClass = (status) => `stro-str-${String(status || 'Recommended').toLowerCase().replaceAll(' ', '-')}`;
+  const activityTone = (action = '') => {
+    const value = String(action).toLowerCase();
+    if (value.includes('information') || value.includes('rfi')) return 'stro-timeline-amber';
+    if (value.includes('not required')) return 'stro-timeline-grey';
+    if (value.includes('filed')) return 'stro-timeline-green';
+    if (value.includes('recommend') || value.includes('refer')) return 'stro-timeline-blue';
+    return 'stro-timeline-orange';
+  };
+  const activitySymbol = (action = '') => {
+    const value = String(action).toLowerCase();
+    if (value.includes('information') || value.includes('rfi')) return '?';
+    if (value.includes('not required')) return '\u2713';
+    if (value.includes('filed')) return '\u2713';
+    return '\u2191';
+  };
+%>
 
-<main class="analyst-page">
-  <section class="analyst-page-header">
-    <div>
-      <p class="detail-eyebrow">UNIWEB STRO workspace</p>
-      <h1>STRO Overview</h1>
-      <p>Suspicious transaction reporting workload for <strong><%= currentUser.name %></strong> (<%= currentUser.id %>)</p>
+<main class="analyst-page stro-overview">
+  <section class="stro-overview-topbar">
+    <div class="stro-overview-greeting"><span class="stro-greeting-icon" aria-hidden="true">&#9728;</span><div><h1>Good morning, <%= currentUser.name %></h1><p>Here is your STR evaluation and filing workload.</p></div></div>
+    <div class="stro-user-actions"><div class="stro-user"><span><strong><%= currentUser.name %></strong> (<%= currentUser.id %>)</span><span class="role-chip">STRO</span><span class="stro-user-avatar" aria-hidden="true"><%= initials %></span></div><a class="stro-cases-button" href="/stro/cases">View Referred Cases <span aria-hidden="true">&rarr;</span></a></div>
+  </section>
+
+  <section class="stro-kpi-layout" aria-label="STRO workload summary">
+    <div class="stro-kpi-main">
+      <article class="stro-kpi stro-kpi-red"><span class="stro-kpi-icon" aria-hidden="true">&#9873;</span><div><span>Recommended STRs</span><strong><%= summary.recommended %></strong><small>Awaiting STR preparation</small></div></article>
+      <article class="stro-kpi stro-kpi-amber"><span class="stro-kpi-icon" aria-hidden="true">?</span><div><span>Pending Information</span><strong><%= summary.waiting %></strong><small>Awaiting customer response</small></div></article>
+      <article class="stro-kpi stro-kpi-blue"><span class="stro-kpi-icon" aria-hidden="true">&#9633;</span><div><span>Ready for Filing</span><strong><%= summary.recommended %></strong><small>Recommended STR records</small></div></article>
+      <article class="stro-kpi stro-kpi-green"><span class="stro-kpi-icon" aria-hidden="true">&#10148;</span><div><span>Filed STRs</span><strong><%= summary.filed %></strong><small>Filed report records</small></div></article>
+      <article class="stro-kpi stro-kpi-grey"><span class="stro-kpi-icon" aria-hidden="true">&#10003;</span><div><span>Marked Not Required</span><strong><%= notRequired %></strong><small>STR records closed</small></div></article>
     </div>
-    <span class="role-chip">STRO</span>
+    <div class="stro-kpi-stack">
+      <article><span class="stack-icon" aria-hidden="true">&#9633;</span><div><span>Total STRs</span><strong><%= totalReports %></strong><small>All current STR records</small></div></article>
+      <article><span class="stack-icon" aria-hidden="true">!</span><div><span>Overdue Filings</span><strong><%= summary.overdue %></strong><small>Past stored due dates</small></div></article>
+    </div>
   </section>
 
-  <section class="summary-grid">
-    <article><span>Cases Referred to STRO</span><strong><%= summary.referred %></strong><small>Routed for reporting review</small></article>
-    <article><span>STR Recommended</span><strong><%= summary.recommended %></strong><small>Awaiting STR preparation</small></article>
-    <article><span>Filed STRs</span><strong><%= summary.filed %></strong><small>Submitted report records</small></article>
-    <article><span>Waiting for Information</span><strong><%= summary.waiting %></strong><small>Evidence requested</small></article>
-  </section>
-
-  <section class="analyst-preview-grid">
-    <article class="panel">
-      <div class="panel-header"><div><h2>Priority STRO Cases</h2><p>Top referred cases needing reporting review.</p></div><a class="secondary-link" href="/stro/cases">View All Cases</a></div>
-      <% if (casePreview.length) { %><div class="compact-list"><% casePreview.forEach((item) => { %>
-        <a href="/transactions/<%= item.transaction_id %>"><strong><%= item.case_id %></strong><span><%= item.str_status || 'Recommended' %> &middot; <%= item.merchant_name || 'Unknown Merchant' %> &middot; <%= fmtDate(item.due_at) %></span></a>
-      <% }) %></div><% } else { %><p class="empty-inline">No STRO cases currently require attention.</p><% } %>
+  <section class="stro-dashboard-grid">
+    <article class="stro-dashboard-card stro-queue-card">
+      <header class="stro-card-header"><div><h2>Referred Case Queue</h2><p>Cases referred to STRO for STR evaluation.</p></div><a href="/stro/cases">View All</a></header>
+      <% if (casePreview.length) { %><div class="stro-queue-table-wrap"><table class="stro-queue-table"><thead><tr><th>Case ID</th><th>Transaction ID</th><th>Merchant</th><th>Risk Score</th><th>STR Status</th><th>Case Created</th><th>Action</th></tr></thead><tbody>
+        <% casePreview.forEach((item) => { %><tr><td><strong><%= item.case_id %></strong></td><td><%= item.transaction_id %></td><td><%= item.merchant_name || 'Unknown Merchant' %></td><td><strong><%= item.risk_score ?? 'N/A' %></strong></td><td><span class="stro-str-badge <%= strBadgeClass(item.str_status) %>"><%= item.status === 'Pending RFI' ? 'Pending Information' : item.str_status || 'Recommended' %></span></td><td><%= shortDate(item.created_at) %></td><td><a class="stro-review-button" href="/transactions/<%= item.transaction_id %>">Review</a></td></tr><% }) %>
+      </tbody></table></div><footer class="stro-card-footer">Showing top <%= casePreview.length %> of <%= summary.referred %> cases</footer><% } else { %><p class="stro-empty">No referred cases currently require attention.</p><% } %>
     </article>
 
-    <article class="panel">
-      <div class="panel-header"><div><h2>Recent STR Activity</h2><p>Latest saved or updated STR records.</p></div><a class="secondary-link" href="/stro/str-reports">View STR Reports</a></div>
-      <% if (reportPreview.length) { %><div class="compact-list"><% reportPreview.forEach((item) => { %>
-        <a href="/transactions/<%= item.transaction_id %>"><strong><%= item.reference_number || item.str_id %></strong><span><%= item.str_status %> &middot; <%= fmtDate(item.updated_at || item.created_at) %></span></a>
-      <% }) %></div><% } else { %><p class="empty-inline">No STR records have been created yet.</p><% } %>
+    <article class="stro-dashboard-card stro-status-card">
+      <header class="stro-card-header"><div><h2>STR Status Summary</h2><p>Overview of STRs by valid status.</p></div></header>
+      <div class="stro-donut-layout"><div class="stro-donut" style="--filed-end:<%= filedEnd %>%; --recommended-end:<%= recommendedEnd %>%"><div><strong><%= totalReports %></strong><span>Total</span></div></div><div class="stro-donut-legend">
+        <div><i class="stro-legend-filed"></i><span>Filed</span><strong><%= summary.filed %> (<%= percentage(summary.filed) %>%)</strong></div>
+        <div><i class="stro-legend-recommended"></i><span>Recommended</span><strong><%= summary.recommended %> (<%= percentage(summary.recommended) %>%)</strong></div>
+        <div><i class="stro-legend-not-required"></i><span>Not Required</span><strong><%= notRequired %> (<%= percentage(notRequired) %>%)</strong></div>
+      </div></div>
     </article>
 
-    <article class="panel">
-      <div class="panel-header"><div><h2>Recent STRO Audit Activity</h2><p>Latest traceable STRO actions.</p></div><a class="secondary-link" href="/stro/audit-log">View Audit Log</a></div>
-      <% if (auditPreview.length) { %><div class="compact-list"><% auditPreview.forEach((entry) => { %>
-        <a href="<%= entry.transaction_id ? `/transactions/${entry.transaction_id}` : '/stro/audit-log' %>"><strong><%= entry.action %></strong><span><%= entry.user_name || entry.user_id || 'System' %> &middot; <%= fmtDate(entry.created_at) %></span></a>
-      <% }) %></div><% } else { %><p class="empty-inline">No STRO audit activity matches the current view.</p><% } %>
+    <article class="stro-dashboard-card stro-activity-card">
+      <header class="stro-card-header"><div><h2>Recent STRO Activity</h2><p>Latest STR actions and updates.</p></div></header>
+      <% if (auditPreview.length) { %><div class="stro-activity-timeline"><% auditPreview.forEach((entry) => { %><a class="stro-timeline-item <%= activityTone(entry.action) %>" href="<%= entry.transaction_id ? `/transactions/${entry.transaction_id}` : '/stro/audit-log' %>"><span class="stro-timeline-icon" aria-hidden="true"><%= activitySymbol(entry.action) %></span><div><strong><%= entry.action %></strong><span><%= entry.entity_id || entry.transaction_id || 'System activity' %></span></div><div class="stro-timeline-meta"><strong><%= entry.user_name || entry.user_id || 'System' %></strong><span><%= fmtDate(entry.created_at) %></span></div></a><% }) %></div><footer class="stro-card-footer"><a href="/stro/audit-log">View Audit Log &nbsp;&rarr;</a></footer><% } else { %><p class="stro-empty">No STRO audit activity matches the current view.</p><% } %>
     </article>
   </section>
 </main>
