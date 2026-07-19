@@ -15,15 +15,13 @@
 
   <section class="summary-grid compact">
     <article><span>Recommended</span><strong><%= Number(summary.recommended || 0) %></strong></article>
-    <article><span>Draft</span><strong><%= Number(summary.draft || 0) %></strong></article>
-    <article><span>Pending Approval</span><strong><%= Number(summary.pending_approval || 0) %></strong></article>
     <article><span>Waiting for Information</span><strong><%= Number(summary.waiting || 0) %></strong></article>
     <article><span>Filed</span><strong><%= Number(summary.filed || 0) %></strong></article>
     <article><span>Overdue</span><strong><%= Number(summary.overdue || 0) %></strong></article>
   </section>
 
   <form class="analyst-filter-bar" method="get">
-    <label><span>STR Status</span><select name="strStatus"><option value="">All</option><% ['Recommended','Draft','Pending Approval','Filed','Not Required'].forEach((item) => { %><option value="<%= item %>" <%= filters.strStatus === item ? 'selected' : '' %>><%= item %></option><% }) %></select></label>
+    <label><span>STR Status</span><select name="strStatus"><option value="">All</option><% ['Recommended','Filed','Not Required'].forEach((item) => { %><option value="<%= item %>" <%= filters.strStatus === item ? 'selected' : '' %>><%= item %></option><% }) %></select></label>
     <label><span>Assessment Status</span><select name="assessmentStatus"><option value="">All</option><% ['Open','Under Review','Pending RFI','Escalated','STR Filed','Resolved'].forEach((item) => { %><option value="<%= item %>" <%= filters.assessmentStatus === item ? 'selected' : '' %>><%= statusLabel(item) %></option><% }) %></select></label>
     <label><span>Risk Level</span><select name="riskLevel"><option value="">All</option><% ['Low','Medium','High','Critical'].forEach((item) => { %><option value="<%= item %>" <%= filters.riskLevel === item ? 'selected' : '' %>><%= item %></option><% }) %></select></label>
     <label><span>Referred By</span><select name="referredBy"><option value="">All</option><% filterOptions.users.forEach((item) => { %><option value="<%= item.user_id %>" <%= filters.referredBy === item.user_id ? 'selected' : '' %>><%= item.user_name %></option><% }) %></select></label>

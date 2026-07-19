@@ -104,12 +104,13 @@
     const dueDate = caseInfo?.due_at || caseInfo?.dueAt || tx.due_at || tx.dueAt || 'Not assigned';
     const assignedAnalyst = caseInfo?.assigned_user_name || caseInfo?.assignedUserName || caseInfo?.owner || tx.assignedAnalyst || (caseInfo?.assigned_to ? caseInfo.assigned_to : 'Unassigned');
     const isUnassignedCase = !!caseInfo && !caseInfo.assigned_to && !caseInfo.assignedUserId;
+    const requiredAssignmentRole = caseInfo?.assigned_role || caseInfo?.assignedRole || 'Analyst';
     const strStatus = caseInfo?.str_status || caseInfo?.strStatus || 'Not Started';
     const routedToStro = caseInfo?.assigned_role === 'STRO' || caseInfo?.assignedRole === 'STRO' || caseInfo?.escalation_destination === 'STRO' || caseInfo?.escalationDestination === 'STRO';
     const escalationDestination = caseInfo?.escalation_destination || caseInfo?.escalationDestination || (routedToStro ? 'STRO' : caseInfo?.assigned_role || caseInfo?.assignedRole || 'Not assigned');
     const referredBy = caseInfo?.referred_by_user_name || caseInfo?.referredByName || caseInfo?.referred_to_stro_by || 'Not assigned';
     const canReferToStro = !isResolved && isSenior && !!caseInfo && !routedToStro && strStatus === 'Not Started';
-    const canStroWorkStr = !isResolved && isStro && routedToStro && ['Recommended', 'Draft', 'Pending Approval'].includes(strStatus);
+    const canStroWorkStr = !isResolved && isStro && routedToStro && strStatus === 'Recommended';
     const canStroRequestInfo = canStroWorkStr;
     const canMarkStrNotRequired = canStroWorkStr;
     const canPrepareStr = canStroWorkStr;
@@ -121,8 +122,15 @@
     const canResolve = !isResolved && ((isAnalyst && rawCaseStatus !== 'Escalated' && rawCaseStatus !== 'Pending Senior Review' && initialLevel !== 'Critical') || isSenior);
     const canFileStr = false;
     const canRecommendStr = false;
-    const canAssignToMe = !isResolved && isUnassignedCase && (isAnalyst || isSenior);
+    const canAssignToMe = !isResolved && isUnassignedCase && role === requiredAssignmentRole && (isAnalyst || isSenior || isStro);
     const hasEmailTestMode = typeof emailTestMode !== 'undefined' && emailTestMode;
+    const strDraft = (typeof strAutoFill !== 'undefined' && strAutoFill) ? strAutoFill : {
+        referenceNumber: '', filingDate: '', reportingReason: '', suspicionSummary: '', stroNotes: '', supportingEvidence: []
+    };
+    let savedStrEvidence = [];
+    try { savedStrEvidence = caseInfo && caseInfo.supporting_evidence ? JSON.parse(caseInfo.supporting_evidence) : []; } catch (e) { savedStrEvidence = []; }
+    const strEvidenceChecked = savedStrEvidence.length ? savedStrEvidence : (strDraft.supportingEvidence || []);
+    const strHasDraftValues = !caseInfo?.reporting_reason && !caseInfo?.suspicion_summary && !caseInfo?.stro_notes;
 %>
 
 <main class="transaction-review-page">
@@ -369,7 +377,6 @@
                                     <div><dt>STR Status</dt><dd id="strSummaryStatus"><%= strStatus %></dd></div>
                                     <div><dt>Reference number</dt><dd id="strSummaryReference"><%= caseInfo.reference_number || 'Not assigned' %></dd></div>
                                     <div><dt>Prepared by</dt><dd><%= caseInfo.prepared_by_name || caseInfo.prepared_by || 'Not assigned' %></dd></div>
-                                    <div><dt>Approved by</dt><dd><%= caseInfo.approved_by_name || caseInfo.approved_by || 'Not assigned' %></dd></div>
                                     <div><dt>Filed by</dt><dd><%= caseInfo.filed_by_name || caseInfo.filed_by || 'Not assigned' %></dd></div>
                                     <div><dt>Filing date</dt><dd id="strSummaryFilingDate"><%= caseInfo.filing_date ? new Date(caseInfo.filing_date).toLocaleDateString('en-SG') : 'Not assigned' %></dd></div>
                                     <div><dt>Last updated</dt><dd><%= caseInfo.str_updated_at ? new Date(caseInfo.str_updated_at).toLocaleString('en-SG') : 'Not assigned' %></dd></div>
@@ -405,7 +412,7 @@
                                 <% } %>
                                 <% if (canPrepareStr) { %>
                                     <button id="openStrModalButton" type="button" class="secondary-btn"
-                                        data-transaction-id="<%= transactionId %>"><%= strStatus === 'Draft' || strStatus === 'Pending Approval' ? 'Continue STR' : 'Prepare STR' %></button>
+                                        data-transaction-id="<%= transactionId %>">Prepare STR</button>
                                 <% } %>
                                 <% if (canMarkStrNotRequired) { %>
                                     <button id="openStrNotRequiredModalButton" type="button" class="secondary-btn danger"
@@ -477,21 +484,21 @@
                         </label>
                         <label>
                             <span>Subject</span>
-                            <input id="rfiSubject" name="subject" type="text" required value="Additional Information Required for Your Transaction">
+                            <input id="rfiSubject" name="subject" type="text" required value="Please Confirm Your Account Details">
                         </label>
                         <label>
                             <span>Information Requested</span>
-                            <textarea id="rfiInformationRequested" name="informationRequested" required minlength="10" placeholder="Please provide the invoice and supporting documents."></textarea>
+                            <textarea id="rfiInformationRequested" name="informationRequested" required minlength="10" placeholder="Please provide the invoice and supporting documents for our records."></textarea>
                             <small>Need a neutral starting point? Choose a safe template below, then adjust it before sending.</small>
                         </label>
                         <div class="rfi-template-row">
                             <span>Safe template</span>
                             <div>
-                                <button type="button" class="secondary-btn" data-rfi-template="Please provide the invoice and receipt for this transaction.">Invoice and receipt</button>
-                                <button type="button" class="secondary-btn" data-rfi-template="Please provide the transaction purpose and a short explanation of the purchase.">Transaction purpose</button>
-                                <button type="button" class="secondary-btn" data-rfi-template="Please provide source-of-funds documents supporting this transaction.">Source-of-funds documents</button>
-                                <button type="button" class="secondary-btn" data-rfi-template="Please explain your relationship with the counterparty for this transaction.">Counterparty relationship</button>
-                                <button type="button" class="secondary-btn" data-rfi-template="Please provide business supporting documents related to this transaction.">Business supporting documents</button>
+                                <button type="button" class="secondary-btn" data-rfi-template="Please provide the receipt or invoice matching this transaction as part of our records update.">Invoice and receipt</button>
+                                <button type="button" class="secondary-btn" data-rfi-template="Please provide a short description of the purpose of this transaction for our records.">Transaction purpose</button>
+                                <button type="button" class="secondary-btn" data-rfi-template="Please provide documentation showing where the funds for this transaction originated (e.g. payslip, sale agreement, or business invoice), as part of our periodic account checks.">Source-of-funds documents</button>
+                                <button type="button" class="secondary-btn" data-rfi-template="Please confirm your relationship with the other party involved in this transaction for our records.">Counterparty relationship</button>
+                                <button type="button" class="secondary-btn" data-rfi-template="Please provide any business documents (e.g. invoice, contract, or shipping document) related to this transaction for our records.">Business supporting documents</button>
                             </div>
                         </div>
                         <div id="rfiEmailPreview" class="email-preview is-hidden"></div>
@@ -619,33 +626,28 @@
                     <div class="panel-header">
                         <div>
                             <h2 id="strWorkflowTitle">Prepare STR</h2>
-                            <p>Save a draft, submit for approval, or mark the STR as filed.</p>
+                            <p>Review the details, then mark the STR as filed.</p>
                         </div>
                     </div>
                     <form id="strWorkflowForm" class="action-form">
-                        <label>
-                            <span>STR Status</span>
-                            <select id="strWorkflowStatus" required>
-                                <option value="Draft">Draft</option>
-                                <option value="Pending Approval">Pending Approval</option>
-                                <option value="Filed">Filed</option>
-                            </select>
-                        </label>
+                        <% if (strHasDraftValues) { %>
+                            <p class="rfi-warning">Fields below have been pre-filled from the transaction, matched monitoring rules and case referral history. Review and edit every field before submitting — this is a draft, not a final report.</p>
+                        <% } %>
                         <label>
                             <span>STR Reference Number</span>
-                            <input id="strReferenceNumber" type="text" value="<%= caseInfo.reference_number || '' %>">
+                            <input id="strReferenceNumber" type="text" value="<%= caseInfo.reference_number || strDraft.referenceNumber %>">
                         </label>
                         <label>
                             <span>Filing Date</span>
-                            <input id="strFilingDate" type="date" value="<%= caseInfo.filing_date ? new Date(caseInfo.filing_date).toISOString().slice(0, 10) : '' %>">
+                            <input id="strFilingDate" type="date" value="<%= caseInfo.filing_date ? new Date(caseInfo.filing_date).toISOString().slice(0, 10) : strDraft.filingDate %>">
                         </label>
                         <label class="wide">
                             <span>Reporting Reason</span>
-                            <textarea id="strReportingReason" required minlength="20"><%= caseInfo.reporting_reason || '' %></textarea>
+                            <textarea id="strReportingReason" required minlength="20"><%= caseInfo.reporting_reason || strDraft.reportingReason %></textarea>
                         </label>
                         <label class="wide">
                             <span>Suspicion Summary</span>
-                            <textarea id="strSuspicionSummary" required minlength="30"><%= caseInfo.suspicion_summary || '' %></textarea>
+                            <textarea id="strSuspicionSummary" required minlength="30"><%= caseInfo.suspicion_summary || strDraft.suspicionSummary %></textarea>
                         </label>
                         <label class="wide">
                             <span>Transaction Summary</span>
@@ -661,12 +663,12 @@
                         <fieldset class="checkbox-fieldset wide">
                             <legend>Supporting Evidence</legend>
                             <% ['Triggered monitoring rules', 'Screening matches', 'Customer profile risk', 'Merchant profile risk', 'Transaction behaviour', 'RFI response', 'Other'].forEach((item) => { %>
-                                <label><input type="checkbox" name="strEvidence" value="<%= item %>"> <span><%= item %></span></label>
+                                <label><input type="checkbox" name="strEvidence" value="<%= item %>" <%= strEvidenceChecked.includes(item) ? 'checked' : '' %>> <span><%= item %></span></label>
                             <% }) %>
                         </fieldset>
                         <label class="wide">
                             <span>STRO Notes</span>
-                            <textarea id="strStroNotes" required minlength="10"><%= caseInfo.stro_notes || '' %></textarea>
+                            <textarea id="strStroNotes" required minlength="10"><%= caseInfo.stro_notes || strDraft.stroNotes %></textarea>
                         </label>
                         <label class="wide checkbox-line">
                             <input id="strConfirmAccurate" type="checkbox">
@@ -675,8 +677,6 @@
                         <p id="strWorkflowFeedback" class="muted"></p>
                         <div class="modal-actions">
                             <button type="button" class="secondary-btn" data-close-str-modal>Cancel</button>
-                            <button type="button" class="secondary-btn" data-str-submit="Draft">Save Draft</button>
-                            <button type="button" class="secondary-btn" data-str-submit="Pending Approval">Submit for Approval</button>
                             <button type="button" class="action-submit" data-str-submit="Filed">Mark Filed</button>
                         </div>
                     </form>
@@ -931,7 +931,6 @@
         const strModalButton = document.querySelector('#openStrModalButton');
         const strModal = document.querySelector('#strWorkflowModal');
         const strFeedback = document.querySelector('#strWorkflowFeedback');
-        const strStatusInput = document.querySelector('#strWorkflowStatus');
         const strNotRequiredButton = document.querySelector('#openStrNotRequiredModalButton');
         const strNotRequiredModal = document.querySelector('#strNotRequiredModal');
         const strNotRequiredForm = document.querySelector('#strNotRequiredForm');
@@ -1091,6 +1090,9 @@
                 if (escalatedToValue) escalatedToValue.textContent = result.escalatedTo || body.escalationDestination;
                 if (caseEscalatedToValue) caseEscalatedToValue.textContent = result.escalatedTo || body.escalationDestination;
                 if (assignedRoleValue) assignedRoleValue.textContent = result.assignedRole || body.escalationDestination;
+                if (assignedAnalystValue) assignedAnalystValue.textContent = 'Unassigned';
+                if (assignToMeFeedback) assignToMeFeedback.textContent = '';
+                assignToMeButton?.remove();
                 if (strStatusValue) strStatusValue.textContent = result.strStatus || 'Not Started';
                 if (strSummaryStatus) strSummaryStatus.textContent = result.strStatus || 'Not Started';
                 if (document.querySelector('#referredByValue')) document.querySelector('#referredByValue').textContent = <%- JSON.stringify(userName) %>;
@@ -1151,6 +1153,9 @@
                 if (escalatedToValue) escalatedToValue.textContent = 'STRO';
                 if (caseEscalatedToValue) caseEscalatedToValue.textContent = 'STRO';
                 if (assignedRoleValue) assignedRoleValue.textContent = 'STRO';
+                if (assignedAnalystValue) assignedAnalystValue.textContent = 'Unassigned';
+                if (assignToMeFeedback) assignToMeFeedback.textContent = '';
+                assignToMeButton?.remove();
                 referStroButton?.remove();
                 appendActivity({ action: 'Case Referred to STRO', notes: 'Case referred to STRO for suspicious transaction reporting review.' });
                 closeDetailModal(referStroModal, referStroFeedback);
@@ -1165,7 +1170,7 @@
         });
         strModalButton?.addEventListener('click', (event) => {
             event.preventDefault();
-            openDetailModal(strModal, strFeedback, '#strWorkflowStatus');
+            openDetailModal(strModal, strFeedback, '#strReferenceNumber');
         });
         document.querySelectorAll('[data-close-str-modal]').forEach((control) => {
             control.addEventListener('click', (event) => {
@@ -1177,7 +1182,6 @@
             control.addEventListener('click', async (event) => {
                 event.preventDefault();
                 const nextStatus = control.dataset.strSubmit;
-                if (strStatusInput) strStatusInput.value = nextStatus;
                 const body = {
                     strStatus: nextStatus,
                     referenceNumber: document.querySelector('#strReferenceNumber')?.value.trim() || '',
@@ -1211,9 +1215,9 @@
                     if (strSummaryStatus) strSummaryStatus.textContent = result.strStatus;
                     if (strSummaryReference) strSummaryReference.textContent = result.referenceNumber || 'Not assigned';
                     if (strSummaryFilingDate) strSummaryFilingDate.textContent = result.filingDate ? new Date(result.filingDate).toLocaleDateString('en-SG') : 'Not assigned';
-                    appendActivity({ action: result.strStatus === 'Filed' ? 'STR Filed' : result.strStatus === 'Pending Approval' ? 'STR Submitted for Approval' : 'STR Draft Saved', notes: result.message });
+                    appendActivity({ action: 'STR Filed', notes: result.message });
                     closeDetailModal(strModal, strFeedback);
-                    if (result.strStatus === 'Filed') window.location.reload();
+                    window.location.reload();
                 } catch (error) {
                     if (strFeedback) strFeedback.textContent = error.message;
                 } finally {
@@ -1286,21 +1290,22 @@
         const buildBody = () => [
             `Dear ${openButton?.dataset.recipientName || 'Customer'},`,
             '',
-            'We require additional information to complete our routine review of a recent transaction.',
+            'As part of our periodic account information update, we ask all customers to occasionally confirm certain account and transaction details on file.',
             '',
-            'Please provide the following information or supporting documents:',
+            'Could you please provide the following:',
             '',
             infoField?.value.trim() || '',
             '',
+            'For reference, this relates to the following account activity:',
             `Transaction reference: ${openButton?.dataset.transactionId || ''}`,
             `Transaction date: ${openButton?.dataset.transactionDate || ''}`,
             `Transaction amount: ${openButton?.dataset.currency || 'SGD'} ${openButton?.dataset.transactionAmount || ''}`,
             '',
-            'Please reply to this email with the requested information.',
+            'Providing this promptly helps us avoid any interruption to your account services. Simply reply to this email with the requested details or documents within 7 business days.',
             '',
-            'Thank you.',
+            'Thank you for your cooperation.',
             '',
-            'Customer Review Team',
+            'Account Services',
             <%- JSON.stringify(merchantName) %>,
         ].join('\n');
         const renderGeneratedPreview = ({ container = preview, provider = '', subject = subjectField?.value.trim() || '', previewUrl = '' } = {}) => {

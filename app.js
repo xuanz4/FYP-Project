@@ -1,6 +1,8 @@
 const express = require('express');
 require('dotenv').config();
 const path = require('path');
+const http = require('http');
+const { Server: SocketIOServer } = require('socket.io');
 const session = require('express-session');
 const database = require('./src/database');
 const emailService = require('./src/services/emailService');
@@ -34,7 +36,8 @@ app.use((req, res, next) => {
   next();
 });
 
-const clients = new Set();
+const server = http.createServer(app);
+const io = new SocketIOServer(server);
 const assessmentDecisions = ['Accepted', 'Rejected'];
 const resolutionReasons = ['Legitimate Transaction', 'False Positive', 'Suspicious Activity', 'Insufficient Information', 'Other'];
 const stroReferralReasons = [
@@ -129,11 +132,99 @@ function buildTransactionSummary(transaction) {
   ].join('\n');
 }
 
-function broadcast(event, data) {
-  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-  for (const res of clients) {
-    res.write(payload);
+// Rule types (see compliance_rules.rule_type) grouped by which STR evidence checkbox they support.
+const strEvidenceRuleTypeGroups = {
+  'Customer profile risk': ['new_or_deviating_customer', 'kyc_pending'],
+  'Transaction behaviour': ['amount', 'recent_merchant_transactions', 'card_spend_24h', 'near_threshold', 'operating_hours', 'low_value_burst'],
+  'Screening matches': ['jurisdiction'],
+};
+
+function summarizeMatchedRules(matchedRules) {
+  return (matchedRules || [])
+    .filter((rule) => rule.rule_name)
+    .map((rule) => `${rule.rule_name} (${rule.risk_level || 'Unknown'} risk, weight ${rule.weight ?? 0}) — ${rule.reason || 'No reason recorded'}`)
+    .join('; ');
+}
+
+function buildStrReferenceNumber(transactionId) {
+  const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  return `STR-${transactionId || 'TXN'}-${stamp}`;
+}
+
+function buildStrEvidenceSuggestions({ matchedRules, transaction, activityLogs }) {
+  const evidence = new Set();
+  const ruleTypes = new Set((matchedRules || []).map((rule) => rule.rule_type));
+  if ((matchedRules || []).length) evidence.add('Triggered monitoring rules');
+  Object.entries(strEvidenceRuleTypeGroups).forEach(([evidenceLabel, types]) => {
+    if (types.some((type) => ruleTypes.has(type))) evidence.add(evidenceLabel);
+  });
+  if (Number(transaction?.mcc_risk_score || 0) > 0) evidence.add('Merchant profile risk');
+  if ((activityLogs || []).some((entry) => /information (requested|sent)|rfi/i.test(entry.action || ''))) evidence.add('RFI response');
+  return Array.from(evidence);
+}
+
+function buildStrDraftReportingReason(transaction, caseRecord, matchedRules) {
+  const riskLevel = transaction?.risk_level || 'Unknown';
+  const riskScore = transaction?.risk_score ?? 'unknown';
+  const ruleNames = (matchedRules || []).map((rule) => rule.rule_name).filter(Boolean);
+  const sentences = [
+    `Transaction ${transaction?.transaction_id || ''} is being reported for suspicious activity after triggering ${ruleNames.length} monitoring rule${ruleNames.length === 1 ? '' : 's'}${ruleNames.length ? ` (${ruleNames.join(', ')})` : ''}, resulting in a ${riskLevel} risk classification (score: ${riskScore}).`,
+  ];
+  if (caseRecord?.referral_reason) {
+    sentences.push(`The case was referred to STRO for review because: ${caseRecord.referral_reason}.`);
   }
+  return sentences.join(' ');
+}
+
+function buildStrDraftSuspicionSummary(transaction, caseRecord, matchedRules) {
+  const amount = Number(transaction?.amount || 0).toFixed(2);
+  const currency = transaction?.currency || 'SGD';
+  const merchantName = transaction?.merchant_name || 'the merchant';
+  const createdAt = transaction?.created_at ? new Date(transaction.created_at).toLocaleString('en-SG') : 'an unrecorded date';
+  const ruleSummary = summarizeMatchedRules(matchedRules);
+  const parts = [
+    `On ${createdAt}, a transaction of ${currency} ${amount} was processed with ${merchantName} (transaction ID ${transaction?.transaction_id || ''}).`,
+  ];
+  if (ruleSummary) parts.push(`The transaction triggered the following monitoring rule(s): ${ruleSummary}.`);
+  if (caseRecord?.referral_summary) parts.push(`Senior Analyst referral summary: ${caseRecord.referral_summary}`);
+  if (caseRecord?.senior_analyst_notes) parts.push(`Senior Analyst notes: ${caseRecord.senior_analyst_notes}`);
+  parts.push('Based on the above, this activity is assessed as warranting a suspicious transaction report for further review by the reporting officer.');
+  return parts.join(' ');
+}
+
+function buildStrDraftStroNotes(transaction, matchedRules) {
+  const ruleCount = (matchedRules || []).length;
+  return [
+    `Reviewed transaction ${transaction?.transaction_id || ''} and associated case history prior to STR preparation.`,
+    ruleCount
+      ? `Confirmed ${ruleCount} monitoring rule match${ruleCount === 1 ? '' : 'es'} supporting the suspicion basis.`
+      : 'No monitoring rules were recorded for this transaction; suspicion basis derived from case referral.',
+    'This is a system-generated draft — review and amend before submission.',
+  ].join(' ');
+}
+
+function buildStrAutoFill({ transaction, caseRecord, matchedRules, activityLogs }) {
+  return {
+    referenceNumber: buildStrReferenceNumber(transaction?.transaction_id),
+    filingDate: new Date().toISOString().slice(0, 10),
+    reportingReason: buildStrDraftReportingReason(transaction, caseRecord, matchedRules),
+    suspicionSummary: buildStrDraftSuspicionSummary(transaction, caseRecord, matchedRules),
+    stroNotes: buildStrDraftStroNotes(transaction, matchedRules),
+    supportingEvidence: buildStrEvidenceSuggestions({ matchedRules, transaction, activityLogs }),
+  };
+}
+
+const emptyStrAutoFill = {
+  referenceNumber: '',
+  filingDate: '',
+  reportingReason: '',
+  suspicionSummary: '',
+  stroNotes: '',
+  supportingEvidence: [],
+};
+
+function broadcast(event, data) {
+  io.emit(event, data);
 }
 
 function slugForTestEmail(value, fallback) {
@@ -334,7 +425,7 @@ async function handleDatabaseRfiRequest(req, res) {
   }
   if (req.session.user.role === 'STRO') {
     const routedToStro = context.assignedRole === 'STRO' || context.escalationDestination === 'STRO';
-    const openStrStatus = ['Recommended', 'Draft', 'Pending Approval'].includes(context.strStatus);
+    const openStrStatus = context.strStatus === 'Recommended';
     if (!routedToStro || !openStrStatus) {
       return res.status(403).json({ success: false, message: 'You do not have permission to perform this action.' });
     }
@@ -446,7 +537,20 @@ async function handleDatabaseRfiRequest(req, res) {
   });
 }
 
-async function ensureDatabaseResolveColumns() {
+function memoizeAsync(fn) {
+  let inFlight = null;
+  return (...args) => {
+    if (!inFlight) {
+      inFlight = fn(...args).catch((error) => {
+        inFlight = null;
+        throw error;
+      });
+    }
+    return inFlight;
+  };
+}
+
+const ensureDatabaseResolveColumns = memoizeAsync(async function ensureDatabaseResolveColumns() {
   const dbName = process.env.DB_NAME;
   if (!dbName || !database.isEnabled()) return;
 
@@ -500,9 +604,9 @@ async function ensureDatabaseResolveColumns() {
   if (actionStatusColumn[0] && !actionStatusColumn[0].COLUMN_TYPE.includes("'Resolved'")) {
     await database.execute("ALTER TABLE transactions MODIFY action_status ENUM('None', 'Pending RFI', 'Pending Senior Review', 'STR Filed', 'Dismissed as False Positive', 'Escalated', 'Resolved') NOT NULL DEFAULT 'None'");
   }
-}
+});
 
-async function ensureCaseAssignmentColumns() {
+const ensureCaseAssignmentColumns = memoizeAsync(async function ensureCaseAssignmentColumns() {
   const dbName = process.env.DB_NAME;
   if (!dbName || !database.isEnabled()) return;
 
@@ -532,9 +636,9 @@ async function ensureCaseAssignmentColumns() {
   if (statusColumn && !statusColumn.COLUMN_TYPE.includes("'Under Review'")) {
     await database.execute("ALTER TABLE cases MODIFY status ENUM('Open', 'Under Review', 'Pending RFI', 'Pending Senior Review', 'Escalated', 'Dismissed as False Positive', 'STR Filed', 'Resolved') NOT NULL DEFAULT 'Open'");
   }
-}
+});
 
-async function ensureStrWorkflowSchema() {
+const ensureStrWorkflowSchema = memoizeAsync(async function ensureStrWorkflowSchema() {
   const dbName = process.env.DB_NAME;
   if (!dbName || !database.isEnabled()) return;
 
@@ -571,7 +675,7 @@ async function ensureStrWorkflowSchema() {
       str_id VARCHAR(40) PRIMARY KEY,
       transaction_id VARCHAR(40) NOT NULL,
       case_id VARCHAR(40) NOT NULL,
-      str_status ENUM('Recommended', 'Draft', 'Pending Approval', 'Filed', 'Not Required') NOT NULL DEFAULT 'Recommended',
+      str_status ENUM('Recommended', 'Filed', 'Not Required') NOT NULL DEFAULT 'Recommended',
       reference_number VARCHAR(80) NULL,
       reporting_reason TEXT NULL,
       suspicion_summary TEXT NULL,
@@ -582,7 +686,6 @@ async function ensureStrWorkflowSchema() {
       referral_summary TEXT NULL,
       senior_analyst_notes TEXT NULL,
       prepared_by VARCHAR(20) NULL,
-      approved_by VARCHAR(20) NULL,
       filed_by VARCHAR(20) NULL,
       filing_date DATE NULL,
       filed_at DATETIME NULL,
@@ -594,7 +697,7 @@ async function ensureStrWorkflowSchema() {
       INDEX idx_str_status (str_status)
     )`,
   );
-}
+});
 
 async function handleDatabaseResolveRequest(req, res) {
   if (!req.session?.user || !roleCanPerform(req.session.user.role, 'resolveCase')) {
@@ -1075,8 +1178,9 @@ async function loadAnalystAudit(req) {
   if (req.query.dateFrom) { where.push('DATE(al.created_at) >= ?'); values.push(req.query.dateFrom); }
   if (req.query.dateTo) { where.push('DATE(al.created_at) <= ?'); values.push(req.query.dateTo); }
   if (filters.q) {
-    where.push('(al.transaction_id LIKE ? OR al.entity_id LIKE ? OR al.action LIKE ? OR al.notes LIKE ?)');
-    values.push(`%${filters.q}%`, `%${filters.q}%`, `%${filters.q}%`, `%${filters.q}%`);
+    where.push(`(al.transaction_id LIKE ? OR al.entity_id LIKE ? OR al.action LIKE ? OR al.notes LIKE ?
+      OR EXISTS (SELECT 1 FROM str_reports sr WHERE sr.transaction_id = al.transaction_id AND sr.reference_number LIKE ?))`);
+    values.push(`%${filters.q}%`, `%${filters.q}%`, `%${filters.q}%`, `%${filters.q}%`, `%${filters.q}%`);
   }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const [countRows] = await database.query(`SELECT COUNT(*) AS total FROM audit_logs al LEFT JOIN users u ON u.user_id = al.user_id ${whereSql}`, values);
@@ -1224,7 +1328,7 @@ async function loadSeniorAudit(req) {
   const filters = seniorFiltersFromQuery(req.query);
   const where = [];
   const values = [];
-  if (filters.scope !== 'all') {
+  if (filters.scope !== 'all' && !filters.q) {
     where.push(`al.action IN (${seniorAuditDefaultActions.map(() => '?').join(', ')})`);
     values.push(...seniorAuditDefaultActions);
   }
@@ -1234,8 +1338,9 @@ async function loadSeniorAudit(req) {
   if (filters.dateFrom) { where.push('DATE(al.created_at) >= ?'); values.push(filters.dateFrom); }
   if (filters.dateTo) { where.push('DATE(al.created_at) <= ?'); values.push(filters.dateTo); }
   if (filters.q) {
-    where.push('(al.transaction_id LIKE ? OR al.entity_id LIKE ? OR al.action LIKE ? OR al.notes LIKE ?)');
-    values.push(`%${filters.q}%`, `%${filters.q}%`, `%${filters.q}%`, `%${filters.q}%`);
+    where.push(`(al.transaction_id LIKE ? OR al.entity_id LIKE ? OR al.action LIKE ? OR al.notes LIKE ?
+      OR EXISTS (SELECT 1 FROM str_reports sr WHERE sr.transaction_id = al.transaction_id AND sr.reference_number LIKE ?))`);
+    values.push(`%${filters.q}%`, `%${filters.q}%`, `%${filters.q}%`, `%${filters.q}%`, `%${filters.q}%`);
   }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const [countRows] = await database.query(`SELECT COUNT(*) AS total FROM audit_logs al LEFT JOIN users u ON u.user_id = al.user_id ${whereSql}`, values);
@@ -1316,8 +1421,6 @@ async function loadStroCases(req) {
      ORDER BY c.status IN ('Resolved', 'Dismissed as False Positive', 'STR Filed') ASC,
               (c.due_at IS NOT NULL AND c.due_at < NOW() AND c.status NOT IN ('Resolved', 'Dismissed as False Positive', 'STR Filed')) DESC,
               c.status = 'Pending RFI' DESC,
-              sr.str_status = 'Pending Approval' DESC,
-              sr.str_status = 'Draft' DESC,
               sr.str_status = 'Recommended' DESC,
               c.created_at ASC
      LIMIT ? OFFSET ?`,
@@ -1327,8 +1430,6 @@ async function loadStroCases(req) {
   const [summaryRows] = await database.query(
     `SELECT
        SUM(sr.str_status = 'Recommended') AS recommended,
-       SUM(sr.str_status = 'Draft') AS draft,
-       SUM(sr.str_status = 'Pending Approval') AS pending_approval,
        SUM(c.status = 'Pending RFI') AS waiting,
        SUM(sr.str_status = 'Filed') AS filed,
        SUM(c.due_at IS NOT NULL AND c.due_at < NOW() AND c.status NOT IN ('Resolved', 'Dismissed as False Positive', 'STR Filed')) AS overdue,
@@ -1360,11 +1461,10 @@ async function loadStroReports(req) {
   const pagination = paginationMeta(req, total, 15);
   const [rows] = await database.query(
     `SELECT sr.str_id, sr.reference_number, sr.case_id, sr.transaction_id, sr.str_status,
-            sr.prepared_by, sr.approved_by, sr.filed_by, sr.filing_date, sr.created_at, sr.updated_at,
-            prepared.user_name AS prepared_by_name, approved.user_name AS approved_by_name
+            sr.prepared_by, sr.filed_by, sr.filing_date, sr.created_at, sr.updated_at,
+            prepared.user_name AS prepared_by_name
      FROM str_reports sr
      LEFT JOIN users prepared ON prepared.user_id = sr.prepared_by
-     LEFT JOIN users approved ON approved.user_id = sr.approved_by
      ${whereSql}
      ORDER BY sr.str_status = 'Filed' ASC, COALESCE(sr.updated_at, sr.created_at) DESC
      LIMIT ? OFFSET ?`,
@@ -1376,7 +1476,6 @@ async function loadStroReports(req) {
 const stroAuditDefaultActions = [
   'Case Referred to STRO',
   'STR Recommended',
-  'STR Draft Saved',
   'STR Submitted for Approval',
   'STR Filed',
   'STR Marked Not Required',
@@ -1387,7 +1486,7 @@ async function loadStroAudit(req) {
   const filters = stroFiltersFromQuery(req.query);
   const where = [];
   const values = [];
-  if (filters.scope !== 'all') {
+  if (filters.scope !== 'all' && !filters.q) {
     where.push(`al.action IN (${stroAuditDefaultActions.map(() => '?').join(', ')})`);
     values.push(...stroAuditDefaultActions);
   }
@@ -1397,8 +1496,9 @@ async function loadStroAudit(req) {
   if (filters.dateFrom) { where.push('DATE(al.created_at) >= ?'); values.push(filters.dateFrom); }
   if (filters.dateTo) { where.push('DATE(al.created_at) <= ?'); values.push(filters.dateTo); }
   if (filters.q) {
-    where.push('(al.transaction_id LIKE ? OR al.entity_id LIKE ? OR al.action LIKE ? OR al.notes LIKE ?)');
-    values.push(`%${filters.q}%`, `%${filters.q}%`, `%${filters.q}%`, `%${filters.q}%`);
+    where.push(`(al.transaction_id LIKE ? OR al.entity_id LIKE ? OR al.action LIKE ? OR al.notes LIKE ?
+      OR EXISTS (SELECT 1 FROM str_reports sr WHERE sr.transaction_id = al.transaction_id AND sr.reference_number LIKE ?))`);
+    values.push(`%${filters.q}%`, `%${filters.q}%`, `%${filters.q}%`, `%${filters.q}%`, `%${filters.q}%`);
   }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const [countRows] = await database.query(`SELECT COUNT(*) AS total FROM audit_logs al LEFT JOIN users u ON u.user_id = al.user_id ${whereSql}`, values);
@@ -1809,8 +1909,6 @@ app.get('/stro', requireRole('STRO'), async (req, res) => {
     summary: {
       referred: Number(caseData.summary.referred || 0),
       recommended: Number(caseData.summary.recommended || 0),
-      draft: Number(caseData.summary.draft || 0),
-      pendingApproval: Number(caseData.summary.pending_approval || 0),
       filed: Number(caseData.summary.filed || 0),
       waiting: Number(caseData.summary.waiting || 0),
     },
@@ -1870,16 +1968,15 @@ app.get('/transactions/:id', requireAuth, async (req, res) => {
               c.due_at, c.created_at, c.updated_at, u.user_name AS assigned_user_name,
               sr.str_id, sr.str_status, sr.reference_number, sr.reporting_reason, sr.suspicion_summary,
               sr.transaction_summary, sr.supporting_evidence, sr.stro_notes, sr.referral_reason,
-              sr.referral_summary, sr.senior_analyst_notes, sr.prepared_by, sr.approved_by,
+              sr.referral_summary, sr.senior_analyst_notes, sr.prepared_by,
               sr.filed_by, sr.filing_date, sr.filed_at, sr.not_required_reason, sr.updated_at AS str_updated_at,
-              prepared.user_name AS prepared_by_name, approved.user_name AS approved_by_name,
+              prepared.user_name AS prepared_by_name,
               filed.user_name AS filed_by_name, referred.user_name AS referred_by_user_name,
               referred.user_role AS referred_by_user_role
        FROM cases c
        LEFT JOIN users u ON u.user_id = c.assigned_to
        LEFT JOIN str_reports sr ON sr.case_id = c.case_id
        LEFT JOIN users prepared ON prepared.user_id = sr.prepared_by
-       LEFT JOIN users approved ON approved.user_id = sr.approved_by
        LEFT JOIN users filed ON filed.user_id = sr.filed_by
        LEFT JOIN users referred ON referred.user_id = c.referred_to_stro_by
        WHERE c.transaction_id = ?
@@ -1928,11 +2025,18 @@ app.get('/transactions/:id', requireAuth, async (req, res) => {
       caseRecord: null,
       riskContributions: [],
       activityLogs: [],
+      strAutoFill: emptyStrAutoFill,
       emailTestMode: isEmailDevelopmentMode(),
     });
   }
 
   const caseRecord = caseRows[0] || null;
+  const strAutoFill = buildStrAutoFill({
+    transaction,
+    caseRecord,
+    matchedRules: ruleRows,
+    activityLogs: activityRows,
+  });
   return res.render('transaction-detail', {
     title: `Transaction ${transaction.transaction_id}`,
     activePage: activePageForRole(req.session.user.role),
@@ -1940,6 +2044,7 @@ app.get('/transactions/:id', requireAuth, async (req, res) => {
     caseRecord,
     riskContributions: ruleRows,
     activityLogs: activityRows,
+    strAutoFill,
     currentUser: req.session.user,
     currentRole: req.session.user.role,
     emailTestMode: isEmailDevelopmentMode(),
@@ -1948,7 +2053,7 @@ app.get('/transactions/:id', requireAuth, async (req, res) => {
 
 app.patch('/api/cases/:caseId/assign-to-me', requireAuth, async (req, res) => {
   const currentUser = req.session.user;
-  if (!['Analyst', 'Senior Analyst'].includes(currentUser.role)) {
+  if (!['Analyst', 'Senior Analyst', 'STRO'].includes(currentUser.role)) {
     return forbidJson(res);
   }
 
@@ -1956,7 +2061,7 @@ app.patch('/api/cases/:caseId/assign-to-me', requireAuth, async (req, res) => {
     await ensureCaseAssignmentColumns();
 
     const [rows] = await database.query(
-      `SELECT c.case_id, c.transaction_id, c.assigned_to, c.status, c.due_at,
+      `SELECT c.case_id, c.transaction_id, c.assigned_to, c.assigned_role, c.status, c.due_at,
               u.user_name AS assigned_user_name
        FROM cases c
        LEFT JOIN users u ON u.user_id = c.assigned_to
@@ -1972,6 +2077,14 @@ app.patch('/api/cases/:caseId/assign-to-me', requireAuth, async (req, res) => {
     const resolvedStatuses = ['Resolved', 'Dismissed as False Positive', 'STR Filed'];
     if (resolvedStatuses.includes(caseRow.status)) {
       return res.status(409).json({ success: false, message: 'Resolved cases cannot be assigned.' });
+    }
+
+    const requiredRole = caseRow.assigned_role || 'Analyst';
+    if (currentUser.role !== requiredRole) {
+      return res.status(403).json({
+        success: false,
+        message: `This case is currently routed to ${requiredRole} and cannot be claimed by ${currentUser.role}.`,
+      });
     }
 
     if (caseRow.assigned_to) {
@@ -2064,6 +2177,7 @@ async function autoAssignStaleCriticalCases() {
      FROM cases c
      JOIN transactions t ON t.transaction_id = c.transaction_id
      WHERE c.assigned_to IS NULL
+       AND c.assigned_role IS NULL
        AND c.status NOT IN ('Resolved', 'Dismissed as False Positive', 'STR Filed')
        AND (t.risk_level = 'Critical' OR (c.due_at IS NOT NULL AND c.due_at < NOW()))
        AND c.created_at < DATE_SUB(NOW(), INTERVAL ? MINUTE)`,
@@ -2115,7 +2229,7 @@ async function loadRoleCaseContext(transactionId) {
             c.due_at, c.referred_to_stro_at, c.referred_to_stro_by,
             sr.str_id, sr.str_status, sr.reference_number, sr.reporting_reason, sr.suspicion_summary,
             sr.transaction_summary, sr.supporting_evidence, sr.stro_notes, sr.referral_reason,
-            sr.referral_summary, sr.senior_analyst_notes, sr.prepared_by, sr.approved_by,
+            sr.referral_summary, sr.senior_analyst_notes, sr.prepared_by,
             sr.filed_by, sr.filing_date, sr.filed_at, sr.not_required_reason
      FROM transactions t
      LEFT JOIN merchants m ON t.merchant_id = m.merchant_id
@@ -2179,6 +2293,7 @@ app.post('/api/transactions/:id/refer-to-stro', requireAuth, async (req, res) =>
      SET status = 'Escalated',
          assigned_role = 'STRO',
          escalation_destination = 'STRO',
+         assigned_to = NULL,
          referred_to_stro_at = ?,
          referred_to_stro_by = ?,
          updated_at = CURRENT_TIMESTAMP
@@ -2205,7 +2320,7 @@ app.post('/api/transactions/:id/refer-to-stro', requireAuth, async (req, res) =>
     caseId: context.case_id,
     action: 'Case Referred to STRO',
     userId: req.session.user.id,
-    notes: 'Case referred to STRO by Senior Analyst after senior review.',
+    notes: `Case referred to STRO by ${req.session.user.name} after senior review. Case unassigned pending STRO pickup.`,
   });
   await auditCaseAction({
     transactionId: context.transaction_id,
@@ -2261,6 +2376,7 @@ app.post('/api/transactions/:id/escalate', requireAuth, async (req, res) => {
        SET status = 'Pending Senior Review',
            assigned_role = 'Senior Analyst',
            escalation_destination = 'Senior Analyst',
+           assigned_to = NULL,
            notes = COALESCE(?, notes),
            updated_at = CURRENT_TIMESTAMP
        WHERE case_id = ?`,
@@ -2275,7 +2391,7 @@ app.post('/api/transactions/:id/escalate', requireAuth, async (req, res) => {
       caseId: context.case_id,
       action: 'Case Escalated to Senior Analyst',
       userId: req.session.user.id,
-      notes: 'Case escalated to Senior Analyst for critical-risk review.',
+      notes: `Case escalated to Senior Analyst for critical-risk review by ${req.session.user.name}. Case unassigned pending Senior Analyst pickup.`,
     });
     return res.status(200).json({
       success: true,
@@ -2292,6 +2408,7 @@ app.post('/api/transactions/:id/escalate', requireAuth, async (req, res) => {
      SET status = 'Escalated',
          assigned_role = 'STRO',
          escalation_destination = 'STRO',
+         assigned_to = NULL,
          referred_to_stro_at = ?,
          referred_to_stro_by = ?,
          notes = COALESCE(?, notes),
@@ -2323,7 +2440,7 @@ app.post('/api/transactions/:id/escalate', requireAuth, async (req, res) => {
     caseId: context.case_id,
     action: 'Case Referred to STRO',
     userId: req.session.user.id,
-    notes: 'Case referred directly to STRO by Analyst for suspicious transaction reporting review.',
+    notes: `Case referred directly to STRO by ${req.session.user.name} for suspicious transaction reporting review. Case unassigned pending STRO pickup.`,
   });
   await auditCaseAction({
     transactionId: context.transaction_id,
@@ -2345,9 +2462,7 @@ app.post('/api/transactions/:id/escalate', requireAuth, async (req, res) => {
 function validateStrTransition(currentStatus, nextStatus) {
   const current = currentStatus || 'Recommended';
   const allowed = {
-    Recommended: ['Draft', 'Not Required'],
-    Draft: ['Draft', 'Pending Approval', 'Filed', 'Not Required'],
-    'Pending Approval': ['Filed', 'Not Required'],
+    Recommended: ['Filed', 'Not Required'],
     Filed: [],
     'Not Required': [],
   };
@@ -2372,7 +2487,7 @@ app.patch('/api/transactions/:id/str', requireAuth, async (req, res) => {
   }
 
   const nextStatus = String(req.body.strStatus || '').trim();
-  if (!['Draft', 'Pending Approval', 'Filed'].includes(nextStatus)) {
+  if (nextStatus !== 'Filed') {
     return res.status(400).json({ success: false, message: 'Invalid STR status.' });
   }
   if (!validateStrTransition(context.str_status, nextStatus)) {
@@ -2407,16 +2522,8 @@ app.patch('/api/transactions/:id/str', requireAuth, async (req, res) => {
   const preparedBy = context.prepared_by || req.session.user.id;
   const filedBy = nextStatus === 'Filed' ? req.session.user.id : context.filed_by || null;
   const filedAt = nextStatus === 'Filed' ? formatSqlDateTime(new Date()) : context.filed_at || null;
-  const action = nextStatus === 'Filed'
-    ? 'STR Filed'
-    : nextStatus === 'Pending Approval'
-      ? 'STR Submitted for Approval'
-      : 'STR Draft Saved';
-  const notes = nextStatus === 'Filed'
-    ? `STR filed with internal reference ${referenceNumber}.`
-    : nextStatus === 'Pending Approval'
-      ? 'STR submitted for approval by the assigned STRO.'
-      : 'STR draft saved by the assigned STRO.';
+  const action = 'STR Filed';
+  const notes = `STR filed with internal reference ${referenceNumber}.`;
 
   await database.execute(
     `UPDATE str_reports
@@ -2877,25 +2984,32 @@ app.post('/stro/cases/:id/action', requireRole('STRO'), async (req, res) => {
 // Small connection-status + live-refresh script (replaces the old dashboard/analytics SPA
 // bundle that used to live here). Any page with a [data-live-refresh] element soft-reloads
 // shortly after a new transaction event, so live pages reflect ingestion without polling.
+// Requires the socket.io client (served by the socket.io server itself at
+// /socket.io/socket.io.js) to be loaded on the page before this script - see footer.ejs.
 app.get('/app.js', (req, res) => {
   res.type('application/javascript');
   res.send(`(function () {
   var dot = document.querySelector('#connectionDot');
   var text = document.querySelector('#connectionText');
-  var stream = new EventSource('/api/stream');
+  var socket = io();
   var refreshTimer = null;
 
-  stream.addEventListener('open', function () {
+  socket.on('connect', function () {
     if (dot) dot.classList.add('online');
     if (text) text.textContent = 'Live stream connected';
   });
 
-  stream.addEventListener('error', function () {
+  socket.on('disconnect', function () {
     if (dot) dot.classList.remove('online');
     if (text) text.textContent = 'Reconnecting';
   });
 
-  stream.addEventListener('transaction', function () {
+  socket.on('connect_error', function () {
+    if (dot) dot.classList.remove('online');
+    if (text) text.textContent = 'Reconnecting';
+  });
+
+  socket.on('transaction', function () {
     if (!document.querySelector('[data-live-refresh]')) return;
     if (refreshTimer) return;
     refreshTimer = setTimeout(function () {
@@ -2903,19 +3017,6 @@ app.get('/app.js', (req, res) => {
     }, 1200);
   });
 })();`);
-});
-
-app.get('/api/stream', (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders?.();
-
-  clients.add(res);
-
-  req.on('close', () => {
-    clients.delete(res);
-  });
 });
 
 // Real-time ingestion entry point: this is what makes the system "live" - a transaction only
@@ -2988,7 +3089,7 @@ async function startServer() {
   await database.initDatabase();
   await database.ensurePartnerSchema();
 
-  const server = app.listen(PORT, () => {
+  server.listen(PORT, () => {
     console.log(`UNIWEB local (domestic) card-payment monitoring running on http://localhost:${PORT} - any Singapore merchant profile, MCC-driven risk classification`);
   });
 

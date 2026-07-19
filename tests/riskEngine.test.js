@@ -42,8 +42,9 @@ function testAddWorkingDays() {
 }
 
 function testStrTransitions() {
-  assert.strictEqual(validateStrTransition('Recommended', 'Draft'), true);
-  assert.strictEqual(validateStrTransition('Filed', 'Draft'), false);
+  assert.strictEqual(validateStrTransition('Recommended', 'Filed'), true);
+  assert.strictEqual(validateStrTransition('Recommended', 'Draft'), false);
+  assert.strictEqual(validateStrTransition('Filed', 'Recommended'), false);
 }
 
 testRiskLevelBands();

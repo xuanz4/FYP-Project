@@ -114,7 +114,7 @@ CREATE TABLE str_reports (
     str_id VARCHAR(40) PRIMARY KEY,
     transaction_id VARCHAR(40) NOT NULL,
     case_id VARCHAR(40) NOT NULL,
-    str_status ENUM('Recommended', 'Draft', 'Pending Approval', 'Filed', 'Not Required') NOT NULL DEFAULT 'Recommended',
+    str_status ENUM('Recommended', 'Filed', 'Not Required') NOT NULL DEFAULT 'Recommended',
     reference_number VARCHAR(80) NULL,
     reporting_reason TEXT NULL,
     suspicion_summary TEXT NULL,
@@ -125,7 +125,6 @@ CREATE TABLE str_reports (
     referral_summary TEXT NULL,
     senior_analyst_notes TEXT NULL,
     prepared_by VARCHAR(20) NULL,
-    approved_by VARCHAR(20) NULL,
     filed_by VARCHAR(20) NULL,
     filing_date DATE NULL,
     filed_at DATETIME NULL,
@@ -136,7 +135,6 @@ CREATE TABLE str_reports (
     FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE,
     FOREIGN KEY (case_id) REFERENCES cases(case_id) ON DELETE CASCADE,
     FOREIGN KEY (prepared_by) REFERENCES users(user_id),
-    FOREIGN KEY (approved_by) REFERENCES users(user_id),
     FOREIGN KEY (filed_by) REFERENCES users(user_id)
 );
 
