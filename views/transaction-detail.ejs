@@ -114,9 +114,7 @@
     const canSendRfi = !isRfiTerminal && (isAnalyst || (isSenior && !!caseInfo && routedToSenior) || canStroRequestInfo);
     const canEscalate = !isResolved && isAnalyst && !!caseInfo && escalationDestination === 'Not assigned' && strStatus === 'Not Started';
     const canResolve = !isResolved && ((isAnalyst && rawCaseStatus !== 'Escalated' && rawCaseStatus !== 'Pending Senior Review' && initialLevel !== 'Critical') || isSenior);
-    const canFileStr = false;
-    const canRecommendStr = false;
-    const canAssignToMe = false;
+    const canAssignToMe = !isResolved && isUnassignedCase && role === requiredAssignmentRole && (isAnalyst || isSenior || isStro);
     const strDraft = (typeof strAutoFill !== 'undefined' && strAutoFill) ? strAutoFill : {
         referenceNumber: '', filingDate: '', reportingReason: '', suspicionSummary: '', stroNotes: '', supportingEvidence: []
     };
