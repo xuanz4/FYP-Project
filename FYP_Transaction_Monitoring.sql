@@ -1,37 +1,37 @@
--- UNIWEB local (domestic) card-payment monitoring schema for Singapore merchants.
--- Merchant risk is assessed via MCC code (industry_risk_score) and merchant_risk_level;
--- monitoring rules are merchant-agnostic and apply to any merchant profile, not just the
--- example companyA/B/C rows seeded below. Scope is local card payments only.
-DROP DATABASE IF EXISTS fyp_transaction_monitoring;
-CREATE DATABASE fyp_transaction_monitoring;
-USE fyp_transaction_monitoring;
+DROP DATABASE IF EXISTS fyp_transaction_monitoring_test;
+CREATE DATABASE fyp_transaction_monitoring_test;
+USE fyp_transaction_monitoring_test;
 
-CREATE TABLE companies (
-    company_id VARCHAR(20) PRIMARY KEY,
-    company_name VARCHAR(100) NOT NULL,
-    merchant_type VARCHAR(100) NOT NULL,
-    mcc_code VARCHAR(4) NOT NULL,
-    industry VARCHAR(100) NOT NULL,
-    industry_risk_score INT NOT NULL DEFAULT 0,
-    merchant_risk_level ENUM('LOW', 'MEDIUM', 'HIGH') NOT NULL DEFAULT 'LOW',
-    accent VARCHAR(30) NOT NULL
-);
-
-CREATE TABLE customers (
-    customer_id VARCHAR(30) PRIMARY KEY,
-    customer_name VARCHAR(100) NOT NULL,
-    email VARCHAR(255) NULL,
-    account_type ENUM('Individual', 'Organisation') NOT NULL DEFAULT 'Individual',
+-- Table 1: Merchants
+CREATE TABLE merchants (
+    merchant_id VARCHAR(20) PRIMARY KEY,
+    merchant_name VARCHAR(100) NOT NULL,
+    merchant_mid VARCHAR(30) NULL,
+    merchant_country VARCHAR(5) NULL,
     authorised_contact_name VARCHAR(100) NULL,
     authorised_contact_email VARCHAR(255) NULL,
-    segment VARCHAR(80) NOT NULL,
-    kyc_status VARCHAR(80) NOT NULL,
-    customer_risk_level ENUM('LOW', 'MEDIUM', 'HIGH') NOT NULL DEFAULT 'LOW'
+    mcc_code VARCHAR(4) NOT NULL,
+    industry VARCHAR(100) NOT NULL,
+    mcc_risk_score INT NOT NULL DEFAULT 0,
+    risk_tier ENUM('Standard', 'High') NOT NULL DEFAULT 'Standard',
+    is_active TINYINT(1) NOT NULL DEFAULT 1
 );
 
+-- Table 2: Users (updated)
+-- Roles: Admin manages users/rules/merchants only. Analyst and Senior Analyst work
+-- cases; STRO resolves escalations. See app.js requireRole() usage for what each can do.
+CREATE TABLE users (
+    user_id VARCHAR(20) PRIMARY KEY,
+    user_name VARCHAR(100) NOT NULL,
+    user_role ENUM('Analyst', 'Senior Analyst', 'STRO', 'Admin') NOT NULL,
+    password VARCHAR(255) NOT NULL,
+    is_active TINYINT(1) NOT NULL DEFAULT 1
+);
+
+-- Table 3: Compliance Rules
 CREATE TABLE compliance_rules (
     rule_id VARCHAR(30) PRIMARY KEY,
-    company_id VARCHAR(20) NOT NULL,
+    merchant_id VARCHAR(20) NULL,
     rule_name VARCHAR(150) NOT NULL,
     risk_level ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL,
     reason VARCHAR(255) NOT NULL,
@@ -40,137 +40,79 @@ CREATE TABLE compliance_rules (
     count_threshold INT NULL,
     rule_type VARCHAR(80) NOT NULL,
     is_active TINYINT(1) NOT NULL DEFAULT 1,
-    FOREIGN KEY (company_id) REFERENCES companies(company_id)
+    FOREIGN KEY (merchant_id) REFERENCES merchants(merchant_id)
 );
 
+-- Table 4: Transactions
 CREATE TABLE transactions (
     transaction_id VARCHAR(40) PRIMARY KEY,
-    unique_transaction_id CHAR(6) NULL,
-    company_id VARCHAR(20) NOT NULL,
-    customer_id VARCHAR(30) NOT NULL,
+    merchant_id VARCHAR(20) NOT NULL,
+    card_number VARCHAR(20) NOT NULL,
+    card_expiry VARCHAR(5) NOT NULL,
+    bin_range VARCHAR(6) NOT NULL,
+    cvv VARCHAR(4) NOT NULL,
+    bank_issuer VARCHAR(100) NOT NULL,
     amount DECIMAL(10,2) NOT NULL,
-    currency CHAR(3) NOT NULL DEFAULT 'SGD',
-    country VARCHAR(80) NOT NULL,
-    merchant_category VARCHAR(80) NOT NULL,
-    recent_company_transactions INT NOT NULL DEFAULT 0,
-    card_spend_24h DECIMAL(10,2) NOT NULL DEFAULT 0,
-    near_threshold_count INT NOT NULL DEFAULT 0,
-    low_value_burst_count INT NOT NULL DEFAULT 0,
-    is_new_customer TINYINT(1) NOT NULL DEFAULT 0,
-    usual_spend_below_100 TINYINT(1) NOT NULL DEFAULT 0,
-    channel VARCHAR(50) NOT NULL,
-    direction ENUM('Sale', 'Refund') NOT NULL,
-    counterparty_name VARCHAR(120) NULL,
-    counterparty_country VARCHAR(80) NULL,
-    payment_reference VARCHAR(255) NULL,
-    screening_status ENUM('Clear', 'Potential Match') NOT NULL DEFAULT 'Clear',
-    status ENUM('Screening', 'Cleared', 'Flagged') NOT NULL DEFAULT 'Screening',
-    transaction_hour INT NULL,
-    operating_hours_triggered TINYINT(1) NOT NULL DEFAULT 0,
-    mcc_risk_score INT NOT NULL DEFAULT 0,
-    profile_risk_score INT NOT NULL DEFAULT 0,
-    transaction_detection_score INT NOT NULL DEFAULT 0,
-    initial_risk_score INT NOT NULL DEFAULT 0,
-    initial_risk_level ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL DEFAULT 'Low',
-    final_risk_score INT NULL,
-    final_risk_level ENUM('Low', 'Medium', 'High', 'Critical') NULL,
-    risk_level ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL DEFAULT 'Low',
-    recommended_action VARCHAR(80) NOT NULL DEFAULT 'Allow',
+    transaction_code VARCHAR(40) NULL,
     risk_score INT NOT NULL DEFAULT 0,
-    risk_band ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL DEFAULT 'Low',
+    risk_level ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL DEFAULT 'Low',
+    status ENUM('Cleared', 'Flagged') NOT NULL DEFAULT 'Cleared',
+    action_status ENUM('None', 'Pending RFI', 'Pending Senior Review', 'STR Filed', 'Dismissed as False Positive', 'Escalated') NOT NULL DEFAULT 'None',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (company_id) REFERENCES companies(company_id),
-    FOREIGN KEY (customer_id) REFERENCES customers(customer_id)
+    updated_at DATETIME ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (merchant_id) REFERENCES merchants(merchant_id)
 );
 
-CREATE TABLE transaction_screening_matches (
-    screening_match_id INT AUTO_INCREMENT PRIMARY KEY,
-    transaction_id VARCHAR(40) NOT NULL,
-    watchlist_id VARCHAR(30) NOT NULL,
-    watchlist_name VARCHAR(120) NOT NULL,
-    match_type VARCHAR(50) NOT NULL,
-    match_field VARCHAR(50) NOT NULL,
-    input_value VARCHAR(255) NULL,
-    match_country VARCHAR(80) NULL,
-    risk_level ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL,
-    match_score INT NOT NULL,
-    reason VARCHAR(255) NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE,
-    UNIQUE KEY uniq_transaction_screening_match (transaction_id, watchlist_id, match_field)
-);
-
+-- Table 5: Transaction Matched Rules
 CREATE TABLE transaction_matched_rules (
-    matched_rule_id INT AUTO_INCREMENT PRIMARY KEY,
+    id INT AUTO_INCREMENT PRIMARY KEY,
     transaction_id VARCHAR(40) NOT NULL,
     rule_id VARCHAR(30) NOT NULL,
-    rule_weight INT NOT NULL,
     matched_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE,
     FOREIGN KEY (rule_id) REFERENCES compliance_rules(rule_id),
     UNIQUE KEY uniq_transaction_rule (transaction_id, rule_id)
 );
 
-CREATE TABLE alerts (
-    alert_id VARCHAR(40) PRIMARY KEY,
-    transaction_id VARCHAR(40) NOT NULL,
-    primary_rule_id VARCHAR(30) NULL,
-    grouped_count INT NOT NULL DEFAULT 1,
-    company_id VARCHAR(20) NOT NULL,
-    customer_id VARCHAR(30) NOT NULL,
-    severity ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL,
-    risk_score INT NOT NULL,
-    mcc_risk_score INT NOT NULL DEFAULT 0,
-    profile_risk_score INT NOT NULL DEFAULT 0,
-    transaction_detection_score INT NOT NULL DEFAULT 0,
-    initial_risk_score INT NOT NULL DEFAULT 0,
-    initial_risk_level ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL DEFAULT 'Low',
-    final_risk_score INT NULL,
-    final_risk_level ENUM('Low', 'Medium', 'High', 'Critical') NULL,
-    risk_level ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL DEFAULT 'Low',
-    recommended_action VARCHAR(80) NOT NULL DEFAULT 'Allow',
-    alert_status ENUM('New', 'Under Review', 'Escalated', 'Resolved', 'False Positive') NOT NULL DEFAULT 'New',
-    analyst VARCHAR(100) NOT NULL DEFAULT 'Unassigned',
+-- Table 6: Audit Logs
+-- Append-only: see triggers below that reject any UPDATE/DELETE against this table.
+CREATE TABLE audit_logs (
+    audit_id VARCHAR(40) PRIMARY KEY,
+    transaction_id VARCHAR(40) NULL,
+    entity_type VARCHAR(40) NULL,
+    entity_id VARCHAR(40) NULL,
+    action VARCHAR(120) NOT NULL,
+    user_id VARCHAR(20) NULL,
+    notes TEXT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NULL,
     FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE,
-    FOREIGN KEY (primary_rule_id) REFERENCES compliance_rules(rule_id),
-    FOREIGN KEY (company_id) REFERENCES companies(company_id),
-    FOREIGN KEY (customer_id) REFERENCES customers(customer_id)
+    FOREIGN KEY (user_id) REFERENCES users(user_id)
 );
 
-CREATE TABLE alert_transaction_links (
-    alert_id VARCHAR(40) NOT NULL,
-    transaction_id VARCHAR(40) NOT NULL,
-    linked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (alert_id, transaction_id),
-    FOREIGN KEY (alert_id) REFERENCES alerts(alert_id) ON DELETE CASCADE,
-    FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE
-);
-
-CREATE TABLE compliance_cases (
+-- Table: cases
+-- 'Pending Senior Review' is Scenario 2 of the escalation flow (Analyst -> Senior Analyst
+-- -> STRO): high-severity cases stop here before a Senior Analyst confirms and forwards to
+-- STRO. Standard-severity cases (Scenario 1) skip this and go straight to 'Escalated'.
+-- created_by is nullable because cases are opened automatically by the
+-- transactions_auto_case_insert/update triggers below, not by a human - there is no
+-- manual "open case" action anywhere in the app.
+CREATE TABLE cases (
     case_id VARCHAR(40) PRIMARY KEY,
-    alert_id VARCHAR(40) NOT NULL,
-    company_id VARCHAR(20) NOT NULL,
-    customer_id VARCHAR(30) NOT NULL,
-    summary VARCHAR(255) NOT NULL,
-    priority ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL,
-    case_status ENUM('New', 'Under Review', 'Waiting for Information', 'Escalated', 'Resolved', 'False Positive') NOT NULL DEFAULT 'New',
-    owner VARCHAR(100) NOT NULL DEFAULT 'Operations Team',
+    transaction_id VARCHAR(40) NOT NULL,
+    created_by VARCHAR(20) NULL,
+    assigned_to VARCHAR(20) NULL,
     assigned_role VARCHAR(40) NULL,
     escalation_destination VARCHAR(40) NULL,
+    status ENUM('Open', 'Under Review', 'Pending RFI', 'Pending Senior Review', 'Escalated', 'Dismissed as False Positive', 'STR Filed', 'Resolved') NOT NULL DEFAULT 'Open',
+    notes TEXT NULL,
+    due_at DATETIME NULL,
     referred_to_stro_at DATETIME NULL,
     referred_to_stro_by VARCHAR(20) NULL,
-    decision ENUM('Accepted', 'Rejected', 'Escalated') NULL,
-    resolution_reason VARCHAR(80) NULL,
-    analyst_notes TEXT NULL,
-    resolved_at DATETIME NULL,
-    due_at DATETIME NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NULL,
-    FOREIGN KEY (alert_id) REFERENCES alerts(alert_id) ON DELETE CASCADE,
-    FOREIGN KEY (company_id) REFERENCES companies(company_id),
-    FOREIGN KEY (customer_id) REFERENCES customers(customer_id)
+    updated_at DATETIME ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(user_id),
+    FOREIGN KEY (assigned_to) REFERENCES users(user_id)
 );
 
 CREATE TABLE str_reports (
@@ -196,285 +138,182 @@ CREATE TABLE str_reports (
     updated_at DATETIME NULL,
     UNIQUE KEY uniq_str_case (case_id),
     FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE,
-    FOREIGN KEY (case_id) REFERENCES compliance_cases(case_id) ON DELETE CASCADE
+    FOREIGN KEY (case_id) REFERENCES cases(case_id) ON DELETE CASCADE,
+    FOREIGN KEY (prepared_by) REFERENCES users(user_id),
+    FOREIGN KEY (filed_by) REFERENCES users(user_id)
 );
 
-CREATE TABLE audit_logs (
-    audit_id VARCHAR(40) PRIMARY KEY,
-    action VARCHAR(120) NOT NULL,
-    actor VARCHAR(100) NOT NULL DEFAULT 'System',
-    entity_type VARCHAR(80) NOT NULL,
-    entity_id VARCHAR(40),
-    transaction_id VARCHAR(40) NULL,
-    alert_id VARCHAR(40) NULL,
-    case_id VARCHAR(40) NULL,
-    company_id VARCHAR(20),
-    message VARCHAR(255),
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (company_id) REFERENCES companies(company_id)
-);
-
--- Example merchant profiles only. Any Singapore merchant, regardless of industry, can be
--- onboarded the same way with its own MCC code, industry_risk_score, and merchant_risk_level.
-INSERT INTO companies (company_id, company_name, merchant_type, mcc_code, industry, industry_risk_score, merchant_risk_level, accent)
-VALUES
-    ('companyA', 'Merchant Profile 5651', 'MCC 5651 - Family Clothing Stores', '5651', 'Family Clothing Stores', 8, 'LOW', 'blue'),
-    ('companyB', 'Merchant Profile 5661', 'MCC 5661 - Shoe Stores', '5661', 'Shoe Stores', 12, 'MEDIUM', 'green'),
-    ('companyC', 'Merchant Profile 5977', 'MCC 5977 - Cosmetic Stores', '5977', 'Cosmetic Stores', 10, 'HIGH', 'purple');
-
-INSERT INTO customers (customer_id, customer_name, email, account_type, authorised_contact_name, authorised_contact_email, segment, kyc_status, customer_risk_level)
-VALUES
-    ('CUS-1001', 'Ava Lim', NULL, 'Individual', NULL, NULL, 'Retail', 'Verified', 'LOW'),
-    ('CUS-1002', 'Noah Tan', NULL, 'Individual', NULL, NULL, 'SME', 'Verified', 'MEDIUM'),
-    ('CUS-1003', 'Maya Wong', NULL, 'Individual', NULL, NULL, 'Private Client', 'Enhanced Due Diligence', 'HIGH'),
-    ('CUS-1004', 'Ethan Koh', NULL, 'Individual', NULL, NULL, 'Retail', 'Pending Review', 'HIGH'),
-    ('CUS-1005', 'Sophia Chen Trading Pte Ltd', NULL, 'Organisation', 'Sophia Chen', NULL, 'Corporate', 'Verified', 'LOW');
-
-INSERT INTO compliance_rules
-    (rule_id, company_id, rule_name, risk_level, reason, weight, amount_threshold, count_threshold, rule_type)
-VALUES
-    ('COM-A-001', 'companyA', 'Single transaction above S$700', 'Medium', 'Above this merchant profile''s typical basket size', 30, 700.00, NULL, 'amount'),
-    ('COM-A-002', 'companyA', 'Single transaction above S$1,200', 'High', 'Far above this merchant profile''s typical basket size', 55, 1200.00, NULL, 'amount'),
-    ('COM-A-003', 'companyA', '4+ merchant transactions within 30 min', 'Medium', 'Possible split payment or repeated card attempts', 30, NULL, 4, 'recent_company_transactions'),
-    ('COM-A-004', 'companyA', 'Same card spends above S$1,500 within 24h', 'High', 'Unusual cumulative same-card spend for this merchant profile', 55, 1500.00, NULL, 'card_spend_24h'),
-    ('COM-A-005', 'companyA', 'Several amounts just below S$700', 'Medium', 'Possible threshold avoidance', 30, 700.00, 3, 'near_threshold'),
-    ('COM-A-006', 'companyA', 'New or usually low-spend customer above S$800', 'Medium', 'New card/account, or a sudden spend jump, plus a high-value purchase', 35, 800.00, NULL, 'new_or_deviating_customer'),
-    ('COM-B-001', 'companyB', 'Single transaction above S$1,000', 'Medium', 'Above this merchant profile''s typical basket size', 30, 1000.00, NULL, 'amount'),
-    ('COM-B-002', 'companyB', 'Single transaction above S$2,000', 'High', 'Far above this merchant profile''s typical basket size', 55, 2000.00, NULL, 'amount'),
-    ('COM-B-003', 'companyB', '3+ merchant transactions within 30 min', 'Medium', 'Possible split payment or repeated card attempts', 30, NULL, 3, 'recent_company_transactions'),
-    ('COM-B-004', 'companyB', 'Same card spends above S$1,500 within 24h', 'High', 'Unusual cumulative same-card spend for this merchant profile', 55, 1500.00, NULL, 'card_spend_24h'),
-    ('COM-B-005', 'companyB', 'Several amounts just below S$1,000', 'Medium', 'Possible threshold avoidance', 30, 1000.00, 3, 'near_threshold'),
-    ('COM-B-006', 'companyB', 'New or usually low-spend customer above S$800', 'Medium', 'New card/account, or a sudden spend jump, plus a high-value purchase', 35, 800.00, NULL, 'new_or_deviating_customer'),
-    ('COM-C-001', 'companyC', 'Single transaction above S$700', 'Medium', 'Above this merchant profile''s typical basket size', 30, 700.00, NULL, 'amount'),
-    ('COM-C-002', 'companyC', 'Single transaction above S$1,000', 'High', 'Far above this merchant profile''s typical basket size', 55, 1000.00, NULL, 'amount'),
-    ('COM-C-003', 'companyC', '4+ merchant transactions within 30 min', 'Medium', 'Possible split payment or repeated card attempts', 30, NULL, 4, 'recent_company_transactions'),
-    ('COM-C-004', 'companyC', 'Same card spends above S$1,500 within 24h', 'High', 'Unusual cumulative same-card spend for this merchant profile', 55, 1500.00, NULL, 'card_spend_24h'),
-    ('COM-C-005', 'companyC', 'Several amounts just below S$700', 'Medium', 'Possible threshold avoidance', 30, 700.00, 3, 'near_threshold'),
-    ('COM-C-006', 'companyC', 'New or usually low-spend customer above S$800', 'Medium', 'New card/account, or a sudden spend jump, plus a high-value purchase', 35, 800.00, NULL, 'new_or_deviating_customer'),
-    ('TIME-001', 'companyA', 'Transaction Outside Operating Hours', 'Medium', 'Transaction occurred outside normal merchant operating hours.', 10, NULL, NULL, 'operating_hours'),
-    ('SCR-001', 'companyA', 'Payment or customer screening match', 'High', 'Sanctions, PEP, watchlist, or adverse-media screening match', 65, NULL, NULL, 'screening_match'),
-    ('PROFILE-CUSTOMER-HIGH', 'companyA', 'High-risk customer profile', 'High', 'Customer KYC risk level is HIGH', 30, NULL, NULL, 'profile_risk'),
-    ('PROFILE-MERCHANT-HIGH', 'companyA', 'High-risk merchant profile', 'High', 'Merchant risk level is HIGH', 30, NULL, NULL, 'profile_risk'),
-    ('RULE-001', 'companyA', 'Large local card transaction', 'High', 'Local card transaction equal to or above SGD 10,000.', 35, 10000.00, NULL, 'amount'),
-    ('RULE-002', 'companyA', 'Contextual jurisdiction escalation', 'High', 'Customer, issuer, or counterparty data references a high-risk jurisdiction.', 20, NULL, NULL, 'jurisdiction'),
-    ('RULE-003', 'companyA', 'Elevated same-card spend', 'Medium', 'Unusual cumulative spend on the same card within 24 hours.', 35, 3000.00, NULL, 'card_spend_24h'),
-    ('RULE-004', 'companyA', 'Incomplete customer diligence', 'Medium', 'Customer KYC profile is pending review.', 25, NULL, NULL, 'kyc_pending'),
-    ('RULE-005', 'companyA', 'Low-value card testing burst', 'High', 'Repeated low-value card payments may indicate card testing.', 30, 20.00, 5, 'low_value_burst');
-
-INSERT INTO transactions
-    (transaction_id, unique_transaction_id, company_id, customer_id, amount, currency, country, merchant_category,
-     recent_company_transactions, card_spend_24h, near_threshold_count, low_value_burst_count,
-     is_new_customer, usual_spend_below_100, channel, direction, counterparty_name,
-     counterparty_country, payment_reference, screening_status, status, transaction_hour,
-     operating_hours_triggered, mcc_risk_score,
-     profile_risk_score, transaction_detection_score, initial_risk_score, initial_risk_level,
-     final_risk_score, final_risk_level, risk_level,
-     recommended_action, risk_score, risk_band, created_at)
-VALUES
-    ('TXN-DEMO-001', '100001', 'companyA', 'CUS-1001', 95.00, 'SGD', 'Singapore', 'Apparel', 1, 180.00, 0, 0, 0, 0, 'Card Present', 'Sale', 'Harbour Retail Pte Ltd', 'Singapore', 'Local card purchase Harbour Retail Pte Ltd', 'Clear', 'Cleared', 14, 0, 8, 0, 0, 8, 'Low', NULL, NULL, 'Low', 'Allow', 8, 'Low', '2026-06-03 14:00:00'),
-    ('TXN-DEMO-002', '100002', 'companyB', 'CUS-1003', 2150.00, 'SGD', 'Singapore', 'Footwear', 1, 2300.00, 0, 0, 0, 0, 'E-Commerce Card', 'Sale', 'Orion Trade Holdings', 'Iran', 'Card payment linked to Orion Trade Holdings', 'Potential Match', 'Flagged', 2, 1, 12, 45, 220, 277, 'Critical', NULL, NULL, 'Critical', 'Manual Review or Hold Settlement', 277, 'Critical', '2026-06-03 02:00:00'),
-    ('TXN-DEMO-003', '100003', 'companyC', 'CUS-1004', 880.00, 'SGD', 'Singapore', 'Cosmetics', 4, 950.00, 1, 0, 1, 0, 'Card Not Present', 'Sale', 'Maple Distribution', 'Singapore', 'Local card purchase Maple Distribution', 'Clear', 'Flagged', 14, 0, 10, 60, 95, 165, 'Critical', NULL, NULL, 'Critical', 'Manual Review or Hold Settlement', 165, 'Critical', '2026-06-03 14:00:00');
-
-INSERT INTO transaction_screening_matches
-    (transaction_id, watchlist_id, watchlist_name, match_type, match_field, input_value,
-     match_country, risk_level, match_score, reason)
-VALUES
-    ('TXN-DEMO-002', 'WL-SAN-001', 'Orion Trade Holdings', 'Sanctions', 'Context Party',
-     'Orion Trade Holdings', 'Iran', 'Critical', 100, 'Sanctions list match for contextual payment party'),
-    ('TXN-DEMO-002', 'WL-SAN-001', 'Orion Trade Holdings', 'Sanctions', 'Payment Details',
-     'Card payment linked to Orion Trade Holdings', 'Iran', 'Critical', 88, 'Sanctions list match for contextual payment party');
-
-INSERT INTO transaction_matched_rules (transaction_id, rule_id, rule_weight)
-VALUES
-    ('TXN-DEMO-002', 'COM-B-001', 30),
-    ('TXN-DEMO-002', 'COM-B-002', 60),
-    ('TXN-DEMO-002', 'COM-B-004', 55),
-    ('TXN-DEMO-002', 'TIME-001', 10),
-    ('TXN-DEMO-002', 'SCR-001', 65),
-    ('TXN-DEMO-002', 'PROFILE-CUSTOMER-HIGH', 30),
-    ('TXN-DEMO-003', 'COM-C-001', 30),
-    ('TXN-DEMO-003', 'COM-C-003', 30),
-    ('TXN-DEMO-003', 'COM-C-006', 35),
-    ('TXN-DEMO-003', 'PROFILE-CUSTOMER-HIGH', 30),
-    ('TXN-DEMO-003', 'PROFILE-MERCHANT-HIGH', 30);
-
-INSERT INTO alerts
-    (alert_id, transaction_id, primary_rule_id, grouped_count, company_id, customer_id, severity, risk_score, mcc_risk_score, profile_risk_score, transaction_detection_score, initial_risk_score, initial_risk_level, final_risk_score, final_risk_level, risk_level, recommended_action, alert_status, analyst)
-VALUES
-    ('ALT-DEMO-001', 'TXN-DEMO-002', 'COM-B-001', 1, 'companyB', 'CUS-1003', 'Critical', 277, 12, 45, 220, 277, 'Critical', NULL, NULL, 'Critical', 'Manual Review or Hold Settlement', 'New', 'Unassigned'),
-    ('ALT-DEMO-002', 'TXN-DEMO-003', 'COM-C-001', 1, 'companyC', 'CUS-1004', 'Critical', 165, 10, 60, 95, 165, 'Critical', NULL, NULL, 'Critical', 'Manual Review or Hold Settlement', 'Under Review', 'Operations Team');
-
-INSERT INTO alert_transaction_links (alert_id, transaction_id)
-VALUES
-    ('ALT-DEMO-001', 'TXN-DEMO-002'),
-    ('ALT-DEMO-002', 'TXN-DEMO-003');
-
-INSERT INTO compliance_cases
-    (case_id, alert_id, company_id, customer_id, summary, priority, case_status, owner, decision, resolution_reason, analyst_notes, resolved_at, due_at)
-VALUES
-    ('CASE-DEMO-001', 'ALT-DEMO-001', 'companyB', 'CUS-1003', 'SGD 2,150 sale card transaction flagged', 'Critical', 'New', 'Operations Team', NULL, NULL, NULL, NULL, DATE_ADD(NOW(), INTERVAL 2 DAY)),
-    ('CASE-DEMO-002', 'ALT-DEMO-002', 'companyC', 'CUS-1004', 'SGD 880 sale card transaction flagged', 'Critical', 'Under Review', 'Operations Team', NULL, NULL, NULL, NULL, DATE_ADD(NOW(), INTERVAL 2 DAY));
-
-INSERT INTO audit_logs
-    (audit_id, action, actor, entity_type, entity_id, transaction_id, alert_id, case_id, company_id, message)
-VALUES
-    ('AUD-DEMO-001', 'Alert Created', 'System', 'Alert', 'ALT-DEMO-001', 'TXN-DEMO-002', 'ALT-DEMO-001', NULL, 'companyB', 'Critical alert opened for Merchant Profile 5661 transaction'),
-    ('AUD-DEMO-002', 'Case Created', 'System', 'Case', 'CASE-DEMO-001', 'TXN-DEMO-002', 'ALT-DEMO-001', 'CASE-DEMO-001', 'companyB', 'Case generated from alert ALT-DEMO-001'),
-    ('AUD-DEMO-003', 'Alert Status Changed', 'Operations Team', 'Alert', 'ALT-DEMO-002', 'TXN-DEMO-003', 'ALT-DEMO-002', NULL, 'companyC', 'ALT-DEMO-002 moved from New to Under Review');
-
-CREATE INDEX idx_transactions_company ON transactions(company_id);
-CREATE INDEX idx_transactions_customer ON transactions(customer_id);
+-- Indexes
+CREATE INDEX idx_transactions_merchant ON transactions(merchant_id);
 CREATE INDEX idx_transactions_status ON transactions(status);
-CREATE INDEX idx_transactions_risk_band ON transactions(risk_band);
+CREATE INDEX idx_transactions_risk_level ON transactions(risk_level);
+CREATE INDEX idx_transactions_action_status ON transactions(action_status);
 CREATE INDEX idx_transactions_created_at ON transactions(created_at);
-CREATE INDEX idx_transactions_unique_transaction_id ON transactions(unique_transaction_id);
-CREATE INDEX idx_screening_matches_transaction ON transaction_screening_matches(transaction_id);
-CREATE INDEX idx_alerts_status ON alerts(alert_status);
-CREATE INDEX idx_alerts_severity ON alerts(severity);
-CREATE INDEX idx_alerts_grouping ON alerts(customer_id, company_id, primary_rule_id, alert_status);
-CREATE INDEX idx_cases_status ON compliance_cases(case_status);
-CREATE INDEX idx_cases_assigned_role ON compliance_cases(assigned_role);
-CREATE INDEX idx_cases_escalation_destination ON compliance_cases(escalation_destination);
+CREATE INDEX idx_audit_logs_transaction ON audit_logs(transaction_id);
+CREATE INDEX idx_audit_logs_entity ON audit_logs(entity_type, entity_id);
+CREATE INDEX idx_audit_logs_user ON audit_logs(user_id);
+CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
+CREATE INDEX idx_compliance_rules_merchant ON compliance_rules(merchant_id);
+CREATE INDEX idx_cases_transaction ON cases(transaction_id);
+CREATE INDEX idx_cases_created_by ON cases(created_by);
+CREATE INDEX idx_cases_assigned_to ON cases(assigned_to);
+CREATE INDEX idx_cases_status ON cases(status);
+CREATE INDEX idx_cases_due_at ON cases(due_at);
+CREATE INDEX idx_cases_assigned_role ON cases(assigned_role);
+CREATE INDEX idx_cases_escalation_destination ON cases(escalation_destination);
 CREATE INDEX idx_str_reports_transaction ON str_reports(transaction_id);
 CREATE INDEX idx_str_reports_status ON str_reports(str_status);
-CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
-CREATE INDEX idx_audit_logs_transaction ON audit_logs(transaction_id);
-CREATE INDEX idx_audit_logs_alert ON audit_logs(alert_id);
-CREATE INDEX idx_audit_logs_case ON audit_logs(case_id);
 
 DELIMITER $$
 
-CREATE TRIGGER update_transaction_risk_after_rule_insert
-AFTER INSERT ON transaction_matched_rules
+CREATE TRIGGER audit_logs_no_update
+BEFORE UPDATE ON audit_logs
 FOR EACH ROW
 BEGIN
-    DECLARE v_mcc_risk_score INT DEFAULT 0;
-    DECLARE v_profile_risk_score INT DEFAULT 0;
-    DECLARE v_transaction_detection_score INT DEFAULT 0;
-    DECLARE v_initial_risk_score INT DEFAULT 0;
-
-    SELECT COALESCE(c.industry_risk_score, 0),
-           CASE cu.customer_risk_level WHEN 'HIGH' THEN 30 WHEN 'MEDIUM' THEN 15 ELSE 0 END
-           + CASE c.merchant_risk_level WHEN 'HIGH' THEN 30 WHEN 'MEDIUM' THEN 15 ELSE 0 END
-    INTO v_mcc_risk_score, v_profile_risk_score
-    FROM transactions t
-    JOIN companies c ON t.company_id = c.company_id
-    JOIN customers cu ON t.customer_id = cu.customer_id
-    WHERE t.transaction_id = NEW.transaction_id;
-
-    SELECT COALESCE(SUM(rule_weight), 0)
-    INTO v_transaction_detection_score
-    FROM transaction_matched_rules
-    WHERE transaction_id = NEW.transaction_id
-      AND rule_id NOT LIKE 'PROFILE-%';
-
-    SET v_initial_risk_score = v_mcc_risk_score + v_profile_risk_score + v_transaction_detection_score;
-
-    UPDATE transactions t
-    SET mcc_risk_score = v_mcc_risk_score,
-        profile_risk_score = v_profile_risk_score,
-        transaction_detection_score = v_transaction_detection_score,
-        transaction_hour = HOUR(t.created_at),
-        operating_hours_triggered = CASE WHEN HOUR(t.created_at) < 7 OR HOUR(t.created_at) >= 23 THEN 1 ELSE 0 END,
-        initial_risk_score = v_initial_risk_score,
-        initial_risk_level = CASE
-            WHEN v_initial_risk_score >= 70 THEN 'Critical'
-            WHEN v_initial_risk_score >= 50 THEN 'High'
-            WHEN v_initial_risk_score >= 30 THEN 'Medium'
-            ELSE 'Low'
-        END,
-        final_risk_score = NULL,
-        final_risk_level = NULL,
-        risk_score = v_initial_risk_score,
-        risk_level = CASE
-            WHEN v_initial_risk_score >= 70 THEN 'Critical'
-            WHEN v_initial_risk_score >= 50 THEN 'High'
-            WHEN v_initial_risk_score >= 30 THEN 'Medium'
-            ELSE 'Low'
-        END,
-        risk_band = CASE
-            WHEN v_initial_risk_score >= 70 THEN 'Critical'
-            WHEN v_initial_risk_score >= 50 THEN 'High'
-            WHEN v_initial_risk_score >= 30 THEN 'Medium'
-            ELSE 'Low'
-        END,
-        recommended_action = CASE
-            WHEN v_initial_risk_score >= 70 THEN 'Manual Review or Hold Settlement'
-            WHEN v_initial_risk_score >= 50 THEN 'Request OTP'
-            WHEN v_initial_risk_score >= 30 THEN 'Monitor'
-            ELSE 'Allow'
-        END,
-        status = 'Flagged'
-    WHERE t.transaction_id = NEW.transaction_id;
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'audit_logs is append-only and cannot be modified';
 END$$
 
-CREATE PROCEDURE open_alert_for_transaction(IN p_transaction_id VARCHAR(40))
+CREATE TRIGGER audit_logs_no_delete
+BEFORE DELETE ON audit_logs
+FOR EACH ROW
 BEGIN
-    DECLARE v_alert_id VARCHAR(40);
-    DECLARE v_company_id VARCHAR(20);
-    DECLARE v_customer_id VARCHAR(30);
-    DECLARE v_primary_rule_id VARCHAR(30);
-    DECLARE v_risk_score INT;
-    DECLARE v_risk_band VARCHAR(20);
-    DECLARE v_mcc_risk_score INT;
-    DECLARE v_profile_risk_score INT;
-    DECLARE v_transaction_detection_score INT;
-    DECLARE v_recommended_action VARCHAR(80);
-
-    SET v_alert_id = CONCAT('ALT-', UNIX_TIMESTAMP(), '-', FLOOR(RAND() * 10000));
-
-    SELECT company_id, customer_id, initial_risk_score, initial_risk_level, mcc_risk_score,
-           profile_risk_score, transaction_detection_score, recommended_action
-    INTO v_company_id, v_customer_id, v_risk_score, v_risk_band, v_mcc_risk_score,
-         v_profile_risk_score, v_transaction_detection_score, v_recommended_action
-    FROM transactions
-    WHERE transaction_id = p_transaction_id;
-
-    SELECT rule_id
-    INTO v_primary_rule_id
-    FROM transaction_matched_rules
-    WHERE transaction_id = p_transaction_id
-    ORDER BY rule_weight DESC, matched_rule_id ASC
-    LIMIT 1;
-
-    INSERT INTO alerts
-        (alert_id, transaction_id, primary_rule_id, grouped_count, company_id, customer_id,
-         severity, risk_score, mcc_risk_score, profile_risk_score, transaction_detection_score,
-         initial_risk_score, initial_risk_level, final_risk_score, final_risk_level, risk_level, recommended_action)
-    VALUES
-        (v_alert_id, p_transaction_id, v_primary_rule_id, 1, v_company_id, v_customer_id,
-         v_risk_band, v_risk_score, v_mcc_risk_score, v_profile_risk_score,
-         v_transaction_detection_score, v_risk_score, v_risk_band, NULL, NULL, v_risk_band, v_recommended_action);
-
-    INSERT INTO alert_transaction_links (alert_id, transaction_id)
-    VALUES (v_alert_id, p_transaction_id);
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'audit_logs is append-only and cannot be deleted';
 END$$
 
-CREATE PROCEDURE create_case_for_alert(IN p_alert_id VARCHAR(40))
+-- Cases are never opened manually - these triggers open one automatically (and log it)
+-- the moment a transaction's status becomes 'Flagged', whether that happens on insert
+-- (the normal path) or via a later update.
+CREATE TRIGGER transactions_auto_case_insert
+AFTER INSERT ON transactions
+FOR EACH ROW
 BEGIN
-    DECLARE v_company_id VARCHAR(20);
-    DECLARE v_customer_id VARCHAR(30);
-    DECLARE v_severity VARCHAR(20);
-    DECLARE v_transaction_id VARCHAR(40);
-    DECLARE v_amount DECIMAL(10,2);
-    DECLARE v_direction VARCHAR(20);
+    IF NEW.status = 'Flagged' THEN
+        INSERT INTO cases (case_id, transaction_id, created_by, assigned_to, status, notes)
+        VALUES (CONCAT('CASE-', UNIX_TIMESTAMP(), '-', FLOOR(RAND() * 1000000)), NEW.transaction_id, NULL, NULL, 'Open', 'Automatically opened - transaction flagged by risk engine');
+        INSERT INTO audit_logs (audit_id, transaction_id, action, user_id, notes, created_at)
+        VALUES (CONCAT('AUD-', UNIX_TIMESTAMP(), '-', FLOOR(RAND() * 1000000)), NEW.transaction_id, 'Case Auto-Opened', NULL, 'System opened a case after this transaction was flagged', NOW());
+    END IF;
+END$$
 
-    SELECT a.company_id, a.customer_id, a.severity, a.transaction_id, t.amount, t.direction
-    INTO v_company_id, v_customer_id, v_severity, v_transaction_id, v_amount, v_direction
-    FROM alerts a
-    JOIN transactions t ON a.transaction_id = t.transaction_id
-    WHERE a.alert_id = p_alert_id;
-
-    INSERT INTO compliance_cases
-        (case_id, alert_id, company_id, customer_id, summary, priority, due_at)
-    VALUES
-        (CONCAT('CASE-', UNIX_TIMESTAMP(), '-', FLOOR(RAND() * 10000)),
-         p_alert_id,
-         v_company_id,
-         v_customer_id,
-         CONCAT('SGD ', v_amount, ' ', LOWER(v_direction), ' transaction flagged'),
-         v_severity,
-         DATE_ADD(NOW(), INTERVAL 2 DAY));
+CREATE TRIGGER transactions_auto_case_update
+AFTER UPDATE ON transactions
+FOR EACH ROW
+BEGIN
+    IF NEW.status = 'Flagged' AND OLD.status <> 'Flagged' AND NOT EXISTS (SELECT 1 FROM cases WHERE transaction_id = NEW.transaction_id) THEN
+        INSERT INTO cases (case_id, transaction_id, created_by, assigned_to, status, notes)
+        VALUES (CONCAT('CASE-', UNIX_TIMESTAMP(), '-', FLOOR(RAND() * 1000000)), NEW.transaction_id, NULL, NULL, 'Open', 'Automatically opened - transaction flagged by risk engine');
+        INSERT INTO audit_logs (audit_id, transaction_id, action, user_id, notes, created_at)
+        VALUES (CONCAT('AUD-', UNIX_TIMESTAMP(), '-', FLOOR(RAND() * 1000000)), NEW.transaction_id, 'Case Auto-Opened', NULL, 'System opened a case after this transaction was flagged', NOW());
+    END IF;
 END$$
 
 DELIMITER ;
+
+-- =====================================================
+-- SEED DATA
+-- =====================================================
+
+-- Merchants
+INSERT INTO merchants (merchant_id, merchant_name, mcc_code, industry, mcc_risk_score, is_active)
+VALUES
+    ('MERCH-A', 'Family Clothing Store (MCC 5651)', '5651', 'Family Clothing Stores', 8, 1),
+    ('MERCH-B', 'Shoe Store (MCC 5661)', '5661', 'Shoe Stores', 12, 1),
+    ('MERCH-C', 'Cosmetic Store (MCC 5977)', '5977', 'Cosmetic Stores', 10, 1);
+
+-- Users seed data (password: 12345678)
+INSERT INTO users (user_id, user_name, user_role, password, is_active)
+VALUES
+    ('USR-001', 'Ava Lim', 'Analyst', SHA2('12345678', 256), 1),
+    ('USR-002', 'Noah Tan', 'Senior Analyst', SHA2('12345678', 256), 1),
+    ('USR-003', 'Maya Wong', 'STRO', SHA2('12345678', 256), 1),
+    ('USR-004', 'Ethan Koh', 'Admin', SHA2('12345678', 256), 1);
+
+-- Compliance Rules (adapted from old schema)
+INSERT INTO compliance_rules (rule_id, merchant_id, rule_name, risk_level, reason, weight, amount_threshold, count_threshold, rule_type, is_active)
+VALUES
+    -- Merchant A rules
+    ('COM-A-001', 'MERCH-A', 'Single transaction above S$700', 'Medium', 'Above this merchant''s typical basket size', 30, 700.00, NULL, 'amount', 1),
+    ('COM-A-002', 'MERCH-A', 'Single transaction above S$1,200', 'High', 'Far above this merchant''s typical basket size', 55, 1200.00, NULL, 'amount', 1),
+    ('COM-A-003', 'MERCH-A', '4+ transactions within 30 min', 'Medium', 'Possible split payment or repeated card attempts', 30, NULL, 4, 'recent_merchant_transactions', 1),
+    ('COM-A-004', 'MERCH-A', 'Same card spends above S$1,500 within 24h', 'High', 'Unusual cumulative same-card spend for this merchant', 55, 1500.00, NULL, 'card_spend_24h', 1),
+    ('COM-A-005', 'MERCH-A', 'Several amounts just below S$700', 'Medium', 'Possible threshold avoidance', 30, 700.00, 3, 'near_threshold', 1),
+    ('COM-A-006', 'MERCH-A', 'New or usually low-spend customer above S$800', 'Medium', 'New card or sudden spend jump with high-value purchase', 35, 800.00, NULL, 'new_or_deviating_customer', 1),
+    -- Merchant B rules
+    ('COM-B-001', 'MERCH-B', 'Single transaction above S$1,000', 'Medium', 'Above this merchant''s typical basket size', 30, 1000.00, NULL, 'amount', 1),
+    ('COM-B-002', 'MERCH-B', 'Single transaction above S$2,000', 'High', 'Far above this merchant''s typical basket size', 55, 2000.00, NULL, 'amount', 1),
+    ('COM-B-003', 'MERCH-B', '3+ transactions within 30 min', 'Medium', 'Possible split payment or repeated card attempts', 30, NULL, 3, 'recent_merchant_transactions', 1),
+    ('COM-B-004', 'MERCH-B', 'Same card spends above S$1,500 within 24h', 'High', 'Unusual cumulative same-card spend for this merchant', 55, 1500.00, NULL, 'card_spend_24h', 1),
+    ('COM-B-005', 'MERCH-B', 'Several amounts just below S$1,000', 'Medium', 'Possible threshold avoidance', 30, 1000.00, 3, 'near_threshold', 1),
+    ('COM-B-006', 'MERCH-B', 'New or usually low-spend customer above S$800', 'Medium', 'New card or sudden spend jump with high-value purchase', 35, 800.00, NULL, 'new_or_deviating_customer', 1),
+    -- Merchant C rules
+    ('COM-C-001', 'MERCH-C', 'Single transaction above S$700', 'Medium', 'Above this merchant''s typical basket size', 30, 700.00, NULL, 'amount', 1),
+    ('COM-C-002', 'MERCH-C', 'Single transaction above S$1,000', 'High', 'Far above this merchant''s typical basket size', 55, 1000.00, NULL, 'amount', 1),
+    ('COM-C-003', 'MERCH-C', '4+ transactions within 30 min', 'Medium', 'Possible split payment or repeated card attempts', 30, NULL, 4, 'recent_merchant_transactions', 1),
+    ('COM-C-004', 'MERCH-C', 'Same card spends above S$1,500 within 24h', 'High', 'Unusual cumulative same-card spend for this merchant', 55, 1500.00, NULL, 'card_spend_24h', 1),
+    ('COM-C-005', 'MERCH-C', 'Several amounts just below S$700', 'Medium', 'Possible threshold avoidance', 30, 700.00, 3, 'near_threshold', 1),
+    ('COM-C-006', 'MERCH-C', 'New or usually low-spend customer above S$800', 'Medium', 'New card or sudden spend jump with high-value purchase', 35, 800.00, NULL, 'new_or_deviating_customer', 1),
+    -- Global rules (apply to all merchants)
+    ('TIME-001', NULL, 'Transaction Outside Operating Hours', 'Medium', 'Transaction occurred outside normal merchant operating hours', 10, NULL, NULL, 'operating_hours', 1),
+    ('RULE-001', NULL, 'Large local card transaction', 'High', 'Local card transaction equal to or above SGD 10,000', 35, 10000.00, NULL, 'amount', 1),
+    ('RULE-002', NULL, 'Contextual jurisdiction escalation', 'High', 'Customer, issuer, or counterparty data references a high-risk jurisdiction', 20, NULL, NULL, 'jurisdiction', 1),
+    ('RULE-003', NULL, 'Elevated same-card spend', 'Medium', 'Unusual cumulative spend on the same card within 24 hours', 35, 3000.00, NULL, 'card_spend_24h', 1),
+    ('RULE-004', NULL, 'Incomplete customer diligence', 'Medium', 'Customer KYC profile is pending review', 25, NULL, NULL, 'kyc_pending', 1),
+    ('RULE-005', NULL, 'Low-value card testing burst', 'High', 'Repeated low-value card payments may indicate card testing', 30, 20.00, 5, 'low_value_burst', 1);
+
+-- Transactions
+INSERT INTO transactions (transaction_id, merchant_id, card_number, card_expiry, bin_range, cvv, bank_issuer, amount, transaction_code, risk_score, risk_level, status, action_status, created_at)
+VALUES
+    -- Cleared transaction
+    ('TXN-001', 'MERCH-A', '4123456789012345', '12/27', '412345', '123', 'DBS Bank', 95.00, 'TXNREF-001', 8, 'Low', 'Cleared', 'None', '2026-07-14 14:00:00'),
+    -- Flagged Critical - needs action
+    ('TXN-002', 'MERCH-B', '5123456789012345', '06/26', '512345', '456', 'OCBC Bank', 2150.00, 'TXNREF-002', 277, 'Critical', 'Flagged', 'None', '2026-07-14 02:00:00'),
+    -- Flagged Critical - under review
+    ('TXN-003', 'MERCH-C', '4789123456789012', '09/25', '478912', '789', 'UOB', 880.00, 'TXNREF-003', 165, 'Critical', 'Flagged', 'Pending RFI', '2026-07-14 14:00:00'),
+    -- Flagged High
+    ('TXN-004', 'MERCH-A', '4234567890123456', '03/28', '423456', '321', 'DBS Bank', 750.00, 'TXNREF-004', 55, 'High', 'Flagged', 'None', '2026-07-14 10:30:00'),
+    -- Another Critical - oldest one
+    ('TXN-005', 'MERCH-A', '4012345678901234', '11/26', '401234', '654', 'Citibank', 1300.00, 'TXNREF-005', 220, 'Critical', 'Flagged', 'None', '2026-07-13 23:00:00');
+
+-- Transaction Matched Rules
+INSERT INTO transaction_matched_rules (transaction_id, rule_id)
+VALUES
+    -- TXN-001: Low risk, only one rule fired
+    ('TXN-001', 'COM-A-001'),
+    -- TXN-002: Critical - multiple rules
+    ('TXN-002', 'COM-B-001'),
+    ('TXN-002', 'COM-B-002'),
+    ('TXN-002', 'COM-B-004'),
+    ('TXN-002', 'TIME-001'),
+    ('TXN-002', 'RULE-001'),
+    -- TXN-003: Critical - multiple rules
+    ('TXN-003', 'COM-C-001'),
+    ('TXN-003', 'COM-C-003'),
+    ('TXN-003', 'COM-C-006'),
+    ('TXN-003', 'RULE-004'),
+    -- TXN-004: High
+    ('TXN-004', 'COM-A-001'),
+    ('TXN-004', 'COM-A-002'),
+    -- TXN-005: Critical - oldest
+    ('TXN-005', 'COM-A-002'),
+    ('TXN-005', 'COM-A-004'),
+    ('TXN-005', 'RULE-003');
+
+-- Audit Logs
+INSERT INTO audit_logs (audit_id, transaction_id, action, user_id, notes, created_at)
+VALUES
+    ('AUD-001', 'TXN-002', 'Transaction Flagged', 'USR-001', 'System flagged - Critical risk score 277', '2026-07-14 02:00:00'),
+    ('AUD-002', 'TXN-003', 'Transaction Flagged', 'USR-001', 'System flagged - Critical risk score 165', '2026-07-14 14:00:00'),
+    ('AUD-003', 'TXN-003', 'RFI Requested', 'USR-001', 'Requesting further information from merchant', '2026-07-14 14:15:00'),
+    ('AUD-004', 'TXN-004', 'Transaction Flagged', 'USR-002', 'System flagged - High risk score 55', '2026-07-14 10:30:00'),
+    ('AUD-005', 'TXN-005', 'Transaction Flagged', 'USR-002', 'System flagged - Critical risk score 220', '2026-07-13 23:00:00'),
+    ('AUD-006', 'TXN-004', 'Case Auto-Opened', NULL, 'System opened a case after this transaction was flagged', '2026-07-14 10:30:00');
+
+-- CASE-002/003 use human created_by values as historical seed flavor (as if an analyst had
+-- already been working them); CASE-004 shows the actual system-opened shape every new case
+-- gets today, via the transactions_auto_case_insert/update triggers above.
+INSERT INTO cases (case_id, transaction_id, created_by, assigned_to, status, notes, created_at)
+VALUES
+    ('CASE-001', 'TXN-003', 'USR-001', NULL, 'Pending RFI', 'Requesting additional merchant info', '2026-07-14 14:15:00'),
+    ('CASE-002', 'TXN-002', 'USR-002', NULL, 'Open', NULL, '2026-07-14 10:00:00'),
+    ('CASE-003', 'TXN-005', 'USR-001', 'USR-003', 'Escalated', 'Escalating due to high risk score and multiple rule matches', '2026-07-14 09:00:00'),
+    ('CASE-004', 'TXN-004', NULL, NULL, 'Open', 'Automatically opened - transaction flagged by risk engine', '2026-07-14 10:30:00');
