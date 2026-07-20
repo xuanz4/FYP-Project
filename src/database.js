@@ -73,8 +73,25 @@ async function initDatabase() {
     console.log(`Connected to MySQL database "${config.database}".`);
     return true;
   } catch (error) {
+    if (error.code === 'ER_BAD_DB_ERROR') {
+      console.log(`Database "${config.database}" does not exist yet - creating it from FYP_Transaction_Monitoring.sql...`);
+      try {
+        const { createSchema } = require('./lib/dbProvision');
+        await createSchema();
+        pool = mysql.createPool(config);
+        await pool.query('SELECT 1');
+        enabled = true;
+        console.log(`Connected to MySQL database "${config.database}".`);
+        return true;
+      } catch (provisionError) {
+        console.warn(`Automatic database setup failed: ${provisionError.message}`);
+        enabled = false;
+        return false;
+      }
+    }
+
     console.warn(`Database not connected: ${error.message}`);
-    console.warn('Run FYP_Transaction_Monitoring_test.sql in MySQL, then set DB_USER/DB_PASSWORD if needed.');
+    console.warn('Run FYP_Transaction_Monitoring.sql in MySQL, then set DB_USER/DB_PASSWORD if needed.');
     enabled = false;
     return false;
   }

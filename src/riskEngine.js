@@ -1,5 +1,5 @@
 // Risk engine for the partner-shaped merchant/card transaction feed (see
-// FYP_Transaction_Monitoring_test.sql `transactions`/`compliance_rules`/`merchants`).
+// FYP_Transaction_Monitoring.sql `transactions`/`compliance_rules`/`merchants`).
 // Unlike the old in-memory engine, every signal here is computed from the merchant's actual
 // recent transaction history in MySQL (via database.query), not randomised placeholders.
 // Score is on the same 0-100 scale the rest of the app already uses (see

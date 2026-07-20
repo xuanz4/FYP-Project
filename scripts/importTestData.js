@@ -1,142 +1,18 @@
-// Imports the industry partner's 1000-row transaction export as real historical data.
-// Safe to re-run: aborts without changes if the first row's transaction_id already exists.
 require('dotenv').config();
-const fs = require('fs');
-const path = require('path');
 const database = require('../src/database');
-const { ensureMerchant, ingestTransaction } = require('../src/transactionIngestion');
-
-const transactions = require('./data/partnerTransactions.json');
-const merchants = require('./data/merchants.json');
-
-function mean(values) {
-  return values.reduce((sum, v) => sum + v, 0) / values.length;
-}
-
-function stddev(values, avg) {
-  const variance = values.reduce((sum, v) => sum + (v - avg) ** 2, 0) / values.length;
-  return Math.sqrt(variance);
-}
-
-// Per-merchant thresholds derived from that merchant's own real transaction history, in the
-// same spirit as the original hand-picked MERCH-A/B/C thresholds in FYP_Transaction_Monitoring_test.sql,
-// but computed rather than guessed. Admin can still hand-edit any of these afterwards via /admin/rules.
-function buildMerchantRuleRows(merchantId, amounts) {
-  const avg = mean(amounts);
-  const sd = stddev(amounts, avg);
-  const mediumThreshold = Math.round((avg + 2 * sd) * 100) / 100;
-  const highThreshold = Math.round((avg + 4 * sd) * 100) / 100;
-  const declaredAvgTicketThreshold = Math.round(avg * 10 * 100) / 100;
-  const aggregate24hThreshold = Math.round(avg * 20 * 100) / 100;
-
-  return [
-    {
-      ruleId: `${merchantId}-AMT-01`, merchantId, ruleName: 'Amount spike vs merchant average (medium)', riskLevel: 'Medium',
-      reason: `Amount is more than 2 standard deviations above this merchant's average ticket (avg S$${avg.toFixed(2)})`,
-      weight: 20, amountThreshold: mediumThreshold, countThreshold: null, ruleType: 'amount_spike',
-    },
-    {
-      ruleId: `${merchantId}-AMT-02`, merchantId, ruleName: 'Amount spike vs merchant average (high)', riskLevel: 'High',
-      reason: `Amount is more than 4 standard deviations above this merchant's average ticket (avg S$${avg.toFixed(2)})`,
-      weight: 35, amountThreshold: highThreshold, countThreshold: null, ruleType: 'amount_spike',
-    },
-    {
-      ruleId: `${merchantId}-PR-AOV-01`, merchantId, ruleName: '10x declared average ticket', riskLevel: 'Critical',
-      reason: `Amount is at least 10x this merchant's average ticket (avg S$${avg.toFixed(2)})`,
-      weight: 40, amountThreshold: declaredAvgTicketThreshold, countThreshold: null, ruleType: 'declared_avg_ticket',
-    },
-    {
-      ruleId: `${merchantId}-FREQ-02`, merchantId, ruleName: '4+ transactions at the same store within 30 min', riskLevel: 'Medium',
-      reason: 'Possible split payment or repeated card attempts at a single store', weight: 15, amountThreshold: null, countThreshold: 4, ruleType: 'store_velocity',
-    },
-    {
-      ruleId: `${merchantId}-TR-005`, merchantId, ruleName: '24h aggregate spend build-up', riskLevel: 'High',
-      reason: `Cumulative merchant spend within 24h far exceeds typical daily volume (avg ticket S$${avg.toFixed(2)})`,
-      weight: 25, amountThreshold: aggregate24hThreshold, countThreshold: null, ruleType: 'aggregate_24h',
-    },
-    {
-      ruleId: `${merchantId}-STR-01`, merchantId, ruleName: 'Structuring band just under medium threshold', riskLevel: 'Medium',
-      reason: `3+ transactions within 24h sitting just under the S$${mediumThreshold.toFixed(2)} medium-amount threshold`,
-      weight: 15, amountThreshold: mediumThreshold, countThreshold: 3, ruleType: 'near_threshold',
-    },
-  ];
-}
-
-// Generic AML concepts that apply the same way regardless of merchant (merchant_id NULL).
-// Off-hours is intentionally not redefined here - FYP_Transaction_Monitoring_test.sql already
-// seeds a global TIME-001 rule (rule_type 'operating_hours') and the risk engine matches by
-// rule_type, not rule_id, so adding a second row would double-count the same signal.
-const globalRuleRows = [
-  {
-    ruleId: 'XB-01', merchantId: null, ruleName: 'Foreign-issued card', riskLevel: 'Low',
-    reason: "Card issuer country differs from the merchant's home country", weight: 10, amountThreshold: null, countThreshold: null, ruleType: 'foreign_issuer',
-  },
-  {
-    ruleId: 'TL-01', merchantId: null, ruleName: 'Foreign-issuer concentration', riskLevel: 'High',
-    reason: '3+ foreign-issued card transactions at this merchant within 1 hour', weight: 20, amountThreshold: null, countThreshold: 3, ruleType: 'foreign_issuer_concentration',
-  },
-  {
-    ruleId: 'CT-01', merchantId: null, ruleName: 'Low-value card testing burst', riskLevel: 'High',
-    reason: '5+ sub-S$20 transactions at the same store within 10 minutes may indicate card testing', weight: 30, amountThreshold: null, countThreshold: 5, ruleType: 'card_testing_burst',
-  },
-  {
-    ruleId: 'FREQ-03', merchantId: null, ruleName: 'Cross-store velocity', riskLevel: 'Medium',
-    reason: '2+ distinct stores at the same merchant used within 30 minutes', weight: 20, amountThreshold: null, countThreshold: 2, ruleType: 'cross_store_velocity',
-  },
-  {
-    ruleId: 'DD-01', merchantId: null, ruleName: 'High-risk merchant (EDD required)', riskLevel: 'Medium',
-    reason: 'Merchant is in a cash-intensive/high-AML-risk industry requiring enhanced due diligence', weight: 20, amountThreshold: null, countThreshold: null, ruleType: 'edd_high_risk',
-  },
-];
-
-async function upsertRule(rule) {
-  await database.execute(
-    `INSERT INTO compliance_rules (rule_id, merchant_id, rule_name, risk_level, reason, weight, amount_threshold, count_threshold, rule_type, is_active)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-     ON DUPLICATE KEY UPDATE
-       rule_name = VALUES(rule_name), risk_level = VALUES(risk_level), reason = VALUES(reason),
-       weight = VALUES(weight), amount_threshold = VALUES(amount_threshold), count_threshold = VALUES(count_threshold)`,
-    [rule.ruleId, rule.merchantId, rule.ruleName, rule.riskLevel, rule.reason, rule.weight, rule.amountThreshold, rule.countThreshold, rule.ruleType],
-  );
-}
+const { seedTestData } = require('../src/lib/testDataSeed');
 
 async function main() {
   const connected = await database.initDatabase();
   if (!connected) throw new Error('Could not connect to the database - check .env DB_* settings.');
 
-  const [[{ existing }]] = await database.query('SELECT COUNT(*) AS existing FROM transactions WHERE transaction_id = ?', [transactions[0].id]);
-  if (existing > 0) {
+  const result = await seedTestData(database);
+  if (!result.seeded) {
     console.log('Test data already imported (first row already present) - nothing to do.');
     return;
   }
 
-  console.log(`Seeding ${merchants.length} merchants...`);
-  for (const merchant of merchants) {
-    await ensureMerchant(database, merchant);
-  }
-
-  console.log('Seeding compliance rules (per-merchant thresholds computed from real amounts)...');
-  const amountsByMerchant = {};
-  for (const txn of transactions) {
-    (amountsByMerchant[txn.merchantId] ||= []).push(txn.amount);
-  }
-  for (const merchant of merchants) {
-    const rows = buildMerchantRuleRows(merchant.merchantId, amountsByMerchant[merchant.merchantId] || [0]);
-    for (const rule of rows) await upsertRule(rule);
-  }
-  for (const rule of globalRuleRows) await upsertRule(rule);
-
-  console.log(`Importing ${transactions.length} transactions in chronological order...`);
-  const merchantById = Object.fromEntries(merchants.map((m) => [m.merchantId, m]));
-  let flagged = 0;
-  for (let i = 0; i < transactions.length; i += 1) {
-    const raw = transactions[i];
-    const evaluation = await ingestTransaction(database, raw, merchantById[raw.merchantId]);
-    if (evaluation.status === 'Flagged') flagged += 1;
-    if ((i + 1) % 100 === 0) console.log(`  ${i + 1}/${transactions.length} imported...`);
-  }
-
-  console.log(`Done. ${transactions.length} transactions imported, ${flagged} flagged (cases auto-opened by DB trigger).`);
+  console.log(`Done. ${result.imported} transactions imported, ${result.flagged} flagged (cases auto-opened by DB trigger).`);
 }
 
 main()
