@@ -34,6 +34,13 @@ function validateRfiAccess(role, context) {
   if (['Filed', 'Not Required'].includes(context.strStatus)) {
     return { allowed: false, status: 409, message: `An RFI cannot be sent when the STR status is ${context.strStatus}.` };
   }
+  if (role === 'Analyst') {
+    const routedAway = ['Senior Analyst', 'STRO'].includes(context.assignedRole)
+      || ['Senior Analyst', 'STRO'].includes(context.escalationDestination);
+    if (routedAway) {
+      return { allowed: false, status: 403, message: 'This case has been escalated and can no longer be actioned by an Analyst.' };
+    }
+  }
   if (role === 'Senior Analyst') {
     const routedToSenior = context.assignedRole === 'Senior Analyst'
       || context.escalationDestination === 'Senior Analyst'

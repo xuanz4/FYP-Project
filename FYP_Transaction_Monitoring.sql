@@ -1,6 +1,6 @@
-DROP DATABASE IF EXISTS fyp_transaction_monitoring_test;
-CREATE DATABASE fyp_transaction_monitoring_test;
-USE fyp_transaction_monitoring_test;
+DROP DATABASE IF EXISTS fyp_transaction_monitoring;
+CREATE DATABASE fyp_transaction_monitoring;
+USE fyp_transaction_monitoring;
 
 -- Table 1: Merchants
 CREATE TABLE merchants (

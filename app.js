@@ -15,7 +15,7 @@ const {
   validateRfiAccess,
   validateRfiRequestBody,
 } = require('./src/lib/rfiWorkflow');
-const { validateStrTransition, autoAssignStaleCriticalCases } = require('./controllers/transactionsController');
+const { validateStrTransition, autoAssignStaleCases, backfillCaseDueDates } = require('./controllers/transactionsController');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -63,6 +63,9 @@ async function startServer() {
     if (result.seeded) {
       console.log(`Seeded test data: ${result.imported} transactions imported, ${result.flagged} flagged.`);
     }
+    await backfillCaseDueDates().catch((error) => {
+      console.error(`Case due-date backfill failed: ${error.message}`);
+    });
   }
 
   server.listen(PORT, () => {
@@ -75,8 +78,11 @@ async function startServer() {
   });
 
   setInterval(() => {
-    autoAssignStaleCriticalCases().catch((error) => {
+    autoAssignStaleCases().catch((error) => {
       console.error(`Stale case auto-assign failed: ${error.message}`);
+    });
+    backfillCaseDueDates().catch((error) => {
+      console.error(`Case due-date backfill failed: ${error.message}`);
     });
   }, 60 * 1000);
 }

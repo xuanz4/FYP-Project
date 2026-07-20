@@ -234,14 +234,14 @@ async function assignToMe(req, res) {
   }
 }
 
-// Safety net for the analyst self-select workflow above: a Critical (or already-overdue) case
-// that nobody has claimed within STALE_CASE_MINUTES gets pushed to whichever active Analyst
-// currently has the fewest open cases, so high-risk work never sits idle just because the
-// queue wasn't triaged in time. Reuses the same atomic "WHERE assigned_to IS NULL" guard as
+// Safety net for the analyst self-select workflow above: a Critical/High (or already-overdue)
+// case that nobody has claimed within STALE_CASE_MINUTES gets pushed to whichever active
+// Analyst currently has the fewest open cases, so high-risk work never sits idle just because
+// the queue wasn't triaged in time. Reuses the same atomic "WHERE assigned_to IS NULL" guard as
 // assign-to-me above so it can never clobber a manual claim made in between the SELECT and
 // the UPDATE. user_id is left NULL on the audit entry since the actor is the system, not the
 // analyst it assigned to - the audit-log views already render that as "System".
-async function autoAssignStaleCriticalCases() {
+async function autoAssignStaleCases() {
   if (!database.isEnabled()) return;
 
   const [staleCases] = await database.query(
@@ -251,7 +251,7 @@ async function autoAssignStaleCriticalCases() {
      WHERE c.assigned_to IS NULL
        AND c.assigned_role IS NULL
        AND c.status NOT IN ('Resolved', 'Dismissed as False Positive', 'STR Filed')
-       AND (t.risk_level = 'Critical' OR (c.due_at IS NOT NULL AND c.due_at < NOW()))
+       AND (t.risk_level IN ('Critical', 'High') OR (c.due_at IS NOT NULL AND c.due_at < NOW()))
        AND c.created_at < DATE_SUB(NOW(), INTERVAL ? MINUTE)`,
     [STALE_CASE_MINUTES],
   );
@@ -289,6 +289,31 @@ async function autoAssignStaleCriticalCases() {
       `INSERT INTO audit_logs (audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at)
        VALUES (?, ?, ?, ?, ?, NULL, ?, NOW())`,
       [id('AUD'), staleCase.transaction_id, 'Case', staleCase.case_id, 'Case Auto-Assigned', auditMessage],
+    );
+  }
+}
+
+// The case-open triggers (see FYP_Transaction_Monitoring.sql) never set due_at, so an unclaimed
+// case has no SLA clock until someone assigns it. That means a non-Critical/High case could sit
+// unassigned indefinitely with no overdue signal at all. This backfills a due date - anchored to
+// when the case was actually opened, not to whenever this job happens to run - for any case that
+// doesn't have one yet, so overdue reporting works even before a claim. assignToMe/auto-assign
+// still reset due_at to a fresh clock once someone actually takes ownership.
+async function backfillCaseDueDates() {
+  if (!database.isEnabled()) return;
+
+  const [cases] = await database.query(
+    `SELECT case_id, created_at FROM cases
+     WHERE due_at IS NULL
+       AND status NOT IN ('Resolved', 'Dismissed as False Positive', 'STR Filed')`,
+  );
+  if (!cases.length) return;
+
+  for (const caseRow of cases) {
+    const dueAt = formatSqlDateTime(addWorkingDays(new Date(caseRow.created_at), 2));
+    await database.execute(
+      'UPDATE cases SET due_at = ? WHERE case_id = ? AND due_at IS NULL',
+      [dueAt, caseRow.case_id],
     );
   }
 }
@@ -796,7 +821,8 @@ function apiNotFound(req, res) {
 module.exports = {
   transactionDetailPage,
   assignToMe,
-  autoAssignStaleCriticalCases,
+  autoAssignStaleCases,
+  backfillCaseDueDates,
   referToStro,
   escalate,
   validateStrTransition,

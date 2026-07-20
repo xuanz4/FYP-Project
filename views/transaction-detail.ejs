@@ -111,7 +111,7 @@
         || caseInfo?.escalationDestination === 'Senior Analyst'
         || rawCaseStatus === 'Pending Senior Review';
     const isRfiTerminal = isResolved || ['Filed', 'Not Required'].includes(strStatus);
-    const canSendRfi = !isRfiTerminal && (isAnalyst || (isSenior && !!caseInfo && routedToSenior) || canStroRequestInfo);
+    const canSendRfi = !isRfiTerminal && ((isAnalyst && !!caseInfo && escalationDestination === 'Not assigned') || (isSenior && !!caseInfo && routedToSenior) || canStroRequestInfo);
     const canEscalate = !isResolved && isAnalyst && !!caseInfo && escalationDestination === 'Not assigned' && strStatus === 'Not Started';
     const canResolve = !isResolved && ((isAnalyst && rawCaseStatus !== 'Escalated' && rawCaseStatus !== 'Pending Senior Review' && initialLevel !== 'Critical') || isSenior);
     const canAssignToMe = !isResolved && isUnassignedCase && role === requiredAssignmentRole && (isAnalyst || isSenior || isStro);
