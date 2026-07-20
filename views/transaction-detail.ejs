@@ -189,9 +189,11 @@
                     <span>Assigned Analyst</span>
                     <strong id="assignedAnalystValue"><%= assignedAnalyst %></strong>
                     <% if (canAssignToMe) { %>
-                        <button id="assignToMeButton" type="button" class="inline-action-button"
-                            data-case-id="<%= caseInfo.case_id %>">Assign to Me</button>
-                        <small id="assignToMeFeedback" class="inline-feedback"></small>
+                        <div class="assignment-actions">
+                            <button id="assignToMeButton" type="button" class="inline-action-button"
+                                data-case-id="<%= caseInfo.case_id %>">Assign to Me</button>
+                            <small id="assignToMeFeedback" class="inline-feedback"></small>
+                        </div>
                     <% } %>
                 </article>
             <% } %>
@@ -539,16 +541,24 @@
             </div>
         <% } %>
 
-        <section id="rfiSuccessPanel" class="panel rfi-success-panel is-hidden" aria-live="polite">
-            <div>
-                <h2>RFI Email Sent</h2>
-                <p id="rfiSuccessMessage">The SMTP provider accepted the email for delivery.</p>
-            </div>
-            <div id="rfiSuccessPreview" class="email-preview"></div>
-            <div class="modal-actions">
-                <button id="closeRfiSuccessPanel" type="button" class="secondary-btn">Close</button>
-            </div>
-        </section>
+        <div id="rfiSuccessPanel" class="detail-modal rfi-success-panel is-hidden" aria-hidden="true" aria-live="polite">
+            <div class="detail-modal-backdrop" data-close-rfi-success></div>
+            <section class="detail-dialog rfi-success-dialog" role="dialog" aria-modal="true" aria-labelledby="rfiSuccessTitle">
+                <button type="button" class="detail-close" data-close-rfi-success aria-label="Close RFI confirmation">Close</button>
+                <div class="panel-header">
+                    <div>
+                        <h2 id="rfiSuccessTitle">RFI Email Sent</h2>
+                        <p id="rfiSuccessMessage">The SMTP provider accepted the email for delivery.</p>
+                    </div>
+                </div>
+                <div class="rfi-success-content">
+                    <div id="rfiSuccessPreview" class="email-preview"></div>
+                    <div class="modal-actions">
+                        <button id="closeRfiSuccessPanel" type="button" class="action-submit">Done</button>
+                    </div>
+                </div>
+            </section>
+        </div>
 
         <% if (canEscalate) { %>
             <div id="escalationModal" class="detail-modal" aria-hidden="true">
@@ -701,7 +711,7 @@
                         <p id="strWorkflowFeedback" class="muted"></p>
                         <div class="modal-actions">
                             <button type="button" class="secondary-btn" data-close-str-modal>Cancel</button>
-                            <button type="button" class="action-submit" data-str-submit="Filed">Mark Filed</button>
+                            <button id="strFileSubmit" type="button" class="action-submit" data-str-submit="Filed">File STR</button>
                         </div>
                     </form>
                 </section>
@@ -1444,7 +1454,9 @@
                         recipient: result.recipient || openButton?.dataset.recipientEmail || '',
                     });
                     successPanel.classList.remove('is-hidden');
-                    successPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    successPanel.classList.add('open');
+                    successPanel.setAttribute('aria-hidden', 'false');
+                    document.body.classList.add('modal-open');
                 }
             } catch (error) {
                 if (feedback) feedback.textContent = error.message;
@@ -1455,10 +1467,22 @@
                 }
             }
         });
+        const closeRfiSuccess = () => {
+            successPanel?.classList.remove('open');
+            successPanel?.classList.add('is-hidden');
+            successPanel?.setAttribute('aria-hidden', 'true');
+            document.body.classList.remove('modal-open');
+            if (successPreview) successPreview.innerHTML = '';
+        };
+        document.querySelectorAll('[data-close-rfi-success]').forEach((control) => {
+            control.addEventListener('click', (event) => {
+                event.preventDefault();
+                closeRfiSuccess();
+            });
+        });
         closeSuccessPanel?.addEventListener('click', (event) => {
             event.preventDefault();
-            successPanel?.classList.add('is-hidden');
-            if (successPreview) successPreview.innerHTML = '';
+            closeRfiSuccess();
         });
     })();
 </script>

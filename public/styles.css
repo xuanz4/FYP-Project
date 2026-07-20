@@ -1282,14 +1282,27 @@ body.modal-open {
 }
 
 .rfi-success-panel {
-  border-color: rgba(47, 125, 83, 0.24);
-  background: #f7fbf8;
-  display: grid;
-  gap: 14px;
+  z-index: 60;
 }
 
 .rfi-success-panel.is-hidden {
   display: none;
+}
+
+.rfi-success-dialog {
+  width: min(680px, calc(100vw - 32px));
+  border-top: 3px solid var(--success) !important;
+}
+
+.rfi-success-content {
+  display: grid;
+  gap: 16px;
+  padding: 20px 22px 22px;
+}
+
+.rfi-success-content .email-preview {
+  max-height: min(42vh, 320px);
+  overflow: auto;
 }
 
 .modal-actions {
@@ -6313,9 +6326,18 @@ body.modal-open {
 .app-shell.role-stro .transaction-review-page .stro-action-file { border-color: #8bd5b8; color: #087c56; background: var(--success-light); }
 .app-shell.role-stro .transaction-review-page .stro-action-not-required { border-color: #ccd3dc; color: #596474; background: #eef1f5; }
 .app-shell.role-stro .detail-dialog { border-top: 3px solid var(--high); border-radius: 14px; }
-.app-shell.role-stro #strWorkflowModal .detail-dialog { width: min(820px, calc(100vw - 32px)); }
+.app-shell.role-stro #strWorkflowModal .detail-dialog { width: min(820px, calc(100vw - 32px)); overflow-y: auto; }
 .app-shell.role-stro #strWorkflowModal .action-form { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
 .app-shell.role-stro #strWorkflowModal .action-form .wide, .app-shell.role-stro #strWorkflowModal .modal-actions, .app-shell.role-stro #strWorkflowModal .rfi-warning, .app-shell.role-stro #strWorkflowFeedback { grid-column: 1 / -1; }
+.app-shell.role-stro #strWorkflowModal .modal-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin: 0 -22px -22px;
+  padding: 14px 22px 22px;
+  border-top: 1px solid var(--border);
+  background: #fff;
+}
 .app-shell.role-stro #strWorkflowModal .action-submit { background: var(--success); }
 .app-shell.role-stro #strNotRequiredModal .action-submit { background: #6f7a89; }
 
@@ -7218,6 +7240,29 @@ body.app-shell.transaction-review-shell .transaction-review-page .review-meta-st
   line-height: 1.2;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .assignment-actions {
+  display: flex;
+  grid-column: 2;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .assignment-actions .inline-action-button {
+  flex: 0 0 auto;
+  width: auto;
+  min-height: 28px;
+  padding: 5px 10px;
+  font-size: 0.68rem;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .assignment-actions .inline-feedback {
+  min-width: 0;
+  font-size: 0.62rem;
 }
 
 body.app-shell.transaction-review-shell .transaction-review-page .review-meta-strip .status-pill {
