@@ -1,4 +1,5 @@
 const assert = require('assert');
+const { suite, runTest, finish } = require('./runAll');
 const {
   riskLevelFromScore,
   isOutsideOperatingHours,
@@ -47,9 +48,13 @@ function testStrTransitions() {
   assert.strictEqual(validateStrTransition('Filed', 'Recommended'), false);
 }
 
-testRiskLevelBands();
-testOperatingHours();
-testAddWorkingDays();
-testStrTransitions();
+async function main() {
+  suite('Risk Engine');
+  await runTest('maps numeric scores to risk level bands', testRiskLevelBands);
+  await runTest('detects transactions outside operating hours', testOperatingHours);
+  await runTest('adds working days while skipping weekends', testAddWorkingDays);
+  await runTest('validates allowed STR status transitions', testStrTransitions);
+  finish();
+}
 
-console.log('Risk engine tests passed');
+main();

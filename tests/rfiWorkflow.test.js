@@ -1,6 +1,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { suite, runTest, finish } = require('./runAll');
 const app = require('../app');
 const emailService = require('../src/services/emailService');
 
@@ -160,16 +161,14 @@ function testFrontendIsLocalOnlyAndProtectsDoubleClick() {
 }
 
 async function main() {
-  testRoleAccess();
-  testRecipientAndRequestValidation();
-  testSmtpConfiguration();
-  testNeutralMultipartContent();
-  testFrontendIsLocalOnlyAndProtectsDoubleClick();
-  await testSmtpDeliveryAndFailures();
-  console.log('RFI workflow tests passed');
+  suite('RFI Workflow');
+  await runTest('enforces role access for RFI sending', testRoleAccess);
+  await runTest('validates RFI recipient and request body', testRecipientAndRequestValidation);
+  await runTest('validates SMTP configuration', testSmtpConfiguration);
+  await runTest('builds neutral multipart RFI email content', testNeutralMultipartContent);
+  await runTest('keeps RFI preview local and protects against double click sends', testFrontendIsLocalOnlyAndProtectsDoubleClick);
+  await runTest('handles SMTP delivery success and provider failures', testSmtpDeliveryAndFailures);
+  finish();
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+main();
