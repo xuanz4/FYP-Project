@@ -8,6 +8,11 @@ function fakeDatabase({ history = [], rules = [] } = {}) {
     calls,
     async query(sql, params) {
       calls.push({ type: 'query', sql, params });
+      if (/FROM merchant_risk_profiles/.test(sql)) return [[]];
+      if (/SELECT unique_transaction_reference/.test(sql)) return [[]];
+      if (/SELECT merchant_id, merchant_name, merchant_mid FROM merchants/.test(sql)) {
+        return [[{ merchant_id: params[0], merchant_name: 'Test Merchant', merchant_mid: null }]];
+      }
       if (/FROM transactions/.test(sql)) return [history];
       if (/FROM compliance_rules/.test(sql)) return [rules];
       throw new Error(`Unexpected query: ${sql}`);
@@ -100,25 +105,30 @@ async function testIngestTransactionPersistsEvaluationAndBroadcasts() {
   ));
   assert.ok(transactionInsert);
   assert.strictEqual(transactionInsert.params[0], 'TXN-001');
-  assert.strictEqual(transactionInsert.params[16], 55);
-  assert.strictEqual(transactionInsert.params[17], 'High');
-  assert.strictEqual(transactionInsert.params[18], 'Flagged');
+  assert.match(transactionInsert.params[1], /^TXN-\d{4}-\d{6}$/);
+  assert.strictEqual(transactionInsert.params[17], 55);
+  assert.strictEqual(transactionInsert.params[18], 'High');
+  assert.strictEqual(transactionInsert.params[19], 0);
+  assert.strictEqual(transactionInsert.params[20], 0);
+  assert.strictEqual(transactionInsert.params[21], 55);
+  assert.strictEqual(transactionInsert.params[22], 'Flagged');
 
   const ruleInsert = database.calls.find((call) => (
     call.type === 'execute' && /INSERT INTO transaction_matched_rules/.test(call.sql)
   ));
   assert.deepStrictEqual(ruleInsert.params, ['TXN-001', 'R-AMOUNT']);
 
-  assert.deepStrictEqual(events, [{
-    event: 'transaction',
-    data: {
-      transactionId: 'TXN-001',
-      merchantId: 'M001',
-      amount: 1500,
-      riskLevel: 'High',
-      status: 'Flagged',
-    },
-  }]);
+  assert.strictEqual(events.length, 1);
+  assert.strictEqual(events[0].event, 'transaction');
+  assert.match(events[0].data.uniqueTransactionReference, /^TXN-\d{4}-\d{6}$/);
+  assert.deepStrictEqual({ ...events[0].data, uniqueTransactionReference: undefined }, {
+    transactionId: 'TXN-001',
+    uniqueTransactionReference: undefined,
+    merchantId: 'M001',
+    amount: 1500,
+    riskLevel: 'High',
+    status: 'Flagged',
+  });
 }
 
 async function main() {

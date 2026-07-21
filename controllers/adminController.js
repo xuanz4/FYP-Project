@@ -2,6 +2,8 @@ const database = require('../src/database');
 const emailService = require('../src/services/emailService');
 const { paginationMeta, appendWhere } = require('../src/lib/query');
 const { logAdminAudit } = require('../src/lib/auditLog');
+const { ensureMerchantContactsTable } = require('../src/lib/schema');
+const { id } = require('../src/lib/ids');
 
 function adminFiltersFromQuery(query) {
   return {
@@ -41,26 +43,85 @@ async function loadAdminUsers(req) {
 }
 
 async function loadAdminMerchants(req) {
+  await ensureMerchantContactsTable();
   const filters = adminFiltersFromQuery(req.query);
   const where = [];
   const values = [];
-  if (filters.status === 'active') where.push('is_active = 1');
-  if (filters.status === 'inactive') where.push('is_active = 0');
-  appendWhere(where, values, 'industry = ?', filters.industry);
-  appendWhere(where, values, 'mcc_code = ?', filters.mcc);
-  if (filters.q) { where.push('(merchant_id LIKE ? OR merchant_name LIKE ? OR industry LIKE ?)'); values.push(`%${filters.q}%`, `%${filters.q}%`, `%${filters.q}%`); }
+  if (filters.status === 'active') where.push('m.is_active = 1');
+  if (filters.status === 'inactive') where.push('m.is_active = 0');
+  appendWhere(where, values, 'm.industry = ?', filters.industry);
+  appendWhere(where, values, 'm.mcc_code = ?', filters.mcc);
+  if (filters.q) { where.push('(m.merchant_id LIKE ? OR m.merchant_name LIKE ? OR m.industry LIKE ?)'); values.push(`%${filters.q}%`, `%${filters.q}%`, `%${filters.q}%`); }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-  const [countRows] = await database.query(`SELECT COUNT(*) AS total FROM merchants ${whereSql}`, values);
+  const [countRows] = await database.query(`SELECT COUNT(*) AS total FROM merchants m ${whereSql}`, values);
   const pagination = paginationMeta(req, Number(countRows[0]?.total || 0), 15);
   const [rows] = await database.query(
-    `SELECT merchant_id, merchant_name, merchant_mid, merchant_country, authorised_contact_name,
-            authorised_contact_email, mcc_code, industry, mcc_risk_score, risk_tier, is_active
-     FROM merchants ${whereSql} ORDER BY merchant_name ASC LIMIT ? OFFSET ?`,
+    `SELECT m.merchant_id, m.merchant_name, m.merchant_mid, m.merchant_country,
+            m.mcc_code, m.industry, m.mcc_risk_score, m.risk_tier, m.is_active,
+            mc.contact_name, mc.rfi_email, mc.phone_number, mc.store_id AS contact_store_id, mc.status AS contact_status
+     FROM merchants m
+     LEFT JOIN merchant_contacts mc ON mc.merchant_id = m.merchant_id
+     ${whereSql} ORDER BY m.merchant_name ASC LIMIT ? OFFSET ?`,
     [...values, pagination.limit, pagination.offset],
   );
   const [industries] = await database.query('SELECT DISTINCT industry FROM merchants ORDER BY industry ASC');
   const [mccs] = await database.query('SELECT DISTINCT mcc_code FROM merchants ORDER BY mcc_code ASC');
   return { rows, industries, mccs, filters, pagination };
+}
+
+// Upserts the single merchant_contacts row for this merchant and writes one audit_logs entry
+// per changed field, so contact edits are auditable (old value -> new value -> who) instead of
+// silently overwriting the old single mutable merchants column.
+async function upsertMerchantContactFields(req, merchantId) {
+  const hasContactField = ['contactName', 'rfiEmail', 'phoneNumber', 'contactStoreId'].some((field) => req.body[field] !== undefined);
+  if (!hasContactField) return;
+
+  await ensureMerchantContactsTable();
+  const contactName = String(req.body.contactName || '').trim() || null;
+  const rfiEmail = String(req.body.rfiEmail || '').trim() || null;
+  const phoneNumber = String(req.body.phoneNumber || '').trim() || null;
+  const storeId = String(req.body.contactStoreId || '').trim() || null;
+  if (rfiEmail && !emailService.isValidEmail(rfiEmail)) return;
+
+  const [existingRows] = await database.query(
+    'SELECT contact_name, rfi_email, phone_number, store_id FROM merchant_contacts WHERE merchant_id = ? LIMIT 1',
+    [merchantId],
+  );
+  const existing = existingRows[0] || {};
+
+  const [merchantRows] = await database.query('SELECT merchant_mid FROM merchants WHERE merchant_id = ? LIMIT 1', [merchantId]);
+  const merchantMid = merchantRows[0]?.merchant_mid || null;
+
+  await database.execute(
+    `INSERT INTO merchant_contacts (contact_id, merchant_id, merchant_mid, store_id, contact_name, rfi_email, phone_number, status, updated_by, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'Active', ?, NOW())
+     ON DUPLICATE KEY UPDATE
+       merchant_mid = VALUES(merchant_mid),
+       store_id = VALUES(store_id),
+       contact_name = VALUES(contact_name),
+       rfi_email = VALUES(rfi_email),
+       phone_number = VALUES(phone_number),
+       updated_by = VALUES(updated_by),
+       updated_at = NOW()`,
+    [id('MCT'), merchantId, merchantMid, storeId, contactName, rfiEmail, phoneNumber, req.session.user.id],
+  );
+
+  const changedFields = [
+    ['Contact Name', existing.contact_name, contactName],
+    ['RFI Email', existing.rfi_email, rfiEmail],
+    ['Phone Number', existing.phone_number, phoneNumber],
+    ['Store ID', existing.store_id, storeId],
+  ].filter(([, before, after]) => (before || null) !== (after || null));
+
+  for (const [fieldLabel, before, after] of changedFields) {
+    await logAdminAudit({
+      action: 'Merchant Contact Updated',
+      userId: req.session.user.id,
+      entityType: 'MerchantContact',
+      entityId: merchantId,
+      notes: `${fieldLabel} changed from "${before || 'empty'}" to "${after || 'empty'}"`,
+    });
+  }
 }
 
 async function loadAdminRules(req) {
@@ -287,17 +348,13 @@ async function createMerchant(req, res) {
   const mccRiskScore = Number(req.body.mccRiskScore || 0);
   const merchantMid = String(req.body.merchantMid || '').trim() || null;
   const merchantCountry = String(req.body.merchantCountry || '').trim() || null;
-  const authorisedContactName = String(req.body.authorisedContactName || '').trim() || null;
-  const authorisedContactEmail = String(req.body.authorisedContactEmail || '').trim() || null;
   const riskTier = req.body.riskTier === 'High' ? 'High' : 'Standard';
   const isActive = req.body.isActive !== '0';
   if (!merchantId || !merchantName || !mccCode || !industry) return res.redirect('/admin/merchants');
-  if (authorisedContactEmail && !emailService.isValidEmail(authorisedContactEmail)) return res.redirect('/admin/merchants');
 
   const [result] = await database.execute(
-    `INSERT INTO merchants (merchant_id, merchant_name, mcc_code, industry, mcc_risk_score, merchant_mid, merchant_country,
-                            authorised_contact_name, authorised_contact_email, risk_tier, is_active)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO merchants (merchant_id, merchant_name, mcc_code, industry, mcc_risk_score, merchant_mid, merchant_country, risk_tier, is_active)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        merchant_name = VALUES(merchant_name),
        mcc_code = VALUES(mcc_code),
@@ -305,12 +362,9 @@ async function createMerchant(req, res) {
        mcc_risk_score = VALUES(mcc_risk_score),
        merchant_mid = VALUES(merchant_mid),
        merchant_country = VALUES(merchant_country),
-       authorised_contact_name = VALUES(authorised_contact_name),
-       authorised_contact_email = VALUES(authorised_contact_email),
        risk_tier = VALUES(risk_tier),
        is_active = VALUES(is_active)`,
-    [merchantId, merchantName, mccCode, industry, mccRiskScore, merchantMid, merchantCountry,
-      authorisedContactName, authorisedContactEmail, riskTier, isActive ? 1 : 0],
+    [merchantId, merchantName, mccCode, industry, mccRiskScore, merchantMid, merchantCountry, riskTier, isActive ? 1 : 0],
   );
 
   await logAdminAudit({
@@ -320,6 +374,7 @@ async function createMerchant(req, res) {
     entityId: merchantId,
     notes: `${merchantName} (MCC ${mccCode})`,
   });
+  await upsertMerchantContactFields(req, merchantId);
 
   return res.redirect('/admin/merchants');
 }
@@ -333,12 +388,6 @@ async function updateMerchant(req, res) {
   if (req.body.mccRiskScore !== undefined) { updates.push('mcc_risk_score = ?'); values.push(Number(req.body.mccRiskScore || 0)); }
   if (req.body.merchantMid !== undefined) { updates.push('merchant_mid = ?'); values.push(String(req.body.merchantMid).trim() || null); }
   if (req.body.merchantCountry !== undefined) { updates.push('merchant_country = ?'); values.push(String(req.body.merchantCountry).trim() || null); }
-  if (req.body.authorisedContactName !== undefined) { updates.push('authorised_contact_name = ?'); values.push(String(req.body.authorisedContactName).trim() || null); }
-  if (req.body.authorisedContactEmail !== undefined) {
-    const contactEmail = String(req.body.authorisedContactEmail).trim() || null;
-    if (contactEmail && !emailService.isValidEmail(contactEmail)) return res.redirect('/admin/merchants');
-    updates.push('authorised_contact_email = ?'); values.push(contactEmail);
-  }
   if (req.body.riskTier !== undefined) { updates.push('risk_tier = ?'); values.push(req.body.riskTier === 'High' ? 'High' : 'Standard'); }
   if (typeof req.body.isActive !== 'undefined') { updates.push('is_active = ?'); values.push(req.body.isActive === '1' || req.body.isActive === 'true' ? 1 : 0); }
   if (updates.length) {
@@ -351,6 +400,7 @@ async function updateMerchant(req, res) {
       entityId: req.params.id,
     });
   }
+  await upsertMerchantContactFields(req, req.params.id);
   return res.redirect('/admin/merchants');
 }
 

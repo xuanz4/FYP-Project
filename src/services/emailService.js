@@ -57,13 +57,6 @@ function parseMailbox(value) {
   return { address: match[2], name: match[1].trim() || null };
 }
 
-function maskEmail(value) {
-  const email = String(value || '').trim();
-  const [name, domain] = email.split('@');
-  if (!name || !domain) return '';
-  return `${name.slice(0, 2)}***@${domain}`;
-}
-
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -262,7 +255,6 @@ module.exports = {
   escapeHtml,
   findRestrictedPhrase,
   isValidEmail,
-  maskEmail,
   parseMailbox,
   parseSmtpConfig,
   sendRfiEmail,

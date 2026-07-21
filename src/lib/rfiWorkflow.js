@@ -1,7 +1,7 @@
 const database = require('../database');
 const emailService = require('../services/emailService');
 const { id } = require('./ids');
-const { ensureStrWorkflowSchema } = require('./schema');
+const { ensureStrWorkflowSchema, ensureRiskAndContactSchema } = require('./schema');
 const { hasMeaningfulAnalystNotes } = require('./strDraft');
 const { roleCanPerform, forbidJson } = require('../middleware/auth');
 
@@ -110,62 +110,22 @@ function getSafeEmailError(error) {
   return { message: 'The RFI email could not be sent.', code };
 }
 
+// Contact info is always queried live against merchant_contacts (never cached, never
+// hard-coded) so an Admin's edit in Merchant Management takes effect on the very next RFI with
+// no other code change.
 async function findDatabaseRfiContext(transactionId) {
   if (!database.isEnabled()) return null;
-
-  try {
-    const [rows] = await database.query(
-      `SELECT t.transaction_id, t.amount, t.currency, t.created_at, t.action_status,
-              co.company_name, cu.customer_name, cu.email AS customer_email,
-              cu.account_type, cu.authorised_contact_name, cu.authorised_contact_email,
-              cc.case_id, cc.case_status AS case_status,
-              cc.assigned_role, cc.escalation_destination, sr.str_status
-       FROM transactions t
-       JOIN companies co ON t.company_id = co.company_id
-       JOIN customers cu ON t.customer_id = cu.customer_id
-       LEFT JOIN alert_transaction_links atl ON atl.transaction_id = t.transaction_id
-       LEFT JOIN compliance_cases cc ON cc.alert_id = atl.alert_id
-       LEFT JOIN str_reports sr ON sr.case_id = cc.case_id
-       WHERE t.transaction_id = ?
-       ORDER BY cc.created_at DESC
-       LIMIT 1`,
-      [transactionId],
-    );
-    if (rows[0]) {
-      const row = rows[0];
-      const accountType = row.account_type || 'Individual';
-      return {
-        schema: 'compliance',
-        transactionId: row.transaction_id,
-        amount: row.amount,
-        currency: row.currency || 'SGD',
-        createdAt: row.created_at,
-        companyName: row.company_name || 'Customer Review Team',
-        recipientName: accountType === 'Organisation'
-          ? (row.authorised_contact_name || row.customer_name || 'Authorised Contact')
-          : (row.customer_name || 'Customer'),
-        recipientEmail: accountType === 'Organisation'
-          ? row.authorised_contact_email
-          : row.customer_email,
-        accountType,
-        caseId: row.case_id || null,
-        currentStatus: row.case_status || row.action_status || 'New',
-        assignedRole: row.assigned_role || null,
-        escalationDestination: row.escalation_destination || null,
-        strStatus: row.str_status || null,
-      };
-    }
-  } catch (error) {
-    // The role-based test schema does not have customers/companies tables.
-  }
+  await ensureRiskAndContactSchema();
 
   const [rows] = await database.query(
-    `SELECT t.transaction_id, t.amount, t.created_at, t.action_status,
-            m.merchant_name, m.authorised_contact_name, m.authorised_contact_email,
+    `SELECT t.transaction_id, t.unique_transaction_reference, t.amount, t.created_at, t.action_status,
+            m.merchant_name, m.merchant_mid,
+            mc.contact_name, mc.rfi_email,
             c.case_id, c.status AS case_status,
             c.assigned_role, c.escalation_destination, sr.str_status
      FROM transactions t
      LEFT JOIN merchants m ON t.merchant_id = m.merchant_id
+     LEFT JOIN merchant_contacts mc ON mc.merchant_id = t.merchant_id AND mc.status = 'Active'
      LEFT JOIN cases c ON c.transaction_id = t.transaction_id
      LEFT JOIN str_reports sr ON sr.case_id = c.case_id
      WHERE t.transaction_id = ?
@@ -176,14 +136,14 @@ async function findDatabaseRfiContext(transactionId) {
   const row = rows[0];
   if (!row) return null;
   return {
-    schema: 'role',
     transactionId: row.transaction_id,
+    uniqueTransactionReference: row.unique_transaction_reference,
     amount: row.amount,
     currency: 'SGD',
     createdAt: row.created_at,
     companyName: row.merchant_name || 'Customer Review Team',
-    recipientName: row.authorised_contact_name || 'Authorised Contact',
-    recipientEmail: row.authorised_contact_email,
+    recipientName: row.contact_name || 'Authorised Contact',
+    recipientEmail: row.rfi_email,
     accountType: 'Organisation',
     caseId: row.case_id || null,
     currentStatus: row.case_status || row.action_status || 'New',
@@ -259,38 +219,29 @@ async function handleDatabaseRfiRequest(req, res) {
   const action = req.session.user.role === 'STRO'
     ? 'Additional Information Requested by STRO'
     : 'Request for Information Sent';
+  // Full recipient address (not masked) is recorded here on purpose: this is a permanent
+  // historical snapshot of the address actually used at send time, distinct from the live
+  // merchant_contacts lookup - so it still reads correctly even after a later contact edit.
   const auditSummary = [
     'RFI sent by SMTP.',
-    `Recipient: ${emailService.maskEmail(recipient.email)}.`,
+    `Recipient: ${recipient.email}.`,
     `Role: ${req.session.user.role}.`,
+    `Reference: ${context.uniqueTransactionReference || context.transactionId}.`,
     delivery.messageId ? `Provider message ID: ${delivery.messageId}.` : '',
   ].filter(Boolean).join(' ');
 
   try {
     await database.withTransaction(async (tx) => {
-      if (context.schema === 'compliance') {
-        if (context.caseId) {
-          await tx.execute('UPDATE compliance_cases SET case_status = ?, updated_at = CURRENT_TIMESTAMP WHERE case_id = ?', ['Waiting for Information', context.caseId]);
-        }
-        await tx.execute('UPDATE transactions SET action_status = ?, updated_at = CURRENT_TIMESTAMP WHERE transaction_id = ?', ['Pending RFI', context.transactionId]);
-        await tx.execute(
-          `INSERT INTO audit_logs (audit_id, action, actor, entity_type, entity_id, transaction_id, case_id, message, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-          [id('AUD'), action, req.session.user.name, context.caseId ? 'Case' : 'Transaction',
-            context.caseId || context.transactionId, context.transactionId, context.caseId, auditSummary],
-        );
-      } else {
-        if (context.caseId) {
-          await tx.execute('UPDATE cases SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE case_id = ?', ['Pending RFI', context.caseId]);
-        }
-        await tx.execute('UPDATE transactions SET action_status = ?, updated_at = CURRENT_TIMESTAMP WHERE transaction_id = ?', ['Pending RFI', context.transactionId]);
-        await tx.execute(
-          `INSERT INTO audit_logs (audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-          [id('AUD'), context.transactionId, context.caseId ? 'Case' : 'Transaction',
-            context.caseId || context.transactionId, action, req.session.user.id, auditSummary],
-        );
+      if (context.caseId) {
+        await tx.execute('UPDATE cases SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE case_id = ?', ['Pending RFI', context.caseId]);
       }
+      await tx.execute('UPDATE transactions SET action_status = ?, updated_at = CURRENT_TIMESTAMP WHERE transaction_id = ?', ['Pending RFI', context.transactionId]);
+      await tx.execute(
+        `INSERT INTO audit_logs (audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [id('AUD'), context.transactionId, context.caseId ? 'Case' : 'Transaction',
+          context.caseId || context.transactionId, action, req.session.user.id, auditSummary],
+      );
     });
   } catch (error) {
     console.error('RFI email sent but database persistence failed', {

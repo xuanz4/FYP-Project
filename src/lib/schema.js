@@ -165,8 +165,164 @@ const ensureStrWorkflowSchema = memoizeAsync(async function ensureStrWorkflowSch
   );
 });
 
+// Real additive risk formula (MCC + Profile + Detection) needs each component persisted per
+// transaction, plus a stable human-facing reference number - see riskEngine.js/transactionIngestion.js.
+const ensureRiskContributionColumns = memoizeAsync(async function ensureRiskContributionColumns() {
+  const dbName = process.env.DB_NAME;
+  if (!dbName || !database.isEnabled()) return;
+
+  const [columns] = await database.query(
+    `SELECT COLUMN_NAME
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'transactions'
+       AND COLUMN_NAME IN ('mcc_risk_contribution', 'profile_risk_contribution', 'transaction_detection_contribution', 'unique_transaction_reference')`,
+    [dbName],
+  );
+  const hasColumn = (column) => columns.some((row) => row.COLUMN_NAME === column);
+
+  if (!hasColumn('mcc_risk_contribution')) {
+    await database.execute('ALTER TABLE transactions ADD COLUMN mcc_risk_contribution INT NULL AFTER risk_level');
+  }
+  if (!hasColumn('profile_risk_contribution')) {
+    await database.execute('ALTER TABLE transactions ADD COLUMN profile_risk_contribution INT NULL AFTER mcc_risk_contribution');
+  }
+  if (!hasColumn('transaction_detection_contribution')) {
+    await database.execute('ALTER TABLE transactions ADD COLUMN transaction_detection_contribution INT NULL AFTER profile_risk_contribution');
+  }
+  if (!hasColumn('unique_transaction_reference')) {
+    await database.execute('ALTER TABLE transactions ADD COLUMN unique_transaction_reference VARCHAR(50) NULL AFTER transaction_id');
+  }
+
+  const [indexes] = await database.query(
+    `SELECT INDEX_NAME
+     FROM INFORMATION_SCHEMA.STATISTICS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'transactions' AND INDEX_NAME = 'uniq_unique_transaction_reference'`,
+    [dbName],
+  );
+  if (!indexes.length) {
+    await database.execute('ALTER TABLE transactions ADD UNIQUE INDEX uniq_unique_transaction_reference (unique_transaction_reference)');
+  }
+});
+
+// One row per merchant MID summarising that merchant's history, so "Profile Risk" is a real
+// computed number instead of always showing "Not stored". Written by transactionIngestion.js
+// right after each transaction is ingested; read by riskEngine.js for the next transaction's
+// profileRiskContribution.
+const ensureMerchantRiskProfileTable = memoizeAsync(async function ensureMerchantRiskProfileTable() {
+  if (!database.isEnabled()) return;
+  await database.execute(
+    `CREATE TABLE IF NOT EXISTS merchant_risk_profiles (
+      merchant_mid VARCHAR(30) PRIMARY KEY,
+      merchant_id VARCHAR(20) NULL,
+      merchant_name VARCHAR(100) NULL,
+      transaction_count INT NOT NULL DEFAULT 0,
+      flagged_transaction_count INT NOT NULL DEFAULT 0,
+      flagged_transaction_rate DECIMAL(5,2) NOT NULL DEFAULT 0,
+      declined_transaction_count INT NOT NULL DEFAULT 0,
+      total_transaction_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+      average_transaction_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+      maximum_transaction_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+      rule_trigger_count INT NOT NULL DEFAULT 0,
+      escalation_count INT NOT NULL DEFAULT 0,
+      confirmed_suspicious_case_count INT NOT NULL DEFAULT 0,
+      profile_risk_score INT NOT NULL DEFAULT 0,
+      profile_risk_level VARCHAR(30) NOT NULL DEFAULT 'Insufficient History',
+      profile_risk_reasons TEXT NULL,
+      first_seen_at DATETIME NULL,
+      last_seen_at DATETIME NULL,
+      risk_last_calculated_at DATETIME NULL,
+      INDEX idx_merchant_risk_profiles_merchant_id (merchant_id)
+    )`,
+  );
+});
+
+// Auditable merchant contact record, replacing the single mutable merchants.authorised_contact_*
+// columns. Always queried live (never cached) by the RFI workflow and the transaction detail
+// page, so an Admin's edit here takes effect immediately with no other code change.
+const ensureMerchantContactsTable = memoizeAsync(async function ensureMerchantContactsTable() {
+  if (!database.isEnabled()) return;
+  await database.execute(
+    `CREATE TABLE IF NOT EXISTS merchant_contacts (
+      contact_id VARCHAR(40) PRIMARY KEY,
+      merchant_id VARCHAR(20) NOT NULL,
+      merchant_mid VARCHAR(30) NULL,
+      store_id VARCHAR(30) NULL,
+      contact_name VARCHAR(100) NULL,
+      rfi_email VARCHAR(255) NULL,
+      phone_number VARCHAR(30) NULL,
+      status ENUM('Active', 'Inactive') NOT NULL DEFAULT 'Active',
+      updated_by VARCHAR(20) NULL,
+      updated_at DATETIME NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_merchant_contacts_merchant (merchant_id),
+      FOREIGN KEY (merchant_id) REFERENCES merchants(merchant_id) ON DELETE CASCADE
+    )`,
+  );
+
+  // One-time backfill: merchants.authorised_contact_name/email is the legacy single mutable
+  // field this table replaces. Admin edits now only ever touch merchant_contacts, so any
+  // pre-existing legacy value needs to land here once, or it becomes invisible to the RFI
+  // workflow and the transaction detail page (both read merchant_contacts exclusively) even
+  // though it's still sitting on the merchants row. Only copies where no merchant_contacts row
+  // exists yet, so it never clobbers a value someone has already entered the new way.
+  await database.execute(
+    `INSERT INTO merchant_contacts (contact_id, merchant_id, merchant_mid, contact_name, rfi_email, status, updated_at)
+     SELECT CONCAT('MCT-BACKFILL-', m.merchant_id), m.merchant_id, m.merchant_mid, m.authorised_contact_name, m.authorised_contact_email, 'Active', NOW()
+     FROM merchants m
+     LEFT JOIN merchant_contacts mc ON mc.merchant_id = m.merchant_id
+     WHERE mc.merchant_id IS NULL
+       AND (m.authorised_contact_name IS NOT NULL OR m.authorised_contact_email IS NOT NULL)`,
+  );
+});
+
+// Optional manual reconciliation entered by the resolver, compared against the transaction's
+// stored automated contributions/score to catch false positives or calculation errors.
+const ensureCaseReconciliationColumns = memoizeAsync(async function ensureCaseReconciliationColumns() {
+  const dbName = process.env.DB_NAME;
+  if (!dbName || !database.isEnabled()) return;
+
+  const [columns] = await database.query(
+    `SELECT COLUMN_NAME
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'cases'
+       AND COLUMN_NAME IN ('manual_mcc_contribution', 'manual_profile_contribution', 'manual_detection_contribution', 'manual_final_score', 'discrepancy_flag', 'discrepancy_notes')`,
+    [dbName],
+  );
+  const hasColumn = (column) => columns.some((row) => row.COLUMN_NAME === column);
+
+  if (!hasColumn('manual_mcc_contribution')) {
+    await database.execute('ALTER TABLE cases ADD COLUMN manual_mcc_contribution INT NULL AFTER resolved_by');
+  }
+  if (!hasColumn('manual_profile_contribution')) {
+    await database.execute('ALTER TABLE cases ADD COLUMN manual_profile_contribution INT NULL AFTER manual_mcc_contribution');
+  }
+  if (!hasColumn('manual_detection_contribution')) {
+    await database.execute('ALTER TABLE cases ADD COLUMN manual_detection_contribution INT NULL AFTER manual_profile_contribution');
+  }
+  if (!hasColumn('manual_final_score')) {
+    await database.execute('ALTER TABLE cases ADD COLUMN manual_final_score INT NULL AFTER manual_detection_contribution');
+  }
+  if (!hasColumn('discrepancy_flag')) {
+    await database.execute('ALTER TABLE cases ADD COLUMN discrepancy_flag TINYINT(1) NULL AFTER manual_final_score');
+  }
+  if (!hasColumn('discrepancy_notes')) {
+    await database.execute('ALTER TABLE cases ADD COLUMN discrepancy_notes TEXT NULL AFTER discrepancy_flag');
+  }
+});
+
+// Single call site for every ensure* above - covers the risk-formula, merchant-profile,
+// merchant-contacts and case-reconciliation schema in one idempotent pass.
+const ensureRiskAndContactSchema = memoizeAsync(async function ensureRiskAndContactSchema() {
+  await ensureRiskContributionColumns();
+  await ensureMerchantRiskProfileTable();
+  await ensureMerchantContactsTable();
+  await ensureCaseReconciliationColumns();
+});
+
 module.exports = {
   ensureDatabaseResolveColumns,
   ensureCaseAssignmentColumns,
   ensureStrWorkflowSchema,
+  ensureMerchantContactsTable,
+  ensureRiskAndContactSchema,
 };

@@ -1,9 +1,38 @@
 const database = require('../database');
 const { id } = require('./ids');
-const { ensureDatabaseResolveColumns } = require('./schema');
+const { ensureDatabaseResolveColumns, ensureRiskAndContactSchema } = require('./schema');
 const { parseFinalRiskScore, getRiskLevelFromScore, hasMeaningfulAnalystNotes } = require('./strDraft');
 const { assessmentDecisions, resolutionReasons } = require('../constants');
 const { roleCanPerform, forbidJson } = require('../middleware/auth');
+
+// Whole number 0-100, required - used for the mandatory manual reconciliation fields. Distinct
+// from parseFinalRiskScore only in name, kept separate since "final risk score" and "manual
+// reconciliation entry" are conceptually different fields that happen to share a shape.
+function parseRequiredWholeNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 0 || number > 100) return null;
+  return number;
+}
+
+// Pure comparison between what the system actually calculated and what the resolver manually
+// entered - kept side-effect-free so it's unit-testable without a database.
+function buildReconciliationResult({
+  actualMccContribution, actualProfileContribution, actualDetectionContribution, actualScore,
+  manualMccContribution, manualProfileContribution, manualDetectionContribution, manualFinalScore,
+}) {
+  const mismatches = [
+    ['MCC', actualMccContribution ?? 0, manualMccContribution],
+    ['Profile', actualProfileContribution ?? 0, manualProfileContribution],
+    ['Detection', actualDetectionContribution ?? 0, manualDetectionContribution],
+    ['Final', actualScore ?? 0, manualFinalScore],
+  ].filter(([, actual, manual]) => Number(actual) !== Number(manual));
+  const discrepancyFlag = mismatches.length > 0;
+  const discrepancyNotes = discrepancyFlag
+    ? mismatches.map(([label, actual, manual]) => `${label}: expected ${actual}, entered ${manual}`).join('; ')
+    : 'Manual entry matched the automated calculation for all contributions and final score.';
+  return { discrepancyFlag, discrepancyNotes, mismatches };
+}
 
 async function handleDatabaseResolveRequest(req, res) {
   if (!req.session?.user || !roleCanPerform(req.session.user.role, 'resolveCase')) {
@@ -13,9 +42,11 @@ async function handleDatabaseResolveRequest(req, res) {
   let rows;
   try {
     await ensureDatabaseResolveColumns();
+    await ensureRiskAndContactSchema();
     [rows] = await database.query(
-      `SELECT t.transaction_id, t.risk_score, t.risk_level, t.status, t.action_status,
+      `SELECT t.transaction_id, t.unique_transaction_reference, t.risk_score, t.risk_level, t.status, t.action_status,
               t.final_risk_score, t.final_risk_level,
+              t.mcc_risk_contribution, t.profile_risk_contribution, t.transaction_detection_contribution,
               c.case_id, c.status AS case_status, c.resolved_at
        FROM transactions t
        LEFT JOIN cases c ON c.transaction_id = t.transaction_id
@@ -67,6 +98,31 @@ async function handleDatabaseResolveRequest(req, res) {
     return res.status(400).json({ success: false, message: 'False Positive resolutions must use the Accepted decision' });
   }
 
+  // Mandatory manual reconciliation: the resolver must key in all four values before a case can
+  // be resolved - no partial/silent resolution. The cases columns themselves stay nullable at
+  // the DB level (an unresolved case legitimately has nothing there yet); this is the gate.
+  const manualMccContribution = parseRequiredWholeNumber(req.body.manualMccContribution);
+  const manualProfileContribution = parseRequiredWholeNumber(req.body.manualProfileContribution);
+  const manualDetectionContribution = parseRequiredWholeNumber(req.body.manualDetectionContribution);
+  const manualFinalScore = parseRequiredWholeNumber(req.body.manualFinalScore);
+  if ([manualMccContribution, manualProfileContribution, manualDetectionContribution, manualFinalScore].some((value) => value === null)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Manual MCC, Profile and Detection contributions and Final Score are all required whole numbers from 0 to 100.',
+    });
+  }
+
+  const { discrepancyFlag, discrepancyNotes } = buildReconciliationResult({
+    actualMccContribution: row.mcc_risk_contribution,
+    actualProfileContribution: row.profile_risk_contribution,
+    actualDetectionContribution: row.transaction_detection_contribution,
+    actualScore: row.risk_score,
+    manualMccContribution,
+    manualProfileContribution,
+    manualDetectionContribution,
+    manualFinalScore,
+  });
+
   const resolvedAtSql = new Date();
   const nextStatus = 'Resolved';
 
@@ -79,9 +135,15 @@ async function handleDatabaseResolveRequest(req, res) {
   if (row.case_id) {
     await database.execute(
       `UPDATE cases
-       SET status = ?, decision = ?, resolution_reason = ?, analyst_notes = ?, resolved_at = ?, resolved_by = ?, updated_at = CURRENT_TIMESTAMP
+       SET status = ?, decision = ?, resolution_reason = ?, analyst_notes = ?, resolved_at = ?, resolved_by = ?,
+           manual_mcc_contribution = ?, manual_profile_contribution = ?, manual_detection_contribution = ?, manual_final_score = ?,
+           discrepancy_flag = ?, discrepancy_notes = ?, updated_at = CURRENT_TIMESTAMP
        WHERE case_id = ?`,
-      [nextStatus, decision, resolutionReason, analystNotes, resolvedAtSql, req.session.user.id, row.case_id],
+      [
+        nextStatus, decision, resolutionReason, analystNotes, resolvedAtSql, req.session.user.id,
+        manualMccContribution, manualProfileContribution, manualDetectionContribution, manualFinalScore,
+        discrepancyFlag ? 1 : 0, discrepancyNotes, row.case_id,
+      ],
     );
   }
   await database.execute(
@@ -106,6 +168,21 @@ async function handleDatabaseResolveRequest(req, res) {
       `Assessment resolved with decision ${decision} and reason ${resolutionReason}.`,
     ],
   );
+  // Written every time, match or mismatch, so there is a permanent record that reconciliation
+  // was performed on every resolved case - not just the ones that found a problem.
+  await database.execute(
+    `INSERT INTO audit_logs (audit_id, transaction_id, action, user_id, notes, created_at)
+     VALUES (?, ?, ?, ?, ?, NOW())`,
+    [
+      id('AUD'),
+      row.transaction_id,
+      'Manual Reconciliation Performed',
+      req.session.user.id,
+      discrepancyFlag
+        ? `Manual reconciliation performed - DISCREPANCY: ${discrepancyNotes} (reference ${row.unique_transaction_reference || row.transaction_id}).`
+        : `Manual reconciliation performed - values matched (reference ${row.unique_transaction_reference || row.transaction_id}).`,
+    ],
+  );
 
   return res.status(200).json({
     success: true,
@@ -128,8 +205,10 @@ async function handleDatabaseResolveRequest(req, res) {
       resolutionReason,
       analystNotes,
       resolvedAt: resolvedAtSql ? resolvedAtSql.toISOString() : null,
+      discrepancyFlag,
+      discrepancyNotes,
     } : null,
   });
 }
 
-module.exports = { handleDatabaseResolveRequest };
+module.exports = { handleDatabaseResolveRequest, parseRequiredWholeNumber, buildReconciliationResult };

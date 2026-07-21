@@ -25,6 +25,23 @@ function minutesBetween(a, b) {
   return Math.abs(a.getTime() - b.getTime()) / 60000;
 }
 
+// Profile contribution comes from the merchant's *stored* profile snapshot (built from history
+// strictly before this transaction, see transactionIngestion.js's upsertMerchantRiskProfile) -
+// never recomputed live here, so a transaction never double-counts itself into its own profile.
+async function loadMerchantProfileContribution(database, merchantMid) {
+  if (!merchantMid) return 0;
+  const [rows] = await database.query(
+    `SELECT profile_risk_score, transaction_count
+     FROM merchant_risk_profiles
+     WHERE merchant_mid = ?
+     LIMIT 1`,
+    [merchantMid],
+  );
+  const profile = rows[0];
+  if (!profile || Number(profile.transaction_count) < 5) return 0;
+  return Number(profile.profile_risk_score) || 0;
+}
+
 // One query per incoming transaction: everything else the rules need is derived from this
 // merchant-scoped 24h window in memory, so live ingestion and historical replay both stay fast.
 async function loadRecentMerchantHistory(database, merchantId, txnTime) {
@@ -148,11 +165,12 @@ function evaluateAgainstRules(txn, rules, signals, history) {
   return matched;
 }
 
-// txn: { merchantId, merchantCountry, merchantRiskTier, storeId, amount, issuerCountry, txnTime (Date) }
+// txn: { merchantId, merchantMid, merchantCountry, merchantRiskTier, mccRiskScore, storeId,
+//        amount, issuerCountry, txnTime (Date) }
 async function evaluateTransaction({
   txn, database,
 }) {
-  const [history, [ruleRows]] = await Promise.all([
+  const [history, [ruleRows], profileRiskContribution] = await Promise.all([
     loadRecentMerchantHistory(database, txn.merchantId, txn.txnTime),
     database.query(
       `SELECT rule_id, rule_name, risk_level, reason, weight, amount_threshold, count_threshold, rule_type
@@ -160,11 +178,16 @@ async function evaluateTransaction({
        WHERE is_active = 1 AND (merchant_id = ? OR merchant_id IS NULL)`,
       [txn.merchantId],
     ),
+    loadMerchantProfileContribution(database, txn.merchantMid),
   ]);
 
   const signals = buildDerivedSignals(txn, history);
   const matchedRules = evaluateAgainstRules(txn, ruleRows, signals, history);
-  const riskScore = Math.min(100, matchedRules.reduce((sum, rule) => sum + rule.weight, 0));
+  const mccRiskContribution = Number(txn.mccRiskScore) || 0;
+  const detectionContribution = matchedRules.reduce((sum, rule) => sum + rule.weight, 0);
+  // Real additive formula, computed once here and persisted verbatim - the view must never
+  // re-derive or invent this number (see the old unpersistedRiskContribution bug it replaces).
+  const riskScore = Math.min(100, mccRiskContribution + profileRiskContribution + detectionContribution);
   const riskLevel = riskLevelFromScore(riskScore);
   // A single low-weight rule match (e.g. a foreign-issued card alone) shouldn't open a case -
   // status follows the overall risk band, matching the existing convention where a Low-risk
@@ -172,7 +195,14 @@ async function evaluateTransaction({
   const status = riskLevel === 'Low' ? 'Cleared' : 'Flagged';
 
   return {
-    riskScore, riskLevel, status, matchedRules, signals,
+    riskScore,
+    riskLevel,
+    status,
+    matchedRules,
+    signals,
+    mccRiskContribution,
+    profileRiskContribution,
+    detectionContribution,
   };
 }
 

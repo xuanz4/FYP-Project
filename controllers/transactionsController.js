@@ -12,6 +12,7 @@ const {
 } = require('../src/lib/strDraft');
 const { forbidJson, activePageForRole } = require('../src/middleware/auth');
 const { ingestTransaction } = require('../src/transactionIngestion');
+const { ensureRiskAndContactSchema } = require('../src/lib/schema');
 const {
   emptyStrAutoFill,
   stroReferralReasons,
@@ -24,13 +25,19 @@ async function transactionDetailPage(req, res) {
   await ensureCaseAssignmentColumns();
   await ensureStrWorkflowSchema();
   await ensureDatabaseResolveColumns();
+  await ensureRiskAndContactSchema();
 
   const [transactionRows, caseRows, ruleRows, activityRows] = await Promise.all([
     database.query(
-      `SELECT t.*, m.merchant_name, m.mcc_risk_score,
-              m.authorised_contact_name, m.authorised_contact_email
+      `SELECT t.*, m.merchant_name, m.merchant_mid, m.mcc_risk_score,
+              mc.contact_name, mc.rfi_email, mc.phone_number,
+              mrp.profile_risk_score, mrp.profile_risk_level, mrp.transaction_count AS profile_transaction_count,
+              mrp.flagged_transaction_rate, mrp.escalation_count AS profile_escalation_count,
+              mrp.risk_last_calculated_at
        FROM transactions t
        LEFT JOIN merchants m ON t.merchant_id = m.merchant_id
+       LEFT JOIN merchant_contacts mc ON mc.merchant_id = t.merchant_id AND mc.status = 'Active'
+       LEFT JOIN merchant_risk_profiles mrp ON mrp.merchant_mid = m.merchant_mid
        WHERE t.transaction_id = ?
        LIMIT 1`,
       [req.params.id],
@@ -106,6 +113,34 @@ async function transactionDetailPage(req, res) {
   }
 
   const caseRecord = caseRows[0] || null;
+
+  // Field-level RBAC enforced here, server-side, not in the view template: contact info is
+  // simply absent from the render data for roles that shouldn't have it, rather than hidden
+  // with CSS. Analyst never gets it; Senior Analyst/STRO only once the case is escalated to
+  // that role; Admin always has full access via Merchant Management.
+  const role = req.session.user.role;
+  const routedToRole = caseRecord?.assigned_role === role || caseRecord?.escalation_destination === role;
+  const contactVisible = role === 'Admin' || ((role === 'Senior Analyst' || role === 'STRO') && routedToRole);
+  if (!contactVisible) {
+    delete transaction.contact_name;
+    delete transaction.rfi_email;
+    delete transaction.phone_number;
+  } else if (role === 'Senior Analyst' || role === 'STRO') {
+    await database.execute(
+      `INSERT INTO audit_logs (audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [
+        id('AUD'),
+        transaction.transaction_id,
+        'MerchantContact',
+        caseRecord?.case_id || transaction.merchant_id,
+        'Merchant Contact Viewed',
+        req.session.user.id,
+        `Merchant contact details viewed by ${req.session.user.name} (${role}) for case ${caseRecord?.case_id || 'n/a'}, reference ${transaction.unique_transaction_reference || transaction.transaction_id}.`,
+      ],
+    );
+  }
+
   const strAutoFill = buildStrAutoFill({
     transaction,
     caseRecord,
@@ -770,12 +805,17 @@ async function ingestTransactionEndpoint(req, res) {
 
   try {
     const [merchantRows] = await database.query(
-      'SELECT merchant_country, risk_tier FROM merchants WHERE merchant_id = ?',
+      'SELECT merchant_mid, merchant_country, risk_tier, mcc_risk_score FROM merchants WHERE merchant_id = ?',
       [req.body.merchantId],
     );
     const merchant = merchantRows[0]
-      ? { merchantCountry: merchantRows[0].merchant_country, riskTier: merchantRows[0].risk_tier }
-      : { merchantCountry: 'SG', riskTier: 'Standard' };
+      ? {
+        merchantMid: merchantRows[0].merchant_mid,
+        merchantCountry: merchantRows[0].merchant_country,
+        riskTier: merchantRows[0].risk_tier,
+        mccRiskScore: merchantRows[0].mcc_risk_score,
+      }
+      : { merchantMid: null, merchantCountry: 'SG', riskTier: 'Standard', mccRiskScore: 0 };
 
     const raw = {
       id: req.body.id || id('TXN'),

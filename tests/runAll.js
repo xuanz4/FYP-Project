@@ -23,6 +23,8 @@ const testFiles = [
   'caseFilters.test.js',
   'queryAndIds.test.js',
   'transactionIngestion.test.js',
+  'merchantRiskProfile.test.js',
+  'resolveWorkflow.test.js',
   'viewContracts.test.js',
 ];
 
