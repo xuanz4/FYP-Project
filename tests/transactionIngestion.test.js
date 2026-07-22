@@ -9,7 +9,10 @@ function fakeDatabase({ history = [], rules = [] } = {}) {
     async query(sql, params) {
       calls.push({ type: 'query', sql, params });
       if (/FROM merchant_risk_profiles/.test(sql)) return [[]];
+      if (/FROM merchant_cdd_profiles/.test(sql)) return [[]];
+      if (/FROM merchant_edd_checklist/.test(sql)) return [[]];
       if (/SELECT unique_transaction_reference/.test(sql)) return [[]];
+      if (/SELECT risk_tier FROM merchants/.test(sql)) return [[{ risk_tier: 'Standard' }]];
       if (/SELECT merchant_id, merchant_name, merchant_mid FROM merchants/.test(sql)) {
         return [[{ merchant_id: params[0], merchant_name: 'Test Merchant', merchant_mid: null }]];
       }

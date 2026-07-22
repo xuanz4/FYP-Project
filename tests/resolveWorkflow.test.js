@@ -6,6 +6,7 @@ const {
   validateContributionLimits,
   reviewRequirementForScoreChange,
   buildReconciliationResult,
+  cddGateRequirement,
 } = require('../src/lib/resolveWorkflow');
 
 function testParseRequiredWholeNumber() {
@@ -128,6 +129,49 @@ function testReconciliationTreatsNullActualsAsZero() {
   assert.strictEqual(result.discrepancyFlag, false);
 }
 
+function testCddGateBlocksAnalystWhenEddIncomplete() {
+  const result = cddGateRequirement({
+    role: 'Analyst',
+    cddContext: {
+      eddRequired: true, eddComplete: false, reviewOverdue: false,
+    },
+  });
+  assert.strictEqual(result.allowed, false);
+  assert.strictEqual(result.status, 403);
+  assert.match(result.message, /EDD checklist is incomplete/);
+}
+
+function testCddGateBlocksAnalystWhenReviewOverdue() {
+  const result = cddGateRequirement({
+    role: 'Analyst',
+    cddContext: {
+      eddRequired: false, eddComplete: false, reviewOverdue: true,
+    },
+  });
+  assert.strictEqual(result.allowed, false);
+  assert.match(result.message, /CDD review date has passed/);
+}
+
+function testCddGateAllowsAnalystWhenNothingOutstanding() {
+  const result = cddGateRequirement({
+    role: 'Analyst',
+    cddContext: {
+      eddRequired: true, eddComplete: true, reviewOverdue: false,
+    },
+  });
+  assert.strictEqual(result.allowed, true);
+}
+
+function testCddGateAlwaysAllowsSeniorAnalyst() {
+  const result = cddGateRequirement({
+    role: 'Senior Analyst',
+    cddContext: {
+      eddRequired: true, eddComplete: false, reviewOverdue: true,
+    },
+  });
+  assert.strictEqual(result.allowed, true);
+}
+
 async function main() {
   suite('Resolve Workflow');
   await runTest('parses required whole numbers for manual reconciliation fields', testParseRequiredWholeNumber);
@@ -141,6 +185,10 @@ async function main() {
   await runTest('reports no discrepancy when manual entry matches the automated calculation', testReconciliationMatch);
   await runTest('reports a discrepancy with details when manual contribution entry differs', testReconciliationComponentDiscrepancy);
   await runTest('treats an unset actual contribution as zero, not a forced mismatch', testReconciliationTreatsNullActualsAsZero);
+  await runTest('CDD gate blocks an Analyst from resolving when EDD is incomplete', testCddGateBlocksAnalystWhenEddIncomplete);
+  await runTest('CDD gate blocks an Analyst from resolving when the CDD review is overdue', testCddGateBlocksAnalystWhenReviewOverdue);
+  await runTest('CDD gate allows an Analyst to resolve when nothing is outstanding', testCddGateAllowsAnalystWhenNothingOutstanding);
+  await runTest('CDD gate always allows a Senior Analyst to resolve', testCddGateAlwaysAllowsSeniorAnalyst);
   finish();
 }
 

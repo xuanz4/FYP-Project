@@ -5,6 +5,7 @@
 const { evaluateTransaction } = require('./riskEngine');
 const { ensureRiskAndContactSchema } = require('./lib/schema');
 const { upsertMerchantRiskProfile, generateUniqueTransactionReference } = require('./lib/merchantRiskProfile');
+const { loadMerchantCddContext } = require('./lib/merchantCdd');
 
 async function ensureMerchant(database, merchant) {
   await database.execute(
@@ -39,6 +40,7 @@ async function ingestTransaction(database, raw, merchant, { broadcast } = {}) {
   await ensureRiskAndContactSchema();
 
   const txnTime = raw.txnTime instanceof Date ? raw.txnTime : new Date(raw.txnTime);
+  const cddContext = await loadMerchantCddContext(database, raw.merchantId);
 
   const evaluation = await evaluateTransaction({
     txn: {
@@ -51,6 +53,11 @@ async function ingestTransaction(database, raw, merchant, { broadcast } = {}) {
       amount: Number(raw.amount),
       issuerCountry: raw.issuer,
       txnTime,
+      merchantExpectedAvgTicket: cddContext.expectedAvgTicket,
+      merchantExpectedOperatingHours: cddContext.expectedOperatingHours,
+      merchantExpectedCountries: cddContext.expectedCountries,
+      merchantCddReviewOverdue: cddContext.reviewOverdue,
+      merchantEddComplete: cddContext.eddComplete,
     },
     database,
   });

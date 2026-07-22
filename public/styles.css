@@ -395,6 +395,59 @@ body.modal-open {
   text-transform: uppercase;
 }
 
+.text-danger {
+  color: #bd2638;
+  font-weight: 700;
+}
+
+.admin-inline-list {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-inline-list li {
+  padding: 8px 10px;
+  border: 1px solid var(--border, #e2ecea);
+  border-radius: 8px;
+  background: rgba(15, 159, 145, 0.04);
+  font-size: 0.82rem;
+}
+
+.admin-inline-list li.empty-inline {
+  color: var(--muted);
+  background: transparent;
+  border-style: dashed;
+}
+
+.edd-inline-form {
+  display: grid;
+  gap: 10px;
+  margin: 8px 0 16px;
+  padding: 12px;
+  border: 1px solid var(--border, #e2ecea);
+  border-radius: 10px;
+}
+
+.edd-inline-form .checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.edd-inline-form .checkbox-field input {
+  width: auto;
+}
+
+.form-feedback {
+  margin: 0;
+  min-height: 1em;
+  font-size: 0.8rem;
+  color: #bd2638;
+}
+
 .rfi-dialog {
   max-width: 760px;
 }
@@ -3371,6 +3424,47 @@ button,
 .app-shell.role-admin .management-dialog .primary-btn {
   border-color: #0f9f91;
   background: #0f9f91;
+}
+
+.app-shell.role-admin .management-dialog .checkbox-field {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-shell.role-admin .management-dialog .checkbox-field input {
+  width: auto;
+  min-height: 0;
+}
+
+.app-shell.role-admin .management-dialog .admin-inline-list {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+  margin: 0 0 4px;
+  padding: 0;
+  list-style: none;
+}
+
+.app-shell.role-admin .management-dialog .admin-inline-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid #e2ecea;
+  border-radius: 8px;
+  background: #f8fbfb;
+  font-size: 0.82rem;
+  color: var(--text-main);
+}
+
+.app-shell.role-admin .management-dialog .admin-inline-list li.empty-inline {
+  color: var(--text-muted);
+  background: transparent;
+  border-style: dashed;
 }
 
 @media (max-width: 900px) {

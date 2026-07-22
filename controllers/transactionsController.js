@@ -14,6 +14,9 @@ const { forbidJson, activePageForRole } = require('../src/middleware/auth');
 const { ingestTransaction } = require('../src/transactionIngestion');
 const { ensureRiskAndContactSchema } = require('../src/lib/schema');
 const { fetchLatestRfiResponse } = require('../src/services/rfiInboxService');
+const { loadMerchantCddContext } = require('../src/lib/merchantCdd');
+const { setEddChecklistField } = require('../src/lib/eddChecklist');
+const { buildMailboxReference } = require('../src/lib/rfiEvidence');
 const {
   emptyStrAutoFill,
   stroReferralReasons,
@@ -114,6 +117,9 @@ async function transactionDetailPage(req, res) {
       riskContributions: [],
       activityLogs: [],
       strAutoFill: emptyStrAutoFill,
+      cddContext: null,
+      screeningRecords: [],
+      rfiEvidence: [],
     });
   }
 
@@ -130,6 +136,11 @@ async function transactionDetailPage(req, res) {
     delete transaction.contact_name;
     delete transaction.rfi_email;
     delete transaction.phone_number;
+    // merchant_mid is the real acquirer/scheme-assigned merchant identifier (analogous to a
+    // STAN number) - same visibility rule as the contact fields above: an Analyst loses it once
+    // the case is routed away, and it's only ever restored for the Senior Analyst/STRO it was
+    // routed to (or Admin, always).
+    delete transaction.merchant_mid;
   } else if (role === 'Senior Analyst' || role === 'STRO') {
     await database.execute(
       `INSERT INTO audit_logs (audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at)
@@ -141,7 +152,7 @@ async function transactionDetailPage(req, res) {
         caseRecord?.case_id || transaction.merchant_id,
         'Merchant Contact Viewed',
         req.session.user.id,
-        `Merchant contact details viewed by ${req.session.user.name} (${role}) for case ${caseRecord?.case_id || 'n/a'}, reference ${transaction.unique_transaction_reference || transaction.transaction_id}.`,
+        `Merchant contact details and merchant MID viewed by ${req.session.user.name} (${role}) for case ${caseRecord?.case_id || 'n/a'}, reference ${transaction.unique_transaction_reference || transaction.transaction_id}.`,
       ],
     );
   }
@@ -152,6 +163,24 @@ async function transactionDetailPage(req, res) {
     matchedRules: ruleRows,
     activityLogs: activityRows,
   });
+
+  // Merchant due-diligence context is investigative material, not a sensitive identifier -
+  // visible to the Analyst from the start (unlike merchant_mid/contact info above), so it
+  // doesn't follow the escalation gate.
+  const [cddContext, screeningRows, evidenceRows] = await Promise.all([
+    loadMerchantCddContext(database, transaction.merchant_id),
+    database.query(
+      `SELECT screening_id, screening_type, result, screened_against, notes, screened_at
+       FROM merchant_screening_records WHERE merchant_id = ? ORDER BY screened_at DESC LIMIT 5`,
+      [transaction.merchant_id],
+    ).then(([r]) => r).catch(() => []),
+    caseRecord?.case_id ? database.query(
+      `SELECT evidence_id, evidence_type, description, mailbox_reference, recorded_by, recorded_at
+       FROM case_rfi_evidence WHERE case_id = ? ORDER BY recorded_at DESC`,
+      [caseRecord.case_id],
+    ).then(([r]) => r).catch(() => []) : Promise.resolve([]),
+  ]);
+
   return res.render('transaction-detail', {
     title: `Transaction ${transaction.transaction_id}`,
     activePage: activePageForRole(req.session.user.role),
@@ -162,6 +191,9 @@ async function transactionDetailPage(req, res) {
     strAutoFill,
     currentUser: req.session.user,
     currentRole: req.session.user.role,
+    cddContext,
+    screeningRecords: screeningRows,
+    rfiEvidence: evidenceRows,
   });
 }
 
@@ -888,6 +920,120 @@ async function latestRfiResponseEndpoint(req, res) {
   }
 }
 
+// Which fieldKey a role may set - an Analyst is deliberately missing 'enhancedVerification'
+// and 'seniorSignoff', so this endpoint can never be the way an Analyst grants themselves the
+// sign-off resolveWorkflow.js's cddGateRequirement checks for. See eddChecklist.js.
+const EDD_CHECKLIST_ROLE_FIELDS = {
+  Analyst: ['sourceOfFunds', 'siteVisit'],
+  'Senior Analyst': ['sourceOfFunds', 'siteVisit', 'enhancedVerification', 'seniorSignoff'],
+  Admin: ['sourceOfFunds', 'siteVisit', 'enhancedVerification', 'seniorSignoff'],
+};
+
+async function updateCaseEddChecklist(req, res) {
+  const currentUser = req.session?.user;
+  const allowedFields = currentUser ? EDD_CHECKLIST_ROLE_FIELDS[currentUser.role] : null;
+  if (!allowedFields) return forbidJson(res);
+
+  const fieldKey = String(req.body.fieldKey || '').trim();
+  if (!allowedFields.includes(fieldKey)) {
+    return res.status(403).json({ success: false, message: `Your role may not set the "${fieldKey || 'requested'}" checklist item.` });
+  }
+  const completed = req.body.completed === true || req.body.completed === '1' || req.body.completed === 'true';
+  const notes = String(req.body.notes || '').trim();
+  if (completed && !hasMeaningfulText(notes, 10)) {
+    return res.status(400).json({ success: false, message: 'Please provide a meaningful note of at least 10 characters when marking a checklist item complete.' });
+  }
+
+  await ensureRiskAndContactSchema();
+  const [transactionRows] = await database.query('SELECT merchant_id FROM transactions WHERE transaction_id = ? LIMIT 1', [req.params.id]);
+  const merchantId = transactionRows[0]?.merchant_id;
+  if (!merchantId) return res.status(404).json({ success: false, message: 'Transaction not found' });
+
+  await setEddChecklistField(database, {
+    merchantId, fieldKey, completed, notes: notes || null, userId: currentUser.id,
+  });
+  await database.execute(
+    `INSERT INTO audit_logs (audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+    [
+      id('AUD'), req.params.id, 'Merchant', merchantId, 'Merchant EDD Checklist Updated', currentUser.id,
+      `${fieldKey} set to ${completed ? 'complete' : 'incomplete'} by ${currentUser.name} (${currentUser.role}).`,
+    ],
+  );
+
+  return res.status(200).json({ success: true, fieldKey, completed });
+}
+
+const RFI_EVIDENCE_TYPES = ['RFI Reply Reviewed', 'Document Reference', 'Analyst Finding', 'Other'];
+
+async function logRfiEvidence(req, res) {
+  const currentUser = req.session?.user;
+  if (!currentUser || !['Analyst', 'Senior Analyst', 'STRO'].includes(currentUser.role)) {
+    return forbidJson(res);
+  }
+
+  const transactionId = String(req.params.id || '').trim();
+  const evidenceType = String(req.body.evidenceType || '').trim();
+  const description = String(req.body.description || '').trim();
+  if (!RFI_EVIDENCE_TYPES.includes(evidenceType)) {
+    return res.status(400).json({ success: false, message: 'Invalid evidence type.' });
+  }
+  if (!hasMeaningfulText(description, 10)) {
+    return res.status(400).json({ success: false, message: 'Please provide a meaningful description of at least 10 characters.' });
+  }
+
+  await ensureRiskAndContactSchema();
+  const [caseRows] = await database.query(
+    'SELECT case_id FROM cases WHERE transaction_id = ? ORDER BY created_at DESC LIMIT 1',
+    [transactionId],
+  );
+  const caseId = caseRows[0]?.case_id;
+  if (!caseId) return res.status(404).json({ success: false, message: 'No case found for this transaction.' });
+
+  // Cross-checked against the real mailbox instead of trusting free-standing text - see
+  // rfiEvidence.js. An analyst can mischaracterize a real reply, but can no longer log evidence
+  // for a reply that was never received.
+  let mailboxReference = null;
+  if (evidenceType === 'RFI Reply Reviewed') {
+    let verification;
+    try {
+      verification = await buildMailboxReference(transactionId);
+    } catch (error) {
+      console.error('Unable to verify RFI reply for evidence log', { transactionId, message: error.message });
+      return res.status(502).json({ success: false, message: 'Unable to check the mailbox for a matching reply. Try again shortly.' });
+    }
+    if (!verification.found) {
+      return res.status(400).json({
+        success: false,
+        message: 'No matching reply was found in the mailbox for this transaction. "RFI Reply Reviewed" evidence requires a real reply on file.',
+      });
+    }
+    mailboxReference = verification.reference;
+  }
+
+  const evidenceId = id('EVD');
+  await database.execute(
+    `INSERT INTO case_rfi_evidence (evidence_id, case_id, transaction_id, evidence_type, description, mailbox_reference, recorded_by, recorded_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+    [evidenceId, caseId, transactionId, evidenceType, description, mailboxReference, currentUser.id],
+  );
+  await database.execute(
+    `INSERT INTO audit_logs (audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+    [
+      id('AUD'), transactionId, 'Case', caseId, 'RFI Evidence Logged', currentUser.id,
+      `${evidenceType}: ${description}${mailboxReference ? ` (${mailboxReference})` : ''}`,
+    ],
+  );
+
+  return res.status(200).json({
+    success: true,
+    evidence: {
+      evidenceId, evidenceType, description, mailboxReference, recordedBy: currentUser.id, recordedAt: new Date().toISOString(),
+    },
+  });
+}
+
 function apiNotFound(req, res) {
   if (/^\/api\/transactions\/[^/]+\/rfi\/?$/.test(req.originalUrl)) {
     return res.status(404).json({
@@ -915,5 +1061,7 @@ module.exports = {
   liveRefreshScript,
   ingestTransactionEndpoint,
   latestRfiResponseEndpoint,
+  updateCaseEddChecklist,
+  logRfiEvidence,
   apiNotFound,
 };

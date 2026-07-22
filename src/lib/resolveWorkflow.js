@@ -4,6 +4,7 @@ const { ensureDatabaseResolveColumns, ensureRiskAndContactSchema, ensureCaseAssi
 const { parseFinalRiskScore, getRiskLevelFromScore, hasMeaningfulAnalystNotes } = require('./strDraft');
 const { assessmentDecisions, resolutionReasons } = require('../constants');
 const { roleCanPerform, forbidJson } = require('../middleware/auth');
+const { loadMerchantCddContext } = require('./merchantCdd');
 
 // Whole number 0-100, required - used for the mandatory manual reconciliation fields. Distinct
 // from parseFinalRiskScore only in name, kept separate since "final risk score" and "manual
@@ -31,6 +32,22 @@ function validateContributionLimits({
   const exceeded = limits.filter(([, actual, manual]) => Number(manual) > Number(actual));
   if (!exceeded.length) return null;
   return exceeded.map(([label, actual, manual]) => `${label}: maximum ${actual}, entered ${manual}`).join('; ');
+}
+
+// EDD completion requires senior_signoff_completed specifically (see merchantCdd.js's
+// computeEddComplete) - an Analyst can record the two Analyst-settable checklist items but
+// can never grant sign-off themselves, so this gate can't be satisfied by one role alone.
+function cddGateRequirement({ role, cddContext }) {
+  if (role === 'Senior Analyst') return { allowed: true };
+  const reasons = [];
+  if (cddContext.eddRequired && !cddContext.eddComplete) reasons.push('this merchant\'s EDD checklist is incomplete (Senior Analyst sign-off outstanding)');
+  if (cddContext.reviewOverdue) reasons.push('this merchant\'s CDD review date has passed');
+  if (!reasons.length) return { allowed: true };
+  return {
+    allowed: false,
+    status: 403,
+    message: `Resolution requires Senior Analyst approval: ${reasons.join('; ')}.`,
+  };
 }
 
 function reviewRequirementForScoreChange({ role, automatedScore, manualFinalScore, analystNotes }) {
@@ -102,7 +119,7 @@ async function handleDatabaseResolveRequest(req, res) {
     await ensureRiskAndContactSchema();
     await ensureCaseAssignmentColumns();
     [rows] = await database.query(
-      `SELECT t.transaction_id, t.unique_transaction_reference, t.risk_score, t.risk_level, t.status, t.action_status,
+      `SELECT t.transaction_id, t.unique_transaction_reference, t.merchant_id, t.risk_score, t.risk_level, t.status, t.action_status,
               t.final_risk_score, t.final_risk_level,
               t.mcc_risk_contribution, t.profile_risk_contribution, t.transaction_detection_contribution,
               c.case_id, c.status AS case_status, c.resolved_at
@@ -133,6 +150,12 @@ async function handleDatabaseResolveRequest(req, res) {
   }
   if (row.resolved_at || currentStatus === 'Resolved') {
     return res.status(409).json({ success: false, message: 'Assessment already resolved' });
+  }
+
+  const cddContext = await loadMerchantCddContext(database, row.merchant_id);
+  const cddGate = cddGateRequirement({ role: req.session.user.role, cddContext });
+  if (!cddGate.allowed) {
+    return res.status(cddGate.status).json({ success: false, message: cddGate.message });
   }
 
   const finalRiskScore = parseFinalRiskScore(req.body.finalRiskScore);
@@ -309,4 +332,5 @@ module.exports = {
   validateContributionLimits,
   reviewRequirementForScoreChange,
   buildReconciliationResult,
+  cddGateRequirement,
 };

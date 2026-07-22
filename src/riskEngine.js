@@ -73,6 +73,17 @@ function countNearThreshold(history, txn, nearThresholdCeiling) {
   return historyCount + (inBand(txn.amount) ? 1 : 0);
 }
 
+// "Foreign" means outside the merchant's home country plus, once a CDD expected-activity
+// profile is on file, its declared expected-countries allowlist - so a merchant that
+// legitimately serves several declared markets doesn't get flagged for its normal business,
+// while a country outside that declared baseline still counts as a deviation. Falls back to
+// home-country-only when no expected-countries profile exists (legacy behaviour).
+function isForeignCountry(issuerCountry, txn) {
+  if (!issuerCountry) return false;
+  const allowlist = [txn.merchantCountry, ...(txn.merchantExpectedCountries || [])];
+  return !allowlist.includes(issuerCountry);
+}
+
 function buildDerivedSignals(txn, history) {
   const storeVelocity = history.filter((row) => (
     row.storeId === txn.storeId && minutesBetween(row.txnTime, txn.txnTime) <= STORE_VELOCITY_WINDOW_MIN
@@ -86,9 +97,9 @@ function buildDerivedSignals(txn, history) {
     .reduce((sum, row) => sum + row.amount, 0) + txn.amount;
 
   const foreignIssuerCount = history.filter((row) => (
-    row.issuerCountry && row.issuerCountry !== txn.merchantCountry
+    isForeignCountry(row.issuerCountry, txn)
     && minutesBetween(row.txnTime, txn.txnTime) <= FOREIGN_ISSUER_WINDOW_MIN
-  )).length + (txn.issuerCountry && txn.issuerCountry !== txn.merchantCountry ? 1 : 0);
+  )).length + (isForeignCountry(txn.issuerCountry, txn) ? 1 : 0);
 
   const cardTestingBurst = history.filter((row) => (
     row.storeId === txn.storeId && row.amount < CARD_TESTING_AMOUNT_CEILING
@@ -104,8 +115,12 @@ function getTransactionHour(txnTime) {
   return txnTime.getHours();
 }
 
-function isOutsideOperatingHours(hour) {
-  return hour < OPERATING_HOURS.openHour || hour >= OPERATING_HOURS.closeHour;
+function isOutsideOperatingHours(hour, hours = OPERATING_HOURS) {
+  return hour < hours.openHour || hour >= hours.closeHour;
+}
+
+function isForeignIssuer(txn) {
+  return isForeignCountry(txn.issuerCountry, txn);
 }
 
 // rules: active compliance_rules rows for this merchant plus global (merchant_id IS NULL) rows.
@@ -121,9 +136,15 @@ function evaluateAgainstRules(txn, rules, signals, history) {
       case 'amount_spike':
         hit = threshold !== null && txn.amount > threshold;
         break;
-      case 'declared_avg_ticket':
-        hit = threshold !== null && txn.amount >= threshold;
+      case 'declared_avg_ticket': {
+        // A merchant's own CDD-declared expected ticket size, when on file, is a tighter and
+        // more meaningful baseline than the generic static per-rule threshold it replaces -
+        // "3x expected ticket" is the deviation band; falls back to the legacy static
+        // threshold for merchants with no expected-activity profile yet.
+        const declaredThreshold = txn.merchantExpectedAvgTicket ? txn.merchantExpectedAvgTicket * 3 : threshold;
+        hit = declaredThreshold !== null && declaredThreshold !== undefined && txn.amount >= declaredThreshold;
         break;
+      }
       case 'store_velocity':
         hit = count !== null && signals.storeVelocity >= count;
         break;
@@ -137,10 +158,14 @@ function evaluateAgainstRules(txn, rules, signals, history) {
         hit = threshold !== null && count !== null && countNearThreshold(history, txn, threshold) >= count;
         break;
       case 'operating_hours':
-        hit = isOutsideOperatingHours(getTransactionHour(txn.txnTime));
+        // Merchant's own CDD-declared operating hours take priority over the global default
+        // window once on file, so "outside hours" reflects that merchant's real baseline.
+        hit = txn.merchantExpectedOperatingHours
+          ? isOutsideOperatingHours(getTransactionHour(txn.txnTime), txn.merchantExpectedOperatingHours)
+          : isOutsideOperatingHours(getTransactionHour(txn.txnTime));
         break;
       case 'foreign_issuer':
-        hit = Boolean(txn.issuerCountry) && txn.issuerCountry !== txn.merchantCountry;
+        hit = isForeignIssuer(txn);
         break;
       case 'foreign_issuer_concentration':
         hit = count !== null && signals.foreignIssuerCount >= count;
@@ -149,7 +174,13 @@ function evaluateAgainstRules(txn, rules, signals, history) {
         hit = count !== null && signals.cardTestingBurst >= count;
         break;
       case 'edd_high_risk':
-        hit = txn.merchantRiskTier === 'High';
+        // Completing the EDD checklist (see src/lib/merchantCdd.js) actually removes this
+        // contribution from future transactions - the static risk_tier flag alone is no
+        // longer enough once a real due-diligence record exists.
+        hit = txn.merchantRiskTier === 'High' && !txn.merchantEddComplete;
+        break;
+      case 'cdd_review_overdue':
+        hit = Boolean(txn.merchantCddReviewOverdue);
         break;
       default:
         hit = false;
@@ -165,7 +196,10 @@ function evaluateAgainstRules(txn, rules, signals, history) {
   return matched;
 }
 
-// txn: { merchantId, merchantMid, merchantCountry, merchantRiskTier, mccRiskScore, storeId,
+// txn: { merchantId, merchantMid, merchantCountry, merchantRiskTier, mccRiskScore,
+//        merchantExpectedAvgTicket, merchantExpectedOperatingHours, merchantExpectedCountries,
+//        merchantCddReviewOverdue, merchantEddComplete (all optional, from merchantCdd.js -
+//        absent means legacy/no-CDD-data behaviour), storeId,
 //        amount, issuerCountry, txnTime (Date) }
 async function evaluateTransaction({
   txn, database,
@@ -210,6 +244,7 @@ module.exports = {
   evaluateTransaction,
   riskLevelFromScore,
   isOutsideOperatingHours,
+  isForeignIssuer,
   getTransactionHour,
   OPERATING_HOURS,
 };

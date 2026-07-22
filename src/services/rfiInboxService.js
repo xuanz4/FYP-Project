@@ -194,6 +194,9 @@ function parseEmailMessage(raw) {
     from: decodeEncodedWords(headers.from || ''),
     subject: decodeEncodedWords(headers.subject || ''),
     date: headers.date || '',
+    // Exposed for case_rfi_evidence.mailbox_reference (see rfiEvidence.js) - lets an evidence
+    // log entry point at a specific, independently re-checkable message instead of just text.
+    messageId: headers['message-id'] || '',
     text: extractTextBody(raw).replace(/\r/g, '').trim(),
   };
 }

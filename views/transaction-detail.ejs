@@ -121,6 +121,22 @@
     try { savedStrEvidence = caseInfo && caseInfo.supporting_evidence ? JSON.parse(caseInfo.supporting_evidence) : []; } catch (e) { savedStrEvidence = []; }
     const strEvidenceChecked = savedStrEvidence.length ? savedStrEvidence : (strDraft.supportingEvidence || []);
     const strHasDraftValues = !caseInfo?.reporting_reason && !caseInfo?.suspicion_summary && !caseInfo?.stro_notes;
+    // Merchant due-diligence context (see src/lib/merchantCdd.js) - investigative material, not
+    // a sensitive identifier, so it's visible to every role that can open the case, unlike
+    // merchant_mid/contact info above which follow the escalation gate.
+    const cdd = (typeof cddContext !== 'undefined' && cddContext) ? cddContext : {
+        kycStatus: 'Not Started', verificationDate: null, nextReviewDate: null, reviewOverdue: false,
+        expectedAvgTicket: null, expectedMonthlyVolume: null, expectedCountries: [], expectedOperatingHours: null,
+        eddRequired: false, eddComplete: false, checklist: null
+    };
+    const eddChecklist = cdd.checklist || {};
+    const screenings = Array.isArray(screeningRecords) ? screeningRecords : [];
+    const evidenceLog = Array.isArray(rfiEvidence) ? rfiEvidence : [];
+    // An Analyst may only record the two Analyst-settable checklist items; sign-off is a
+    // separate Senior Analyst/Admin-only control, so an Analyst alone can never satisfy
+    // resolveWorkflow.js's cddGateRequirement.
+    const canEditEddAnalystFields = isAnalyst && cdd.eddRequired && !isResolved;
+    const canEditEddSignoff = (isSenior || isAdmin) && cdd.eddRequired;
 %>
 
 <main class="transaction-review-page">
@@ -287,6 +303,61 @@
                     </p>
                 <% } %>
             </article>
+
+            <article class="panel review-contribution-card" id="merchantDueDiligencePanel">
+                <div class="panel-header">
+                    <div>
+                        <h2>Merchant Due Diligence</h2>
+                        <p>Self-declared CDD baseline and EDD checklist, recorded by Admin - not a substitute for senior review.</p>
+                    </div>
+                </div>
+                <dl class="review-definition-grid">
+                    <div><dt>KYC Status</dt><dd><%= cdd.kycStatus %></dd></div>
+                    <div><dt>Verification Date</dt><dd><%= cdd.verificationDate ? new Date(cdd.verificationDate).toLocaleDateString('en-SG') : 'Not set' %></dd></div>
+                    <div><dt>Next Review Date</dt><dd class="<%= cdd.reviewOverdue ? 'text-danger' : '' %>"><%= cdd.nextReviewDate ? new Date(cdd.nextReviewDate).toLocaleDateString('en-SG') : 'Not set' %><%= cdd.reviewOverdue ? ' (Overdue)' : '' %></dd></div>
+                    <div><dt>Expected Avg Ticket</dt><dd><%= cdd.expectedAvgTicket !== null ? `${currency} ${Number(cdd.expectedAvgTicket).toFixed(2)}` : 'Not set' %></dd></div>
+                    <div><dt>Expected Monthly Volume</dt><dd><%= cdd.expectedMonthlyVolume !== null ? `${currency} ${Number(cdd.expectedMonthlyVolume).toFixed(2)}` : 'Not set' %></dd></div>
+                    <div><dt>Expected Countries</dt><dd><%= cdd.expectedCountries.length ? cdd.expectedCountries.join(', ') : 'Not set' %></dd></div>
+                    <div><dt>Expected Operating Hours</dt><dd><%= cdd.expectedOperatingHours ? `${cdd.expectedOperatingHours.openHour}:00 - ${cdd.expectedOperatingHours.closeHour}:00` : 'Not set' %></dd></div>
+                </dl>
+                <% if (cdd.eddRequired) { %>
+                    <h3>EDD Checklist <%= cdd.eddComplete ? '(Complete)' : '(Incomplete - Senior Analyst sign-off required before this case can be resolved)' %></h3>
+                    <ul class="admin-inline-list">
+                        <li><%= eddChecklist.source_of_funds_verified ? 'Done' : 'Outstanding' %> - Source of Funds Verified</li>
+                        <li><%= eddChecklist.site_visit_completed ? 'Done' : 'Outstanding' %> - Site Visit or Equivalent Check</li>
+                        <li><%= eddChecklist.enhanced_verification_completed ? 'Done' : 'Outstanding' %> - Enhanced Verification (Admin-recorded)</li>
+                        <li><%= eddChecklist.senior_signoff_completed ? 'Done' : 'Outstanding' %> - Senior Sign-off</li>
+                    </ul>
+                    <% if (canEditEddAnalystFields) { %>
+                        <form id="eddAnalystForm" class="edd-inline-form">
+                            <label><span>Checklist Item</span><select id="eddFieldKey">
+                                <option value="sourceOfFunds">Source of Funds Verified</option>
+                                <option value="siteVisit">Site Visit or Equivalent Check</option>
+                            </select></label>
+                            <label><span>Notes (required to mark complete)</span><input id="eddNotes" placeholder="What was checked and how"></label>
+                            <label class="checkbox-field"><input type="checkbox" id="eddCompleted"><span>Mark Complete</span></label>
+                            <button type="submit" class="secondary-btn">Save Checklist Item</button>
+                            <p id="eddAnalystFeedback" class="form-feedback"></p>
+                        </form>
+                    <% } %>
+                    <% if (canEditEddSignoff) { %>
+                        <form id="eddSignoffForm" class="edd-inline-form">
+                            <label><span>Sign-off Notes (required to provide sign-off)</span><input id="eddSignoffNotes" placeholder="Basis for sign-off"></label>
+                            <label class="checkbox-field"><input type="checkbox" id="eddSignoffCompleted" <%= eddChecklist.senior_signoff_completed ? 'checked' : '' %>><span>Provide Sign-off</span></label>
+                            <button type="submit" class="secondary-btn">Save Sign-off</button>
+                            <p id="eddSignoffFeedback" class="form-feedback"></p>
+                        </form>
+                    <% } %>
+                <% } %>
+                <h3>Screening Records</h3>
+                <ul class="admin-inline-list">
+                    <% if (screenings.length) { screenings.forEach((record) => { %>
+                        <li><strong><%= record.screening_type %></strong>: <%= record.result %><% if (record.screened_against) { %> vs <%= record.screened_against %><% } %></li>
+                    <% }) } else { %>
+                        <li class="empty-inline">No screening records on file.</li>
+                    <% } %>
+                </ul>
+            </article>
         </section>
 
         <section class="panel review-tabs-panel">
@@ -346,7 +417,7 @@
                             <% if (isAnalyst) { %>
                                 <div><dt>Merchant ID</dt><dd><%= tx.merchant_id || 'Not assigned' %></dd></div>
                             <% } %>
-                            <div><dt>KYC status</dt><dd><%= tx.kycStatus || tx.kyc_status || 'Verified' %></dd></div>
+                            <div><dt>KYC status</dt><dd><%= cdd.kycStatus %></dd></div>
                             <div><dt>Merchant risk</dt><dd><%= tx.merchantRiskLevel || tx.merchant_risk_level || initialLevel %></dd></div>
                             <div><dt>Profile Risk Score</dt><dd><%= tx.profile_risk_score ?? 'Insufficient transaction history' %></dd></div>
                             <div><dt>Profile Risk Level</dt><dd><%= tx.profile_risk_level || 'Insufficient transaction history' %></dd></div>
@@ -427,6 +498,30 @@
                             <div id="rfiResponseContent" class="rfi-response-content">
                                 <p class="empty-inline">No response loaded yet.</p>
                             </div>
+                        </article>
+                    <% } %>
+                    <% if (caseInfo && !isAdmin) { %>
+                        <article class="review-info-card overview-rfi-response-card">
+                            <h3>Log RFI Evidence</h3>
+                            <p class="muted">"RFI Reply Reviewed" entries are checked against the mailbox at submit time and rejected if no matching reply exists - other types are recorded as-is.</p>
+                            <ul class="admin-inline-list" id="rfiEvidenceList">
+                                <% if (evidenceLog.length) { evidenceLog.forEach((item) => { %>
+                                    <li><strong><%= item.evidence_type %></strong>: <%= item.description %><% if (item.mailbox_reference) { %><br><span class="muted"><%= item.mailbox_reference %></span><% } %></li>
+                                <% }) } else { %>
+                                    <li class="empty-inline" id="rfiEvidenceEmpty">No evidence logged yet.</li>
+                                <% } %>
+                            </ul>
+                            <form id="rfiEvidenceForm" class="edd-inline-form">
+                                <label><span>Evidence Type</span><select id="rfiEvidenceType">
+                                    <option value="RFI Reply Reviewed">RFI Reply Reviewed</option>
+                                    <option value="Document Reference">Document Reference</option>
+                                    <option value="Analyst Finding">Analyst Finding</option>
+                                    <option value="Other">Other</option>
+                                </select></label>
+                                <label><span>Description</span><input id="rfiEvidenceDescription" placeholder="What was found or reviewed"></label>
+                                <button type="submit" class="secondary-btn">Log Evidence</button>
+                                <p id="rfiEvidenceFeedback" class="form-feedback"></p>
+                            </form>
                         </article>
                     <% } %>
                 </div>
@@ -1638,6 +1733,84 @@
         closeSuccessPanel?.addEventListener('click', (event) => {
             event.preventDefault();
             closeRfiSuccess();
+        });
+    })();
+</script>
+
+<script>
+    // EDD checklist + RFI evidence: kept as a small, separate script so it doesn't need to
+    // reach into the large IIFE above - on success each form just reloads the page so checklist
+    // state, the resolve-gate banner and the evidence list always reflect the server's view.
+    (() => {
+        const transactionId = <%- JSON.stringify(transactionId) %>;
+        const postJson = async (url, body) => {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(result.message || `Request failed (${response.status})`);
+            return result;
+        };
+
+        const eddAnalystForm = document.querySelector('#eddAnalystForm');
+        eddAnalystForm?.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const feedback = document.querySelector('#eddAnalystFeedback');
+            const submitButton = eddAnalystForm.querySelector('button[type="submit"]');
+            const fieldKey = document.querySelector('#eddFieldKey')?.value || '';
+            const completed = document.querySelector('#eddCompleted')?.checked || false;
+            const notes = document.querySelector('#eddNotes')?.value.trim() || '';
+            if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Saving...'; }
+            if (feedback) feedback.textContent = '';
+            try {
+                await postJson(`/api/transactions/${encodeURIComponent(transactionId)}/edd-checklist`, { fieldKey, completed, notes });
+                if (feedback) feedback.textContent = 'Saved. Refreshing...';
+                setTimeout(() => window.location.reload(), 600);
+            } catch (error) {
+                if (feedback) feedback.textContent = error.message;
+                if (submitButton) { submitButton.disabled = false; submitButton.textContent = 'Save Checklist Item'; }
+            }
+        });
+
+        const eddSignoffForm = document.querySelector('#eddSignoffForm');
+        eddSignoffForm?.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const feedback = document.querySelector('#eddSignoffFeedback');
+            const submitButton = eddSignoffForm.querySelector('button[type="submit"]');
+            const completed = document.querySelector('#eddSignoffCompleted')?.checked || false;
+            const notes = document.querySelector('#eddSignoffNotes')?.value.trim() || '';
+            if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Saving...'; }
+            if (feedback) feedback.textContent = '';
+            try {
+                await postJson(`/api/transactions/${encodeURIComponent(transactionId)}/edd-checklist`, { fieldKey: 'seniorSignoff', completed, notes });
+                if (feedback) feedback.textContent = 'Saved. Refreshing...';
+                setTimeout(() => window.location.reload(), 600);
+            } catch (error) {
+                if (feedback) feedback.textContent = error.message;
+                if (submitButton) { submitButton.disabled = false; submitButton.textContent = 'Save Sign-off'; }
+            }
+        });
+
+        const rfiEvidenceForm = document.querySelector('#rfiEvidenceForm');
+        rfiEvidenceForm?.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const feedback = document.querySelector('#rfiEvidenceFeedback');
+            const submitButton = rfiEvidenceForm.querySelector('button[type="submit"]');
+            const evidenceType = document.querySelector('#rfiEvidenceType')?.value || '';
+            const description = document.querySelector('#rfiEvidenceDescription')?.value.trim() || '';
+            if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Logging...'; }
+            if (feedback) feedback.textContent = '';
+            try {
+                await postJson(`/api/transactions/${encodeURIComponent(transactionId)}/rfi-evidence`, { evidenceType, description });
+                if (feedback) feedback.textContent = 'Logged. Refreshing...';
+                setTimeout(() => window.location.reload(), 600);
+            } catch (error) {
+                if (feedback) feedback.textContent = error.message;
+            } finally {
+                if (submitButton) { submitButton.disabled = false; submitButton.textContent = 'Log Evidence'; }
+            }
         });
     })();
 </script>

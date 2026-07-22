@@ -1,4 +1,5 @@
 const database = require('../database');
+const { id } = require('./ids');
 
 function memoizeAsync(fn) {
   let inFlight = null;
@@ -323,13 +324,137 @@ const ensureCaseReconciliationColumns = memoizeAsync(async function ensureCaseRe
   }
 });
 
+// Merchant CDD/EDD due-diligence schema: self-declared/admin-entered baseline data (no live
+// KYC/sanctions API - see src/lib/merchantCdd.js) that both feeds the risk engine (expected
+// activity, EDD completion) and gates case resolution for high-risk merchants. Every write
+// path stays auditable via the existing audit_logs pattern, called from adminController.js
+// and transactionsController.js, not from here.
+const ensureMerchantCddSchema = memoizeAsync(async function ensureMerchantCddSchema() {
+  if (!database.isEnabled()) return;
+
+  await database.execute(
+    `CREATE TABLE IF NOT EXISTS merchant_cdd_profiles (
+      cdd_id VARCHAR(40) PRIMARY KEY,
+      merchant_id VARCHAR(20) NOT NULL,
+      kyc_status ENUM('Not Started', 'Pending', 'Verified', 'Rejected') NOT NULL DEFAULT 'Not Started',
+      verification_date DATE NULL,
+      next_review_date DATE NULL,
+      expected_monthly_volume DECIMAL(14,2) NULL,
+      expected_avg_ticket DECIMAL(10,2) NULL,
+      expected_countries VARCHAR(255) NULL,
+      expected_operating_open_hour TINYINT NULL,
+      expected_operating_close_hour TINYINT NULL,
+      updated_by VARCHAR(20) NULL,
+      updated_at DATETIME NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_merchant_cdd_profiles_merchant (merchant_id),
+      FOREIGN KEY (merchant_id) REFERENCES merchants(merchant_id) ON DELETE CASCADE
+    )`,
+  );
+
+  // Self-declared, not independently verified - no registry lookup exists in this project's
+  // scope. id_reference/nationality are free-text exactly so the UI can label them as such.
+  await database.execute(
+    `CREATE TABLE IF NOT EXISTS merchant_beneficial_owners (
+      owner_id VARCHAR(40) PRIMARY KEY,
+      merchant_id VARCHAR(20) NOT NULL,
+      full_name VARCHAR(100) NOT NULL,
+      owner_role ENUM('Beneficial Owner', 'Authorised Representative', 'Director') NOT NULL DEFAULT 'Beneficial Owner',
+      ownership_percentage DECIMAL(5,2) NULL,
+      nationality VARCHAR(60) NULL,
+      id_reference VARCHAR(80) NULL,
+      date_of_birth DATE NULL,
+      added_by VARCHAR(20) NULL,
+      added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_merchant_beneficial_owners_merchant (merchant_id),
+      FOREIGN KEY (merchant_id) REFERENCES merchants(merchant_id) ON DELETE CASCADE
+    )`,
+  );
+
+  // Manual attestation log, not a live sanctions/PEP/adverse-media API match - screened_against
+  // is a free-text source note (e.g. "Manual check vs UN Consolidated List").
+  await database.execute(
+    `CREATE TABLE IF NOT EXISTS merchant_screening_records (
+      screening_id VARCHAR(40) PRIMARY KEY,
+      merchant_id VARCHAR(20) NOT NULL,
+      screening_type ENUM('Sanctions', 'PEP', 'Adverse Media') NOT NULL,
+      result ENUM('Clear', 'Potential Match', 'Confirmed Match') NOT NULL,
+      screened_against VARCHAR(150) NULL,
+      notes TEXT NULL,
+      screened_by VARCHAR(20) NULL,
+      screened_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_merchant_screening_records_merchant (merchant_id),
+      FOREIGN KEY (merchant_id) REFERENCES merchants(merchant_id) ON DELETE CASCADE
+    )`,
+  );
+
+  // Split by who may set each field - see merchantCdd.js's eddComplete: the first three plus
+  // senior_signoff_completed are all required, and senior_signoff_completed is only ever
+  // written by a Senior Analyst/Admin write path, never by the Analyst-scoped endpoint - so no
+  // single role can satisfy the resolve-gate on their own say-so.
+  await database.execute(
+    `CREATE TABLE IF NOT EXISTS merchant_edd_checklist (
+      merchant_id VARCHAR(20) PRIMARY KEY,
+      source_of_funds_verified TINYINT(1) NOT NULL DEFAULT 0,
+      source_of_funds_notes TEXT NULL,
+      source_of_funds_by VARCHAR(20) NULL,
+      source_of_funds_at DATETIME NULL,
+      site_visit_completed TINYINT(1) NOT NULL DEFAULT 0,
+      site_visit_notes TEXT NULL,
+      site_visit_by VARCHAR(20) NULL,
+      site_visit_at DATETIME NULL,
+      enhanced_verification_completed TINYINT(1) NOT NULL DEFAULT 0,
+      enhanced_verification_notes TEXT NULL,
+      enhanced_verification_by VARCHAR(20) NULL,
+      enhanced_verification_at DATETIME NULL,
+      senior_signoff_completed TINYINT(1) NOT NULL DEFAULT 0,
+      senior_signoff_notes TEXT NULL,
+      senior_signoff_by VARCHAR(20) NULL,
+      senior_signoff_at DATETIME NULL,
+      FOREIGN KEY (merchant_id) REFERENCES merchants(merchant_id) ON DELETE CASCADE
+    )`,
+  );
+
+  // mailbox_reference anchors an 'RFI Reply Reviewed' entry to a real, independently
+  // re-checkable email (Message-ID/date/from, or a body hash) found live in the mailbox at
+  // submit time - see rfiEvidence.js. Other evidence_type values leave it NULL.
+  await database.execute(
+    `CREATE TABLE IF NOT EXISTS case_rfi_evidence (
+      evidence_id VARCHAR(40) PRIMARY KEY,
+      case_id VARCHAR(40) NOT NULL,
+      transaction_id VARCHAR(40) NOT NULL,
+      evidence_type ENUM('RFI Reply Reviewed', 'Document Reference', 'Analyst Finding', 'Other') NOT NULL,
+      description TEXT NOT NULL,
+      mailbox_reference VARCHAR(255) NULL,
+      recorded_by VARCHAR(20) NULL,
+      recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_case_rfi_evidence_case (case_id),
+      FOREIGN KEY (case_id) REFERENCES cases(case_id) ON DELETE CASCADE
+    )`,
+  );
+
+  // Global rule so 'cdd_review_overdue' needs no special-casing in the additive score formula
+  // (see riskEngine.js) - just another matched compliance_rules row, seeded once idempotently.
+  const [existingRule] = await database.query(
+    "SELECT rule_id FROM compliance_rules WHERE rule_type = 'cdd_review_overdue' AND merchant_id IS NULL LIMIT 1",
+  );
+  if (!existingRule.length) {
+    await database.execute(
+      `INSERT INTO compliance_rules (rule_id, merchant_id, rule_name, risk_level, reason, weight, amount_threshold, count_threshold, rule_type, is_active)
+       VALUES (?, NULL, ?, 'Medium', ?, 15, NULL, NULL, 'cdd_review_overdue', 1)`,
+      [id('RULE'), 'CDD Review Overdue', "Merchant's CDD/EDD review date has passed without a completed re-review"],
+    );
+  }
+});
+
 // Single call site for every ensure* above - covers the risk-formula, merchant-profile,
-// merchant-contacts and case-reconciliation schema in one idempotent pass.
+// merchant-contacts, case-reconciliation and merchant-CDD/EDD schema in one idempotent pass.
 const ensureRiskAndContactSchema = memoizeAsync(async function ensureRiskAndContactSchema() {
   await ensureRiskContributionColumns();
   await ensureMerchantRiskProfileTable();
   await ensureMerchantContactsTable();
   await ensureCaseReconciliationColumns();
+  await ensureMerchantCddSchema();
 });
 
 module.exports = {
@@ -337,5 +462,6 @@ module.exports = {
   ensureCaseAssignmentColumns,
   ensureStrWorkflowSchema,
   ensureMerchantContactsTable,
+  ensureMerchantCddSchema,
   ensureRiskAndContactSchema,
 };

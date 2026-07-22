@@ -110,11 +110,132 @@ async function testStoredMerchantProfileContributesToRiskScore() {
   assert.strictEqual(result.status, 'Flagged');
 }
 
+async function testDeclaredAvgTicketUsesCddExpectedTicketOverStaticThreshold() {
+  const database = fakeDatabase({ calls: [], history: [], rules: [
+    { rule_id: 'R7', rule_name: 'Declared Avg Ticket', risk_level: 'Medium', reason: 'Deviates from declared avg ticket', weight: 20, amount_threshold: 5000, count_threshold: null, rule_type: 'declared_avg_ticket' },
+  ] });
+
+  // 3x the CDD-declared expected ticket (100) is 300 - below the legacy static threshold
+  // (5000) but should still fire once a real expected-activity profile is on file.
+  const result = await evaluateTransaction({
+    txn: {
+      merchantId: 'M004', merchantCountry: 'SG', merchantRiskTier: 'Standard', storeId: 'S1',
+      amount: 320, issuerCountry: 'SG', txnTime: new Date('2026-07-21T12:00:00'),
+      merchantExpectedAvgTicket: 100,
+    },
+    database,
+  });
+
+  assert.deepStrictEqual(result.matchedRules.map((rule) => rule.id), ['R7']);
+}
+
+async function testOperatingHoursUsesMerchantDeclaredWindow() {
+  const database = fakeDatabase({ calls: [], history: [], rules: [
+    { rule_id: 'R8', rule_name: 'Outside Hours', risk_level: 'Medium', reason: 'Outside declared hours', weight: 10, amount_threshold: null, count_threshold: null, rule_type: 'operating_hours' },
+  ] });
+
+  // 9am is within the global default window (7-23) but outside this merchant's declared 10-18
+  // window, so it should only fire once the merchant's own hours are on file.
+  const result = await evaluateTransaction({
+    txn: {
+      merchantId: 'M005', merchantCountry: 'SG', merchantRiskTier: 'Standard', storeId: 'S1',
+      amount: 50, issuerCountry: 'SG', txnTime: new Date('2026-07-21T09:00:00'),
+      merchantExpectedOperatingHours: { openHour: 10, closeHour: 18 },
+    },
+    database,
+  });
+
+  assert.deepStrictEqual(result.matchedRules.map((rule) => rule.id), ['R8']);
+}
+
+async function testForeignIssuerAllowsCddDeclaredCountries() {
+  const database = fakeDatabase({ calls: [], history: [], rules: [
+    { rule_id: 'R9', rule_name: 'Foreign Issuer', risk_level: 'Low', reason: 'Foreign-issued card', weight: 10, amount_threshold: null, count_threshold: null, rule_type: 'foreign_issuer' },
+  ] });
+
+  const declaredMarket = await evaluateTransaction({
+    txn: {
+      merchantId: 'M006', merchantCountry: 'SG', merchantRiskTier: 'Standard', storeId: 'S1',
+      amount: 50, issuerCountry: 'MY', txnTime: new Date('2026-07-21T12:00:00'),
+      merchantExpectedCountries: ['MY', 'ID'],
+    },
+    database,
+  });
+  assert.deepStrictEqual(declaredMarket.matchedRules.map((rule) => rule.id), []);
+
+  const undeclaredMarket = await evaluateTransaction({
+    txn: {
+      merchantId: 'M006', merchantCountry: 'SG', merchantRiskTier: 'Standard', storeId: 'S1',
+      amount: 50, issuerCountry: 'US', txnTime: new Date('2026-07-21T12:00:00'),
+      merchantExpectedCountries: ['MY', 'ID'],
+    },
+    database,
+  });
+  assert.deepStrictEqual(undeclaredMarket.matchedRules.map((rule) => rule.id), ['R9']);
+}
+
+async function testEddHighRiskClearsOnceChecklistComplete() {
+  const database = fakeDatabase({ calls: [], history: [], rules: [
+    { rule_id: 'R10', rule_name: 'EDD Required', risk_level: 'Medium', reason: 'High-risk merchant EDD outstanding', weight: 15, amount_threshold: null, count_threshold: null, rule_type: 'edd_high_risk' },
+  ] });
+
+  const incomplete = await evaluateTransaction({
+    txn: {
+      merchantId: 'M007', merchantCountry: 'SG', merchantRiskTier: 'High', storeId: 'S1',
+      amount: 50, issuerCountry: 'SG', txnTime: new Date('2026-07-21T12:00:00'),
+      merchantEddComplete: false,
+    },
+    database,
+  });
+  assert.deepStrictEqual(incomplete.matchedRules.map((rule) => rule.id), ['R10']);
+
+  const complete = await evaluateTransaction({
+    txn: {
+      merchantId: 'M007', merchantCountry: 'SG', merchantRiskTier: 'High', storeId: 'S1',
+      amount: 50, issuerCountry: 'SG', txnTime: new Date('2026-07-21T12:00:00'),
+      merchantEddComplete: true,
+    },
+    database,
+  });
+  assert.deepStrictEqual(complete.matchedRules.map((rule) => rule.id), []);
+}
+
+async function testCddReviewOverdueRuleType() {
+  const database = fakeDatabase({ calls: [], history: [], rules: [
+    { rule_id: 'R11', rule_name: 'CDD Review Overdue', risk_level: 'Medium', reason: 'Review overdue', weight: 15, amount_threshold: null, count_threshold: null, rule_type: 'cdd_review_overdue' },
+  ] });
+
+  const overdue = await evaluateTransaction({
+    txn: {
+      merchantId: 'M008', merchantCountry: 'SG', merchantRiskTier: 'Standard', storeId: 'S1',
+      amount: 50, issuerCountry: 'SG', txnTime: new Date('2026-07-21T12:00:00'),
+      merchantCddReviewOverdue: true,
+    },
+    database,
+  });
+  assert.deepStrictEqual(overdue.matchedRules.map((rule) => rule.id), ['R11']);
+
+  const current = await evaluateTransaction({
+    txn: {
+      merchantId: 'M008', merchantCountry: 'SG', merchantRiskTier: 'Standard', storeId: 'S1',
+      amount: 50, issuerCountry: 'SG', txnTime: new Date('2026-07-21T12:00:00'),
+      merchantCddReviewOverdue: false,
+    },
+    database,
+  });
+  assert.deepStrictEqual(current.matchedRules.map((rule) => rule.id), []);
+}
+
 async function main() {
   suite('Risk Evaluation');
   await runTest('matches risk rules and derives velocity/concentration signals', testRuleMatchesAndSignals);
   await runTest('keeps low-risk single rule match cleared', testLowRiskMatchRemainsCleared);
   await runTest('adds stored merchant profile contribution to risk score', testStoredMerchantProfileContributesToRiskScore);
+  await runTest('declared avg ticket rule prefers the CDD-declared expected ticket', testDeclaredAvgTicketUsesCddExpectedTicketOverStaticThreshold);
+  await runTest('operating hours rule uses the merchant-declared window when on file', testOperatingHoursUsesMerchantDeclaredWindow);
+  await runTest('foreign issuer rule allows CDD-declared expected countries', testForeignIssuerAllowsCddDeclaredCountries);
+  await runTest('edd_high_risk clears once the EDD checklist is complete', testEddHighRiskClearsOnceChecklistComplete);
+  await runTest('cdd_review_overdue fires only when the review is overdue', testCddReviewOverdueRuleType);
   finish();
 }
 

@@ -2,7 +2,8 @@ const database = require('../src/database');
 const emailService = require('../src/services/emailService');
 const { paginationMeta, appendWhere } = require('../src/lib/query');
 const { logAdminAudit } = require('../src/lib/auditLog');
-const { ensureMerchantContactsTable } = require('../src/lib/schema');
+const { ensureMerchantContactsTable, ensureMerchantCddSchema } = require('../src/lib/schema');
+const { setEddChecklistField } = require('../src/lib/eddChecklist');
 const { id } = require('../src/lib/ids');
 
 function adminFiltersFromQuery(query) {
@@ -44,6 +45,7 @@ async function loadAdminUsers(req) {
 
 async function loadAdminMerchants(req) {
   await ensureMerchantContactsTable();
+  await ensureMerchantCddSchema();
   const filters = adminFiltersFromQuery(req.query);
   const where = [];
   const values = [];
@@ -58,15 +60,47 @@ async function loadAdminMerchants(req) {
   const [rows] = await database.query(
     `SELECT m.merchant_id, m.merchant_name, m.merchant_mid, m.merchant_country,
             m.mcc_code, m.industry, m.mcc_risk_score, m.risk_tier, m.is_active,
-            mc.contact_name, mc.rfi_email, mc.phone_number, mc.store_id AS contact_store_id, mc.status AS contact_status
+            mc.contact_name, mc.rfi_email, mc.phone_number, mc.store_id AS contact_store_id, mc.status AS contact_status,
+            cdd.kyc_status, cdd.verification_date, cdd.next_review_date,
+            cdd.expected_monthly_volume, cdd.expected_avg_ticket, cdd.expected_countries,
+            cdd.expected_operating_open_hour, cdd.expected_operating_close_hour,
+            edd.source_of_funds_verified, edd.source_of_funds_notes,
+            edd.site_visit_completed, edd.site_visit_notes,
+            edd.enhanced_verification_completed, edd.enhanced_verification_notes,
+            edd.senior_signoff_completed, edd.senior_signoff_notes
      FROM merchants m
      LEFT JOIN merchant_contacts mc ON mc.merchant_id = m.merchant_id
+     LEFT JOIN merchant_cdd_profiles cdd ON cdd.merchant_id = m.merchant_id
+     LEFT JOIN merchant_edd_checklist edd ON edd.merchant_id = m.merchant_id
      ${whereSql} ORDER BY m.merchant_name ASC LIMIT ? OFFSET ?`,
     [...values, pagination.limit, pagination.offset],
   );
+  const merchantIds = rows.map((row) => row.merchant_id);
+  const [beneficialOwners, screeningRecords] = merchantIds.length ? await Promise.all([
+    database.query(
+      `SELECT owner_id, merchant_id, full_name, owner_role, ownership_percentage, nationality, id_reference, date_of_birth
+       FROM merchant_beneficial_owners WHERE merchant_id IN (?) ORDER BY added_at DESC`,
+      [merchantIds],
+    ).then(([r]) => r),
+    database.query(
+      `SELECT screening_id, merchant_id, screening_type, result, screened_against, notes, screened_at
+       FROM merchant_screening_records WHERE merchant_id IN (?) ORDER BY screened_at DESC`,
+      [merchantIds],
+    ).then(([r]) => r),
+  ]) : [[], []];
+  const beneficialOwnersByMerchant = {};
+  beneficialOwners.forEach((owner) => {
+    (beneficialOwnersByMerchant[owner.merchant_id] ||= []).push(owner);
+  });
+  const screeningRecordsByMerchant = {};
+  screeningRecords.forEach((record) => {
+    (screeningRecordsByMerchant[record.merchant_id] ||= []).push(record);
+  });
   const [industries] = await database.query('SELECT DISTINCT industry FROM merchants ORDER BY industry ASC');
   const [mccs] = await database.query('SELECT DISTINCT mcc_code FROM merchants ORDER BY mcc_code ASC');
-  return { rows, industries, mccs, filters, pagination };
+  return {
+    rows, industries, mccs, filters, pagination, beneficialOwnersByMerchant, screeningRecordsByMerchant,
+  };
 }
 
 // Upserts the single merchant_contacts row for this merchant and writes one audit_logs entry
@@ -122,6 +156,145 @@ async function upsertMerchantContactFields(req, merchantId) {
       notes: `${fieldLabel} changed from "${before || 'empty'}" to "${after || 'empty'}"`,
     });
   }
+}
+
+// CDD baseline is Admin-write / Analyst-read-only (see transactionsController.js's case
+// workspace panel, which only ever reads this table). Self-declared/admin-entered - there is
+// no live KYC provider or registry lookup in this project's scope.
+async function upsertMerchantCddFields(req, merchantId) {
+  const cddFields = ['kycStatus', 'verificationDate', 'nextReviewDate', 'expectedMonthlyVolume', 'expectedAvgTicket', 'expectedCountries', 'expectedOperatingOpenHour', 'expectedOperatingCloseHour'];
+  const hasCddField = cddFields.some((field) => req.body[field] !== undefined);
+  if (!hasCddField) return;
+
+  await ensureMerchantCddSchema();
+  const kycStatus = ['Not Started', 'Pending', 'Verified', 'Rejected'].includes(req.body.kycStatus) ? req.body.kycStatus : 'Not Started';
+  const verificationDate = String(req.body.verificationDate || '').trim() || null;
+  const nextReviewDate = String(req.body.nextReviewDate || '').trim() || null;
+  const expectedMonthlyVolume = req.body.expectedMonthlyVolume ? Number(req.body.expectedMonthlyVolume) : null;
+  const expectedAvgTicket = req.body.expectedAvgTicket ? Number(req.body.expectedAvgTicket) : null;
+  const expectedCountries = String(req.body.expectedCountries || '').trim().toUpperCase() || null;
+  const expectedOperatingOpenHour = req.body.expectedOperatingOpenHour !== '' && req.body.expectedOperatingOpenHour !== undefined ? Number(req.body.expectedOperatingOpenHour) : null;
+  const expectedOperatingCloseHour = req.body.expectedOperatingCloseHour !== '' && req.body.expectedOperatingCloseHour !== undefined ? Number(req.body.expectedOperatingCloseHour) : null;
+
+  await database.execute(
+    `INSERT INTO merchant_cdd_profiles (cdd_id, merchant_id, kyc_status, verification_date, next_review_date, expected_monthly_volume, expected_avg_ticket, expected_countries, expected_operating_open_hour, expected_operating_close_hour, updated_by, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+     ON DUPLICATE KEY UPDATE
+       kyc_status = VALUES(kyc_status),
+       verification_date = VALUES(verification_date),
+       next_review_date = VALUES(next_review_date),
+       expected_monthly_volume = VALUES(expected_monthly_volume),
+       expected_avg_ticket = VALUES(expected_avg_ticket),
+       expected_countries = VALUES(expected_countries),
+       expected_operating_open_hour = VALUES(expected_operating_open_hour),
+       expected_operating_close_hour = VALUES(expected_operating_close_hour),
+       updated_by = VALUES(updated_by),
+       updated_at = NOW()`,
+    [id('CDD'), merchantId, kycStatus, verificationDate, nextReviewDate, expectedMonthlyVolume, expectedAvgTicket, expectedCountries, expectedOperatingOpenHour, expectedOperatingCloseHour, req.session.user.id],
+  );
+
+  await logAdminAudit({
+    action: 'Merchant CDD Profile Updated',
+    userId: req.session.user.id,
+    entityType: 'MerchantCddProfile',
+    entityId: merchantId,
+    notes: `KYC status ${kycStatus}, next review ${nextReviewDate || 'not set'}, expected avg ticket ${expectedAvgTicket ?? 'not set'}, expected countries ${expectedCountries || 'not set'}`,
+  });
+}
+
+// Admin sets any checklist field including senior_signoff_completed here. The case-workspace
+// endpoints (transactionsController.js) reuse the same setEddChecklistField helper but each
+// only ever pass the fieldKey(s) their role is allowed to touch - see eddChecklist.js.
+async function updateEddChecklist(req, res) {
+  await ensureMerchantCddSchema();
+  const merchantId = req.params.id;
+  const fieldKeys = ['sourceOfFunds', 'siteVisit', 'enhancedVerification', 'seniorSignoff'];
+  for (const fieldKey of fieldKeys) {
+    const completed = req.body[`${fieldKey}Completed`] === '1' || req.body[`${fieldKey}Completed`] === 'true';
+    const notes = String(req.body[`${fieldKey}Notes`] || '').trim() || null;
+    // eslint-disable-next-line no-await-in-loop
+    await setEddChecklistField(database, {
+      merchantId, fieldKey, completed, notes, userId: req.session.user.id,
+    });
+  }
+  await logAdminAudit({
+    action: 'Merchant EDD Checklist Updated',
+    userId: req.session.user.id,
+    entityType: 'MerchantEddChecklist',
+    entityId: merchantId,
+  });
+  return res.redirect('/admin/merchants');
+}
+
+// Self-declared, not independently verified - no registry lookup exists in this project's
+// scope. Never deleted once added (only new entries are added) so the record stays a durable
+// history, matching the append-only spirit of audit_logs.
+async function addBeneficialOwner(req, res) {
+  const merchantId = req.params.id;
+  const fullName = String(req.body.fullName || '').trim();
+  if (!fullName) return res.redirect('/admin/merchants');
+
+  await ensureMerchantCddSchema();
+  const ownerRole = ['Beneficial Owner', 'Authorised Representative', 'Director'].includes(req.body.ownerRole) ? req.body.ownerRole : 'Beneficial Owner';
+  const ownershipPercentage = req.body.ownershipPercentage ? Number(req.body.ownershipPercentage) : null;
+  const nationality = String(req.body.nationality || '').trim() || null;
+  const idReference = String(req.body.idReference || '').trim() || null;
+  const dateOfBirth = String(req.body.dateOfBirth || '').trim() || null;
+  const ownerId = id('OWN');
+
+  await database.execute(
+    `INSERT INTO merchant_beneficial_owners (owner_id, merchant_id, full_name, owner_role, ownership_percentage, nationality, id_reference, date_of_birth, added_by, added_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+    [ownerId, merchantId, fullName, ownerRole, ownershipPercentage, nationality, idReference, dateOfBirth, req.session.user.id],
+  );
+  await logAdminAudit({
+    action: 'Merchant Beneficial Owner Added',
+    userId: req.session.user.id,
+    entityType: 'MerchantBeneficialOwner',
+    entityId: ownerId,
+    notes: `${fullName} (${ownerRole}) added for merchant ${merchantId} - self-declared, not independently verified`,
+  });
+  return res.redirect('/admin/merchants');
+}
+
+async function deleteBeneficialOwner(req, res) {
+  await database.execute('DELETE FROM merchant_beneficial_owners WHERE owner_id = ?', [req.params.ownerId]);
+  await logAdminAudit({
+    action: 'Merchant Beneficial Owner Deleted',
+    userId: req.session.user.id,
+    entityType: 'MerchantBeneficialOwner',
+    entityId: req.params.ownerId,
+  });
+  return res.redirect('/admin/merchants');
+}
+
+// Manual attestation, not a live sanctions/PEP/adverse-media API match - screenedAgainst is a
+// free-text source note. Append-only by design (no delete route) so the attestation trail can't
+// be quietly erased.
+async function addScreeningRecord(req, res) {
+  const merchantId = req.params.id;
+  const screeningType = ['Sanctions', 'PEP', 'Adverse Media'].includes(req.body.screeningType) ? req.body.screeningType : null;
+  const result = ['Clear', 'Potential Match', 'Confirmed Match'].includes(req.body.result) ? req.body.result : null;
+  if (!screeningType || !result) return res.redirect('/admin/merchants');
+
+  await ensureMerchantCddSchema();
+  const screenedAgainst = String(req.body.screenedAgainst || '').trim() || null;
+  const notes = String(req.body.notes || '').trim() || null;
+  const screeningId = id('SCR');
+
+  await database.execute(
+    `INSERT INTO merchant_screening_records (screening_id, merchant_id, screening_type, result, screened_against, notes, screened_by, screened_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+    [screeningId, merchantId, screeningType, result, screenedAgainst, notes, req.session.user.id],
+  );
+  await logAdminAudit({
+    action: 'Merchant Screening Record Added',
+    userId: req.session.user.id,
+    entityType: 'MerchantScreeningRecord',
+    entityId: screeningId,
+    notes: `${screeningType} screening for merchant ${merchantId}: ${result} (manual attestation, no live API match)`,
+  });
+  return res.redirect('/admin/merchants');
 }
 
 async function loadAdminRules(req) {
@@ -375,6 +548,7 @@ async function createMerchant(req, res) {
     notes: `${merchantName} (MCC ${mccCode})`,
   });
   await upsertMerchantContactFields(req, merchantId);
+  await upsertMerchantCddFields(req, merchantId);
 
   return res.redirect('/admin/merchants');
 }
@@ -401,6 +575,7 @@ async function updateMerchant(req, res) {
     });
   }
   await upsertMerchantContactFields(req, req.params.id);
+  await upsertMerchantCddFields(req, req.params.id);
   return res.redirect('/admin/merchants');
 }
 
@@ -507,6 +682,10 @@ module.exports = {
   createMerchant,
   updateMerchant,
   deleteMerchant,
+  updateEddChecklist,
+  addBeneficialOwner,
+  deleteBeneficialOwner,
+  addScreeningRecord,
   createRule,
   updateRule,
   deleteRule,

@@ -24,6 +24,7 @@ const strEvidenceOptions = [
   'Merchant profile risk',
   'Transaction behaviour',
   'RFI response',
+  'RFI Evidence Attached',
   'Other',
 ];
 
