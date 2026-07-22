@@ -792,8 +792,8 @@
                     <form id="resolveAssessmentForm" class="action-form">
                         <label>
                             <span>Final Risk Score</span>
-                            <input id="finalRiskScoreInput" name="finalRiskScore" type="number" min="0" max="100" step="1" required>
-                            <small>Enter the confirmed risk score after reviewing the transaction, customer profile, screening evidence and supporting information.</small>
+                            <input id="finalRiskScoreInput" name="finalRiskScore" type="number" min="0" max="100" step="1" required readonly>
+                            <small>Calculated from the manual MCC, Profile and Detection contribution values below.</small>
                         </label>
                         <label>
                             <span>Final Risk Level</span>
@@ -820,7 +820,7 @@
                             <span>Analyst Notes</span>
                             <textarea id="resolveAnalystNotes" name="analystNotes" required minlength="10" placeholder="Summarise the review evidence and final decision."></textarea>
                         </label>
-                        <p class="rfi-warning wide">Manual reconciliation is required before this case can be resolved. Enter what you believe each contribution should be - the Final Risk Score above will be used as the reconciled final score.</p>
+                        <p class="rfi-warning wide">Manual reconciliation is required before this case can be resolved. The final score must equal MCC + Profile + Detection, capped at 100.</p>
                         <label>
                             <span>Manual MCC Contribution</span>
                             <input id="manualMccContribution" name="manualMccContribution" type="number" min="0" max="100" step="1" required>
@@ -833,6 +833,7 @@
                             <span>Manual Detection Contribution</span>
                             <input id="manualDetectionContribution" name="manualDetectionContribution" type="number" min="0" max="100" step="1" required>
                         </label>
+                        <p id="resolveFormulaPreview" class="score-formula-preview wide">MCC 0 + Profile 0 + Detection 0 = Final score 0</p>
                         <p id="resolveAssessmentFeedback" class="muted"></p>
                         <div class="modal-actions">
                             <button type="button" class="secondary-btn" data-close-resolve-modal>Cancel</button>
@@ -932,8 +933,38 @@
         const manualMccContribution = document.querySelector('#manualMccContribution');
         const manualProfileContribution = document.querySelector('#manualProfileContribution');
         const manualDetectionContribution = document.querySelector('#manualDetectionContribution');
+        const resolveFormulaPreview = document.querySelector('#resolveFormulaPreview');
         const resolveFeedback = document.querySelector('#resolveAssessmentFeedback');
         const resolveSubmit = document.querySelector('#resolveAssessmentSubmit');
+        const initialResolveContributions = {
+            mcc: <%- JSON.stringify(mccRiskContribution) %>,
+            profile: <%- JSON.stringify(profileRiskContribution) %>,
+            detection: <%- JSON.stringify(detectionRiskContribution) %>,
+        };
+        const cappedContributionTotal = (mcc, profile, detection) => Math.min(100, Number(mcc || 0) + Number(profile || 0) + Number(detection || 0));
+        const contributionValue = (input) => {
+            const value = Number(input?.value);
+            return Number.isInteger(value) && value >= 0 && value <= 100 ? value : null;
+        };
+        const updateFormulaPreview = () => {
+            const mcc = contributionValue(manualMccContribution);
+            const profile = contributionValue(manualProfileContribution);
+            const detection = contributionValue(manualDetectionContribution);
+            if ([mcc, profile, detection].some((value) => value === null)) {
+                if (finalRiskScoreInput) finalRiskScoreInput.value = '';
+                if (finalRiskLevelDisplay) finalRiskLevelDisplay.value = 'Invalid score';
+                if (resolveFormulaPreview) resolveFormulaPreview.textContent = 'Enter whole-number contributions from 0 to 100.';
+                return false;
+            }
+            const calculatedScore = cappedContributionTotal(mcc, profile, detection);
+            if (finalRiskScoreInput) finalRiskScoreInput.value = String(calculatedScore);
+            if (finalRiskLevelDisplay) finalRiskLevelDisplay.value = getRiskLevelFromScore(calculatedScore);
+            if (resolveFormulaPreview) {
+                const capNote = mcc + profile + detection > 100 ? ' (capped at 100)' : '';
+                resolveFormulaPreview.textContent = `MCC ${mcc} + Profile ${profile} + Detection ${detection} = Final score ${calculatedScore}${capNote}`;
+            }
+            return true;
+        };
         const updateFinalRiskLevel = () => {
             const value = Number(finalRiskScoreInput?.value);
             if (!Number.isInteger(value) || value < 0 || value > 100) {
@@ -949,7 +980,11 @@
             resolveModal.setAttribute('aria-hidden', 'false');
             document.body.classList.add('modal-open');
             if (resolveFeedback) resolveFeedback.textContent = '';
-            setTimeout(() => finalRiskScoreInput?.focus(), 0);
+            if (manualMccContribution && !manualMccContribution.value) manualMccContribution.value = String(initialResolveContributions.mcc);
+            if (manualProfileContribution && !manualProfileContribution.value) manualProfileContribution.value = String(initialResolveContributions.profile);
+            if (manualDetectionContribution && !manualDetectionContribution.value) manualDetectionContribution.value = String(initialResolveContributions.detection);
+            updateFormulaPreview();
+            setTimeout(() => manualMccContribution?.focus(), 0);
         };
         const closeResolveModal = () => {
             if (!resolveModal) return;
@@ -961,6 +996,12 @@
         finalRiskScoreInput?.addEventListener('input', () => {
             const valid = updateFinalRiskLevel();
             if (resolveFeedback) resolveFeedback.textContent = valid ? '' : 'Final risk score must be a whole number from 0 to 100.';
+        });
+        [manualMccContribution, manualProfileContribution, manualDetectionContribution].forEach((input) => {
+            input?.addEventListener('input', () => {
+                const valid = updateFormulaPreview();
+                if (resolveFeedback) resolveFeedback.textContent = valid ? '' : 'Manual MCC, Profile and Detection contributions are all required whole numbers from 0 to 100.';
+            });
         });
         resolveOpenButton?.addEventListener('click', (event) => {
             event.preventDefault();
@@ -990,6 +1031,10 @@
             }
             if (![manualMccContribution?.value, manualProfileContribution?.value, manualDetectionContribution?.value].every(isWholeNumberInRange)) {
                 if (resolveFeedback) resolveFeedback.textContent = 'Manual MCC, Profile and Detection contributions are all required whole numbers from 0 to 100.';
+                return;
+            }
+            if (!updateFormulaPreview()) {
+                if (resolveFeedback) resolveFeedback.textContent = 'Final risk score must equal MCC + Profile + Detection, capped at 100.';
                 return;
             }
             if (resolveDecision?.value === 'Rejected' && Number(finalRiskScoreInput?.value) < 50 && resolveFeedback) {

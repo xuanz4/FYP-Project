@@ -15,6 +15,63 @@ function parseRequiredWholeNumber(value) {
   return number;
 }
 
+function calculateFinalScoreFromContributions(mccContribution, profileContribution, detectionContribution) {
+  return Math.min(100, Number(mccContribution || 0) + Number(profileContribution || 0) + Number(detectionContribution || 0));
+}
+
+function validateContributionLimits({
+  actualMccContribution, actualProfileContribution, actualDetectionContribution,
+  manualMccContribution, manualProfileContribution, manualDetectionContribution,
+}) {
+  const limits = [
+    ['MCC', actualMccContribution ?? 0, manualMccContribution],
+    ['Profile', actualProfileContribution ?? 0, manualProfileContribution],
+    ['Detection', actualDetectionContribution ?? 0, manualDetectionContribution],
+  ];
+  const exceeded = limits.filter(([, actual, manual]) => Number(manual) > Number(actual));
+  if (!exceeded.length) return null;
+  return exceeded.map(([label, actual, manual]) => `${label}: maximum ${actual}, entered ${manual}`).join('; ');
+}
+
+function reviewRequirementForScoreChange({ role, automatedScore, manualFinalScore, analystNotes }) {
+  const originalScore = Number(automatedScore ?? 0);
+  const finalScore = Number(manualFinalScore ?? 0);
+  const originalLevel = getRiskLevelFromScore(originalScore);
+  const finalLevel = getRiskLevelFromScore(finalScore);
+  const riskOrder = { Low: 1, Medium: 2, High: 3, Critical: 4 };
+  const loweredRiskBand = riskOrder[finalLevel] < riskOrder[originalLevel];
+  const criticalLoweredToLowOrMedium = originalLevel === 'Critical' && ['Low', 'Medium'].includes(finalLevel);
+  const pointDifference = Math.abs(finalScore - originalScore);
+  const largePointDifference = pointDifference >= 20;
+  const detailedNotesProvided = String(analystNotes || '').trim().replace(/\s+/g, ' ').length >= 30;
+
+  if ((loweredRiskBand || criticalLoweredToLowOrMedium) && role !== 'Senior Analyst') {
+    return {
+      allowed: false,
+      status: 403,
+      message: 'Lowering the risk band requires Senior Analyst approval.',
+    };
+  }
+  if (largePointDifference && !detailedNotesProvided) {
+    return {
+      allowed: false,
+      status: 400,
+      message: 'Large final-score changes require a detailed justification of at least 30 characters.',
+    };
+  }
+
+  return {
+    allowed: true,
+    originalScore,
+    finalScore,
+    originalLevel,
+    finalLevel,
+    pointDifference,
+    loweredRiskBand,
+    largePointDifference,
+  };
+}
+
 // Pure comparison between what the system actually calculated and what the resolver manually
 // entered - kept side-effect-free so it's unit-testable without a database.
 function buildReconciliationResult({
@@ -105,12 +162,45 @@ async function handleDatabaseResolveRequest(req, res) {
   const manualMccContribution = parseRequiredWholeNumber(req.body.manualMccContribution);
   const manualProfileContribution = parseRequiredWholeNumber(req.body.manualProfileContribution);
   const manualDetectionContribution = parseRequiredWholeNumber(req.body.manualDetectionContribution);
-  const manualFinalScore = finalRiskScore;
   if ([manualMccContribution, manualProfileContribution, manualDetectionContribution].some((value) => value === null)) {
     return res.status(400).json({
       success: false,
       message: 'Manual MCC, Profile and Detection contributions are all required whole numbers from 0 to 100.',
     });
+  }
+  const contributionLimitError = validateContributionLimits({
+    actualMccContribution: row.mcc_risk_contribution,
+    actualProfileContribution: row.profile_risk_contribution,
+    actualDetectionContribution: row.transaction_detection_contribution,
+    manualMccContribution,
+    manualProfileContribution,
+    manualDetectionContribution,
+  });
+  if (contributionLimitError) {
+    return res.status(400).json({
+      success: false,
+      message: `Manual contribution exceeds the scoring model limit. ${contributionLimitError}`,
+    });
+  }
+  const manualFinalScore = calculateFinalScoreFromContributions(
+    manualMccContribution,
+    manualProfileContribution,
+    manualDetectionContribution,
+  );
+  if (finalRiskScore !== manualFinalScore) {
+    return res.status(400).json({
+      success: false,
+      message: `Final risk score must equal min(100, MCC + Profile + Detection). Expected ${manualFinalScore}.`,
+    });
+  }
+  const reviewRequirement = reviewRequirementForScoreChange({
+    role: req.session.user.role,
+    automatedScore: row.risk_score,
+    manualFinalScore,
+    analystNotes,
+  });
+  if (!reviewRequirement.allowed) {
+    return res.status(reviewRequirement.status).json({ success: false, message: reviewRequirement.message });
   }
 
   const { discrepancyFlag, discrepancyNotes } = buildReconciliationResult({
@@ -212,4 +302,11 @@ async function handleDatabaseResolveRequest(req, res) {
   });
 }
 
-module.exports = { handleDatabaseResolveRequest, parseRequiredWholeNumber, buildReconciliationResult };
+module.exports = {
+  handleDatabaseResolveRequest,
+  parseRequiredWholeNumber,
+  calculateFinalScoreFromContributions,
+  validateContributionLimits,
+  reviewRequirementForScoreChange,
+  buildReconciliationResult,
+};

@@ -411,6 +411,18 @@ body.modal-open {
   line-height: 1.45;
 }
 
+.score-formula-preview {
+  grid-column: 1 / -1;
+  margin: 0;
+  border: 1px solid #bedbd6;
+  border-radius: 8px;
+  background: #f2faf8;
+  color: #0f5f59;
+  padding: 12px 13px;
+  font-weight: 900;
+  line-height: 1.45;
+}
+
 .action-form small {
   display: block;
   margin-top: 6px;
@@ -607,6 +619,27 @@ body.modal-open {
 
 .resolve-dialog {
   max-width: 760px;
+  display: flex;
+  flex-direction: column;
+}
+
+.resolve-dialog .panel-header {
+  flex: 0 0 auto;
+}
+
+.resolve-dialog .action-form {
+  overflow-y: auto;
+  padding-bottom: 0;
+}
+
+.resolve-dialog .modal-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin: 0 -22px;
+  padding: 14px 22px 22px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
 }
 
 .action-form textarea {
