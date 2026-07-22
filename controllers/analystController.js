@@ -36,9 +36,7 @@ function analystGroupBy() {
 async function loadAnalystTransactions(req) {
   await ensureAnalystListSchema();
   const filters = analystFiltersFromQuery(req.query);
-  // Excludes the retired demo merchants (MERCH-A/B/C) - their old randomly-generated
-  // transactions can't be deleted (audit_logs is append-only) but shouldn't clutter the live feed.
-  const where = ["t.merchant_id NOT IN ('MERCH-A', 'MERCH-B', 'MERCH-C')"];
+  const where = [];
   const values = [];
   appendWhere(where, values, 't.risk_level = ?', filters.riskLevel);
   appendWhere(where, values, 't.status = ?', filters.transactionStatus);
@@ -64,7 +62,6 @@ async function loadAnalystTransactions(req) {
 
 function queueWhereAndValues(filters) {
   const where = [
-    "t.merchant_id NOT IN ('MERCH-A', 'MERCH-B', 'MERCH-C')",
     "(t.status = 'Flagged' OR t.action_status <> 'None' OR c.case_id IS NOT NULL)",
     "NOT (t.status = 'Cleared' AND t.risk_level = 'Low' AND c.case_id IS NULL)",
     "(c.status IS NULL OR c.status NOT IN ('Resolved', 'Dismissed as False Positive', 'STR Filed'))",
@@ -139,7 +136,7 @@ async function loadAnalystQueue(req) {
 async function loadAnalystCases(req) {
   await ensureAnalystListSchema();
   const filters = analystFiltersFromQuery(req.query);
-  const where = ["t.merchant_id NOT IN ('MERCH-A', 'MERCH-B', 'MERCH-C')"];
+  const where = [];
   const values = [];
   appendWhere(where, values, 't.risk_level = ?', filters.riskLevel);
   appendWhere(where, values, 'c.status = ?', filters.assessmentStatus);
