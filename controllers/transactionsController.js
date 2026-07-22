@@ -13,6 +13,7 @@ const {
 const { forbidJson, activePageForRole } = require('../src/middleware/auth');
 const { ingestTransaction } = require('../src/transactionIngestion');
 const { ensureRiskAndContactSchema } = require('../src/lib/schema');
+const { fetchLatestRfiResponse } = require('../src/services/rfiInboxService');
 const {
   emptyStrAutoFill,
   stroReferralReasons,
@@ -860,6 +861,33 @@ async function ingestTransactionEndpoint(req, res) {
   }
 }
 
+async function latestRfiResponseEndpoint(req, res) {
+  if (!req.session?.user || !['Admin', 'Analyst', 'Senior Analyst', 'STRO'].includes(req.session.user.role)) {
+    return forbidJson(res);
+  }
+
+  const transactionId = String(req.params.id || '').trim();
+  try {
+    const result = await fetchLatestRfiResponse({ transactionId });
+    return res.status(200).json({
+      success: true,
+      transactionId,
+      ...result,
+    });
+  } catch (error) {
+    console.error('Unable to retrieve RFI response email', {
+      transactionId,
+      code: error.code || 'EMAIL_RETRIEVAL_FAILED',
+      message: error.message,
+    });
+    return res.status(502).json({
+      success: false,
+      code: error.code || 'EMAIL_RETRIEVAL_FAILED',
+      message: 'Unable to retrieve the latest RFI response from the mailbox.',
+    });
+  }
+}
+
 function apiNotFound(req, res) {
   if (/^\/api\/transactions\/[^/]+\/rfi\/?$/.test(req.originalUrl)) {
     return res.status(404).json({
@@ -886,5 +914,6 @@ module.exports = {
   strNotRequired,
   liveRefreshScript,
   ingestTransactionEndpoint,
+  latestRfiResponseEndpoint,
   apiNotFound,
 };

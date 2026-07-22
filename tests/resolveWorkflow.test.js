@@ -25,15 +25,15 @@ function testReconciliationMatch() {
   assert.deepStrictEqual(result.mismatches, []);
 }
 
-function testReconciliationDiscrepancy() {
+function testReconciliationComponentDiscrepancy() {
   const result = buildReconciliationResult({
     actualMccContribution: 25, actualProfileContribution: 10, actualDetectionContribution: 15, actualScore: 50,
-    manualMccContribution: 20, manualProfileContribution: 10, manualDetectionContribution: 15, manualFinalScore: 45,
+    manualMccContribution: 20, manualProfileContribution: 10, manualDetectionContribution: 15, manualFinalScore: 50,
   });
   assert.strictEqual(result.discrepancyFlag, true);
   assert.match(result.discrepancyNotes, /MCC: expected 25, entered 20/);
-  assert.match(result.discrepancyNotes, /Final: expected 50, entered 45/);
-  assert.strictEqual(result.mismatches.length, 2);
+  assert.doesNotMatch(result.discrepancyNotes, /Final:/);
+  assert.strictEqual(result.mismatches.length, 1);
 }
 
 function testReconciliationTreatsNullActualsAsZero() {
@@ -48,7 +48,7 @@ async function main() {
   suite('Resolve Workflow');
   await runTest('parses required whole numbers for manual reconciliation fields', testParseRequiredWholeNumber);
   await runTest('reports no discrepancy when manual entry matches the automated calculation', testReconciliationMatch);
-  await runTest('reports a discrepancy with details when manual entry differs', testReconciliationDiscrepancy);
+  await runTest('reports a discrepancy with details when manual contribution entry differs', testReconciliationComponentDiscrepancy);
   await runTest('treats an unset actual contribution as zero, not a forced mismatch', testReconciliationTreatsNullActualsAsZero);
   finish();
 }

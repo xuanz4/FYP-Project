@@ -52,6 +52,7 @@ function testApiRoutesExist() {
   assert.match(routes, /router\.get\('\/transactions\/:id'/);
   assert.match(routes, /router\.patch\('\/api\/cases\/:caseId\/assign-to-me'/);
   assert.match(routes, /router\.post\('\/api\/transactions\/:id\/rfi'/);
+  assert.match(routes, /router\.get\('\/api\/transactions\/:id\/rfi\/latest-response'/);
   assert.match(routes, /router\.patch\('\/api\/transactions\/:id\/resolve'/);
   assert.match(routes, /router\.post\('\/api\/transactions\/:id\/escalate'/);
   assert.match(routes, /router\.post\('\/api\/transactions\/:id\/refer-to-stro'/);

@@ -99,17 +99,17 @@ async function handleDatabaseResolveRequest(req, res) {
     return res.status(400).json({ success: false, message: 'False Positive resolutions must use the Accepted decision' });
   }
 
-  // Mandatory manual reconciliation: the resolver must key in all four values before a case can
+  // Mandatory manual reconciliation: the resolver must key in the component values before a case can
   // be resolved - no partial/silent resolution. The cases columns themselves stay nullable at
   // the DB level (an unresolved case legitimately has nothing there yet); this is the gate.
   const manualMccContribution = parseRequiredWholeNumber(req.body.manualMccContribution);
   const manualProfileContribution = parseRequiredWholeNumber(req.body.manualProfileContribution);
   const manualDetectionContribution = parseRequiredWholeNumber(req.body.manualDetectionContribution);
-  const manualFinalScore = parseRequiredWholeNumber(req.body.manualFinalScore);
-  if ([manualMccContribution, manualProfileContribution, manualDetectionContribution, manualFinalScore].some((value) => value === null)) {
+  const manualFinalScore = finalRiskScore;
+  if ([manualMccContribution, manualProfileContribution, manualDetectionContribution].some((value) => value === null)) {
     return res.status(400).json({
       success: false,
-      message: 'Manual MCC, Profile and Detection contributions and Final Score are all required whole numbers from 0 to 100.',
+      message: 'Manual MCC, Profile and Detection contributions are all required whole numbers from 0 to 100.',
     });
   }
 

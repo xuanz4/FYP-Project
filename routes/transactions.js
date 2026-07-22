@@ -17,6 +17,7 @@ router.post('/api/transactions/:id/str/not-required', requireAuth, transactionsC
 router.get('/app.js', transactionsController.liveRefreshScript);
 
 router.post('/api/transactions', transactionsController.ingestTransactionEndpoint);
+router.get('/api/transactions/:id/rfi/latest-response', requireAuth, transactionsController.latestRfiResponseEndpoint);
 router.post('/api/transactions/:id/rfi', (req, res) => handleDatabaseRfiRequest(req, res));
 router.patch('/api/transactions/:id/resolve', (req, res) => handleDatabaseResolveRequest(req, res));
 

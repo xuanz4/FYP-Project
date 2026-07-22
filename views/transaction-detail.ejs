@@ -414,6 +414,21 @@
                             </div>
                         </article>
                     <% } %>
+                    <% if (caseInfo && ['Pending RFI', 'Waiting for Information'].includes(rawCaseStatus)) { %>
+                        <article class="review-info-card rfi-response-panel overview-rfi-response-card">
+                            <div class="rfi-response-card-header">
+                                <div>
+                                    <h3>Merchant RFI Response</h3>
+                                    <p class="muted">Retrieve the latest mailbox response that contains this transaction reference.</p>
+                                </div>
+                                <button id="loadRfiResponseButton" type="button" class="secondary-btn"
+                                    data-transaction-id="<%= transactionId %>">Load Response</button>
+                            </div>
+                            <div id="rfiResponseContent" class="rfi-response-content">
+                                <p class="empty-inline">No response loaded yet.</p>
+                            </div>
+                        </article>
+                    <% } %>
                 </div>
             </section>
 
@@ -805,7 +820,7 @@
                             <span>Analyst Notes</span>
                             <textarea id="resolveAnalystNotes" name="analystNotes" required minlength="10" placeholder="Summarise the review evidence and final decision."></textarea>
                         </label>
-                        <p class="rfi-warning wide">Manual reconciliation is required before this case can be resolved. Enter what you believe each contribution and the final score should be - the system will compare your entry against the automated calculation and flag any discrepancy.</p>
+                        <p class="rfi-warning wide">Manual reconciliation is required before this case can be resolved. Enter what you believe each contribution should be - the Final Risk Score above will be used as the reconciled final score.</p>
                         <label>
                             <span>Manual MCC Contribution</span>
                             <input id="manualMccContribution" name="manualMccContribution" type="number" min="0" max="100" step="1" required>
@@ -817,11 +832,6 @@
                         <label>
                             <span>Manual Detection Contribution</span>
                             <input id="manualDetectionContribution" name="manualDetectionContribution" type="number" min="0" max="100" step="1" required>
-                        </label>
-                        <label>
-                            <span>Manual Final Score</span>
-                            <input id="manualFinalScore" name="manualFinalScore" type="number" min="0" max="100" step="1" required>
-                            <small>Defaults to the Final Risk Score above - only change it if your reconciliation belief differs.</small>
                         </label>
                         <p id="resolveAssessmentFeedback" class="muted"></p>
                         <div class="modal-actions">
@@ -838,8 +848,50 @@
 <script>
     (() => {
         const rfiRecipientHiddenForRole = <%- JSON.stringify(rfiRecipientHiddenForRole) %>;
+        const loadRfiResponseButton = document.querySelector('#loadRfiResponseButton');
+        const rfiResponseContent = document.querySelector('#rfiResponseContent');
         const utrDetailsToggle = document.querySelector('#utrDetailsToggle');
         const utrDetailsPanel = document.querySelector('#utrDetailsPanel');
+        const escapeHtml = (value) => String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+        loadRfiResponseButton?.addEventListener('click', async (event) => {
+            event.preventDefault();
+            const responseTransactionId = loadRfiResponseButton.dataset.transactionId || '';
+            loadRfiResponseButton.disabled = true;
+            loadRfiResponseButton.textContent = 'Loading...';
+            if (rfiResponseContent) rfiResponseContent.innerHTML = '<p class="empty-inline">Checking mailbox...</p>';
+            try {
+                const response = await fetch(`/api/transactions/${encodeURIComponent(responseTransactionId)}/rfi/latest-response`);
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.message || 'Unable to retrieve RFI response.');
+                if (!result.found || !result.message) {
+                    if (rfiResponseContent) {
+                        rfiResponseContent.innerHTML = `<p class="empty-inline">No matching response found in ${escapeHtml(result.account || 'the mailbox')}.</p>`;
+                    }
+                    return;
+                }
+                if (rfiResponseContent) {
+                    rfiResponseContent.innerHTML = `
+                        <dl class="review-definition-grid rfi-response-meta">
+                            <div><dt>Mailbox</dt><dd>${escapeHtml(result.account || 'Configured inbox')}</dd></div>
+                            <div><dt>From</dt><dd>${escapeHtml(result.message.from || 'Unknown sender')}</dd></div>
+                            <div><dt>Date</dt><dd>${escapeHtml(result.message.date || 'Date unavailable')}</dd></div>
+                            <div class="wide"><dt>Subject</dt><dd>${escapeHtml(result.message.subject || 'No subject')}</dd></div>
+                        </dl>
+                        <pre class="rfi-response-message">${escapeHtml(result.message.text || 'No readable message body found.')}</pre>
+                    `;
+                }
+            } catch (error) {
+                if (rfiResponseContent) rfiResponseContent.innerHTML = `<p class="field-error">${escapeHtml(error.message)}</p>`;
+            } finally {
+                loadRfiResponseButton.disabled = false;
+                loadRfiResponseButton.textContent = 'Load Response';
+            }
+        });
         utrDetailsToggle?.addEventListener('click', () => {
             const isHidden = utrDetailsPanel.classList.toggle('is-hidden');
             utrDetailsToggle.setAttribute('aria-expanded', isHidden ? 'false' : 'true');
@@ -880,7 +932,6 @@
         const manualMccContribution = document.querySelector('#manualMccContribution');
         const manualProfileContribution = document.querySelector('#manualProfileContribution');
         const manualDetectionContribution = document.querySelector('#manualDetectionContribution');
-        const manualFinalScore = document.querySelector('#manualFinalScore');
         const resolveFeedback = document.querySelector('#resolveAssessmentFeedback');
         const resolveSubmit = document.querySelector('#resolveAssessmentSubmit');
         const updateFinalRiskLevel = () => {
@@ -892,18 +943,12 @@
             if (finalRiskLevelDisplay) finalRiskLevelDisplay.value = getRiskLevelFromScore(value);
             return true;
         };
-        // The top Final Risk Score and Manual Final Score fields both ask for the resolver's
-        // own confirmed final risk, so keep them in sync until the resolver deliberately edits
-        // Manual Final Score themselves (e.g. to flag a reconciliation discrepancy).
-        let manualFinalScoreTouched = false;
         const openResolveModal = () => {
             if (!resolveModal) return;
             resolveModal.classList.add('open');
             resolveModal.setAttribute('aria-hidden', 'false');
             document.body.classList.add('modal-open');
             if (resolveFeedback) resolveFeedback.textContent = '';
-            manualFinalScoreTouched = false;
-            if (manualFinalScore) manualFinalScore.value = finalRiskScoreInput?.value || '';
             setTimeout(() => finalRiskScoreInput?.focus(), 0);
         };
         const closeResolveModal = () => {
@@ -916,10 +961,6 @@
         finalRiskScoreInput?.addEventListener('input', () => {
             const valid = updateFinalRiskLevel();
             if (resolveFeedback) resolveFeedback.textContent = valid ? '' : 'Final risk score must be a whole number from 0 to 100.';
-            if (manualFinalScore && !manualFinalScoreTouched) manualFinalScore.value = finalRiskScoreInput.value;
-        });
-        manualFinalScore?.addEventListener('input', () => {
-            manualFinalScoreTouched = true;
         });
         resolveOpenButton?.addEventListener('click', (event) => {
             event.preventDefault();
@@ -947,8 +988,8 @@
                 if (resolveFeedback) resolveFeedback.textContent = 'False Positive resolutions must use the Accepted decision.';
                 return;
             }
-            if (![manualMccContribution?.value, manualProfileContribution?.value, manualDetectionContribution?.value, manualFinalScore?.value].every(isWholeNumberInRange)) {
-                if (resolveFeedback) resolveFeedback.textContent = 'Manual MCC, Profile, Detection contributions and Final Score are all required whole numbers from 0 to 100.';
+            if (![manualMccContribution?.value, manualProfileContribution?.value, manualDetectionContribution?.value].every(isWholeNumberInRange)) {
+                if (resolveFeedback) resolveFeedback.textContent = 'Manual MCC, Profile and Detection contributions are all required whole numbers from 0 to 100.';
                 return;
             }
             if (resolveDecision?.value === 'Rejected' && Number(finalRiskScoreInput?.value) < 50 && resolveFeedback) {
@@ -972,7 +1013,6 @@
                         manualMccContribution: Number(manualMccContribution?.value),
                         manualProfileContribution: Number(manualProfileContribution?.value),
                         manualDetectionContribution: Number(manualDetectionContribution?.value),
-                        manualFinalScore: Number(manualFinalScore?.value),
                     }),
                 });
                 const contentType = response.headers.get('content-type') || '';
@@ -1044,12 +1084,6 @@
             'high risk customer', 'AML investigation', 'investigation case', 'police investigation',
             'law enforcement', 'reported to authorities',
         ];
-        const escapeHtml = (value) => String(value || '')
-            .replaceAll('&', '&amp;')
-            .replaceAll('<', '&lt;')
-            .replaceAll('>', '&gt;')
-            .replaceAll('"', '&quot;')
-            .replaceAll("'", '&#039;');
         assignToMeButton?.addEventListener('click', async (event) => {
             event.preventDefault();
             const caseId = assignToMeButton.dataset.caseId || '';

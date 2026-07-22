@@ -483,6 +483,49 @@ body.modal-open {
   overflow: auto;
 }
 
+.rfi-response-panel {
+  margin-top: 0;
+}
+
+.rfi-response-content {
+  padding: 0;
+  min-height: 190px;
+  display: grid;
+  align-content: start;
+}
+
+.rfi-response-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.rfi-response-card-header .secondary-btn {
+  flex: 0 0 auto;
+}
+
+.rfi-response-meta {
+  margin-bottom: 12px;
+}
+
+.rfi-response-message {
+  width: 100%;
+  min-height: 180px;
+  max-height: 520px;
+  overflow: auto;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafb;
+  color: var(--ink);
+  font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
 .modal-actions {
   grid-column: 1 / -1;
   display: flex;
@@ -927,6 +970,11 @@ body.modal-open {
 
 .review-info-card.wide {
   grid-column: 1 / -1;
+}
+
+.overview-rfi-response-card {
+  grid-column: 1 / -1;
+  min-height: 280px;
 }
 
 .review-info-card h3 {
