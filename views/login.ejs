@@ -11,15 +11,58 @@
 </head>
 
 <body class="login-page">
+    <div class="login-bg-grid" aria-hidden="true"></div>
     <main class="login-shell">
         <section class="login-hero">
-            <div class="brand-mark login-brand-mark">TM</div>
-            <h1>Transaction Monitor</h1>
-            <p>Sign in to manage merchants, transactions, cases, and audit activity.</p>
+            <div class="login-brand-row">
+                <div class="brand-mark login-brand-mark">TM</div>
+                <div>
+                    <span class="login-brand-kicker">UNIWEB</span>
+                    <strong>Transaction Monitor</strong>
+                </div>
+            </div>
+            <div>
+                <span class="login-status-pill">Secure review workspace</span>
+                <h1>Transaction Monitor</h1>
+                <p>Monitor payment activity, review flagged alerts, route cases, and prepare compliance decisions from one protected workspace.</p>
+            </div>
+            <div class="login-role-strip" aria-label="Authorised roles">
+                <span>Admin</span>
+                <span>Analyst</span>
+                <span>Senior Analyst</span>
+                <span>STRO</span>
+            </div>
+            <div class="login-preview" aria-label="Security controls">
+                <div class="login-preview-header">
+                    <span>Private Access</span>
+                    <strong>Role-based case review</strong>
+                </div>
+                <div class="login-security-visual" aria-hidden="true">
+                    <div class="security-ring">
+                        <span>TM</span>
+                    </div>
+                    <div class="security-lines">
+                        <i></i>
+                        <i></i>
+                        <i></i>
+                    </div>
+                </div>
+                <div class="login-privacy-list">
+                    <span>Session-protected tools</span>
+                    <span>Audit-ready activity trail</span>
+                    <span>Controlled reviewer access</span>
+                </div>
+            </div>
         </section>
         <section class="login-card">
-            <h2>Secure Sign In</h2>
-            <p>Use your assigned User ID and password.</p>
+            <div class="login-card-accent">Secure workspace</div>
+            <div class="login-card-header">
+                <div class="login-card-icon">ID</div>
+                <div>
+                    <h2>Secure Sign In</h2>
+                    <p>Use your assigned User ID and password.</p>
+                </div>
+            </div>
             <% if (error) { %>
                 <div class="alert-banner">
                     <%= error %>
@@ -36,6 +79,10 @@
                         </label>
                         <button type="submit" class="primary-btn">Sign In</button>
                     </form>
+                    <div class="login-card-footer">
+                        <span>Protected access</span>
+                        <span>Session timeout enforced</span>
+                    </div>
         </section>
     </main>
 </body>
