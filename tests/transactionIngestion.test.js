@@ -55,6 +55,28 @@ async function testEnsureMerchantUpsertsPartnerMerchant() {
   ]);
 }
 
+async function testEnsureMerchantUsesDefaultsForMissingOptionalFields() {
+  const database = fakeDatabase();
+  await ensureMerchant(database, {
+    merchantId: 'M002',
+    merchantName: 'Default Merchant',
+  });
+
+  const executeCall = database.calls.find((call) => call.type === 'execute');
+  assert.deepStrictEqual(executeCall.params, [
+    'M002',
+    'Default Merchant',
+    null,
+    null,
+    null,
+    null,
+    '0000',
+    'Unclassified',
+    0,
+    'Standard',
+  ]);
+}
+
 async function testIngestTransactionPersistsEvaluationAndBroadcasts() {
   const database = fakeDatabase({
     rules: [
@@ -131,10 +153,72 @@ async function testIngestTransactionPersistsEvaluationAndBroadcasts() {
   });
 }
 
+async function testIngestTransactionClearsLowRiskTransactionWithoutBroadcast() {
+  const database = fakeDatabase();
+  const evaluation = await ingestTransaction(
+    database,
+    {
+      id: 'TXN-LOW-001',
+      merchantId: 'M001',
+      storeId: 'S001',
+      amount: 25,
+      txnTime: '2026-07-21T10:00:00',
+    },
+    { merchantCountry: 'SG', riskTier: 'Standard', mccRiskScore: 0 },
+  );
+
+  assert.strictEqual(evaluation.riskScore, 0);
+  assert.strictEqual(evaluation.riskLevel, 'Low');
+  assert.strictEqual(evaluation.status, 'Cleared');
+  assert.strictEqual(evaluation.matchedRules.length, 0);
+
+  const ruleInsert = database.calls.find((call) => (
+    call.type === 'execute' && /INSERT INTO transaction_matched_rules/.test(call.sql)
+  ));
+  assert.strictEqual(ruleInsert, undefined);
+}
+
+async function testIngestTransactionNormalizesStringAmountsAndDates() {
+  const database = fakeDatabase({
+    rules: [{
+      rule_id: 'R-TICKET',
+      rule_name: 'Declared Average Ticket',
+      risk_level: 'Medium',
+      reason: 'Above declared ticket',
+      weight: 30,
+      amount_threshold: 100,
+      count_threshold: null,
+      rule_type: 'declared_avg_ticket',
+    }],
+  });
+
+  const evaluation = await ingestTransaction(
+    database,
+    {
+      id: 'TXN-STRING-001',
+      merchantId: 'M001',
+      amount: '150',
+      issuer: 'SG',
+      txnTime: '2026-07-21T10:00:00',
+    },
+    { merchantCountry: 'SG', riskTier: 'Standard', mccRiskScore: 5 },
+  );
+
+  assert.strictEqual(evaluation.riskScore, 35);
+  assert.strictEqual(evaluation.riskLevel, 'Medium');
+  const transactionInsert = database.calls.find((call) => (
+    call.type === 'execute' && /INSERT INTO transactions/.test(call.sql)
+  ));
+  assert.ok(transactionInsert.params[15] instanceof Date);
+}
+
 async function main() {
   suite('Transaction Ingestion');
   await runTest('upserts partner merchant details', testEnsureMerchantUpsertsPartnerMerchant);
+  await runTest('uses safe defaults when merchant optional fields are missing', testEnsureMerchantUsesDefaultsForMissingOptionalFields);
   await runTest('persists evaluated transaction, matched rules, and broadcast event', testIngestTransactionPersistsEvaluationAndBroadcasts);
+  await runTest('clears low-risk transaction without matched-rule inserts', testIngestTransactionClearsLowRiskTransactionWithoutBroadcast);
+  await runTest('normalizes string transaction amounts and dates', testIngestTransactionNormalizesStringAmountsAndDates);
   finish();
 }
 

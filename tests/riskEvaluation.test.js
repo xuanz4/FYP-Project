@@ -2,10 +2,11 @@ const assert = require('assert');
 const { suite, runTest, finish } = require('./runAll');
 const { evaluateTransaction } = require('../src/riskEngine');
 
-function fakeDatabase({ history, rules, calls }) {
+function fakeDatabase({ history, rules, profileRows = [], calls }) {
   return {
     async query(sql, params) {
       calls.push({ sql, params });
+      if (/FROM merchant_risk_profiles/.test(sql)) return [profileRows];
       if (/FROM transactions/.test(sql)) return [history];
       if (/FROM compliance_rules/.test(sql)) return [rules];
       throw new Error(`Unexpected query: ${sql}`);
@@ -80,10 +81,40 @@ async function testLowRiskMatchRemainsCleared() {
   assert.deepStrictEqual(result.matchedRules.map((rule) => rule.id), ['R6']);
 }
 
+async function testStoredMerchantProfileContributesToRiskScore() {
+  const result = await evaluateTransaction({
+    txn: {
+      merchantId: 'M003',
+      merchantMid: 'MID003',
+      merchantCountry: 'SG',
+      merchantRiskTier: 'Standard',
+      storeId: 'S1',
+      amount: 150,
+      issuerCountry: 'SG',
+      txnTime: new Date('2026-07-21T12:00:00'),
+      mccRiskScore: 10,
+    },
+    database: fakeDatabase({
+      calls: [],
+      history: [],
+      profileRows: [{ profile_risk_score: 35, transaction_count: 8 }],
+      rules: [],
+    }),
+  });
+
+  assert.strictEqual(result.mccRiskContribution, 10);
+  assert.strictEqual(result.profileRiskContribution, 35);
+  assert.strictEqual(result.detectionContribution, 0);
+  assert.strictEqual(result.riskScore, 45);
+  assert.strictEqual(result.riskLevel, 'Medium');
+  assert.strictEqual(result.status, 'Flagged');
+}
+
 async function main() {
   suite('Risk Evaluation');
   await runTest('matches risk rules and derives velocity/concentration signals', testRuleMatchesAndSignals);
   await runTest('keeps low-risk single rule match cleared', testLowRiskMatchRemainsCleared);
+  await runTest('adds stored merchant profile contribution to risk score', testStoredMerchantProfileContributesToRiskScore);
   finish();
 }
 

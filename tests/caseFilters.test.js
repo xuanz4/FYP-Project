@@ -35,6 +35,17 @@ function testAnalystFiltersDefaultToEmptyStrings() {
   assert.strictEqual(Object.values(filters).every((value) => value === ''), true);
 }
 
+function testAnalystFiltersStringifyNonStringInputs() {
+  const filters = analystFiltersFromQuery({
+    riskLevel: 123,
+    merchantId: false,
+    q: null,
+  });
+  assert.strictEqual(filters.riskLevel, '123');
+  assert.strictEqual(filters.merchantId, '');
+  assert.strictEqual(filters.q, '');
+}
+
 function testSeniorFiltersIncludeAuditAndScopeFields() {
   const filters = seniorFiltersFromQuery({
     riskLevel: 'Critical',
@@ -59,11 +70,37 @@ function testSeniorFiltersIncludeAuditAndScopeFields() {
   assert.strictEqual(filters.scope, 'team');
 }
 
+function testSeniorFiltersDefaultExtraFieldsToEmptyStrings() {
+  const filters = seniorFiltersFromQuery({});
+  assert.strictEqual(filters.assignmentStatus, '');
+  assert.strictEqual(filters.referralStatus, '');
+  assert.strictEqual(filters.actionType, '');
+  assert.strictEqual(filters.userId, '');
+  assert.strictEqual(filters.userRole, '');
+  assert.strictEqual(filters.dateFrom, '');
+  assert.strictEqual(filters.dateTo, '');
+  assert.strictEqual(filters.scope, '');
+}
+
+function testSeniorFiltersKeepAnalystFilterFields() {
+  const filters = seniorFiltersFromQuery({
+    transactionStatus: ' Flagged ',
+    assignedRole: ' STRO ',
+    q: ' reference ',
+  });
+  assert.strictEqual(filters.transactionStatus, 'Flagged');
+  assert.strictEqual(filters.assignedRole, 'STRO');
+  assert.strictEqual(filters.q, 'reference');
+}
+
 async function main() {
   suite('Case Filters');
   await runTest('trims analyst filter inputs', testAnalystFiltersTrimInputs);
   await runTest('defaults missing analyst filters to empty strings', testAnalystFiltersDefaultToEmptyStrings);
+  await runTest('stringifies analyst filter values safely', testAnalystFiltersStringifyNonStringInputs);
   await runTest('includes senior audit and scope filter fields', testSeniorFiltersIncludeAuditAndScopeFields);
+  await runTest('defaults missing senior filter fields to empty strings', testSeniorFiltersDefaultExtraFieldsToEmptyStrings);
+  await runTest('keeps analyst filter fields on senior filters', testSeniorFiltersKeepAnalystFilterFields);
   finish();
 }
 

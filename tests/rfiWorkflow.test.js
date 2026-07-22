@@ -38,6 +38,17 @@ function testRoleAccess() {
   assert.strictEqual(validateRfiAccess('Senior Analyst', context({ caseId: null })).status, 409);
 }
 
+function testAnalystCannotActionEscalatedCases() {
+  assert.strictEqual(validateRfiAccess('Analyst', context({ assignedRole: 'Senior Analyst' })).status, 403);
+  assert.strictEqual(validateRfiAccess('Analyst', context({ escalationDestination: 'STRO' })).status, 403);
+}
+
+function testSeniorAnalystNeedsSeniorRouting() {
+  assert.strictEqual(validateRfiAccess('Senior Analyst', context({ assignedRole: 'Analyst' })).status, 403);
+  assert.strictEqual(validateRfiAccess('Senior Analyst', context({ escalationDestination: 'Senior Analyst' })).allowed, true);
+  assert.strictEqual(validateRfiAccess('Senior Analyst', context({ currentStatus: 'Pending Senior Review' })).allowed, true);
+}
+
 function testRecipientAndRequestValidation() {
   assert.deepStrictEqual(selectRfiDeliveryRecipient({ savedEmail: '', accountType: 'Organisation' }), {
     email: null, source: 'missing',
@@ -54,6 +65,34 @@ function testRecipientAndRequestValidation() {
     subject: 'Request for Additional Transaction Information',
     informationRequested: 'Please provide the matching invoice and receipt.',
   }), null);
+}
+
+function testTransactionIdValidationBoundaries() {
+  assert.strictEqual(isValidTransactionId('A'), true);
+  assert.strictEqual(isValidTransactionId('TXN_2026-ABC'), true);
+  assert.strictEqual(isValidTransactionId('A'.repeat(40)), true);
+  assert.strictEqual(isValidTransactionId('A'.repeat(41)), false);
+  assert.strictEqual(isValidTransactionId('-BAD'), false);
+  assert.strictEqual(isValidTransactionId('BAD SPACE'), false);
+}
+
+function testRecipientSourceSelection() {
+  assert.deepStrictEqual(selectRfiDeliveryRecipient({ savedEmail: ' person@example.test ', accountType: 'Individual' }), {
+    email: 'person@example.test',
+    source: 'saved-individual',
+  });
+  assert.deepStrictEqual(selectRfiDeliveryRecipient({ savedEmail: ' org@example.test ', accountType: 'Organisation' }), {
+    email: 'org@example.test',
+    source: 'saved-organisation-contact',
+  });
+}
+
+function testRequestBodyRejectsUnsupportedFields() {
+  assert.match(validateRfiRequestBody({
+    subject: 'Request',
+    informationRequested: 'Please provide the matching invoice and receipt.',
+    riskScore: 'private',
+  }), /Unsupported field/);
 }
 
 function testSmtpConfiguration() {
@@ -163,7 +202,12 @@ function testFrontendIsLocalOnlyAndProtectsDoubleClick() {
 async function main() {
   suite('RFI Workflow');
   await runTest('enforces role access for RFI sending', testRoleAccess);
+  await runTest('blocks Analyst RFI actions after escalation', testAnalystCannotActionEscalatedCases);
+  await runTest('requires Senior Analyst routing for Senior RFI actions', testSeniorAnalystNeedsSeniorRouting);
   await runTest('validates RFI recipient and request body', testRecipientAndRequestValidation);
+  await runTest('validates transaction ID boundaries', testTransactionIdValidationBoundaries);
+  await runTest('selects RFI recipient source labels', testRecipientSourceSelection);
+  await runTest('rejects unsupported RFI request fields', testRequestBodyRejectsUnsupportedFields);
   await runTest('validates SMTP configuration', testSmtpConfiguration);
   await runTest('builds neutral multipart RFI email content', testNeutralMultipartContent);
   await runTest('keeps RFI preview local and protects against double click sends', testFrontendIsLocalOnlyAndProtectsDoubleClick);

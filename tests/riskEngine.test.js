@@ -22,12 +22,31 @@ function testRiskLevelBands() {
   assert.strictEqual(riskLevelFromScore(100), 'Critical');
 }
 
+function testRiskLevelBoundaryValues() {
+  assert.strictEqual(riskLevelFromScore(-10), 'Low');
+  assert.strictEqual(riskLevelFromScore(29.99), 'Low');
+  assert.strictEqual(riskLevelFromScore(49.99), 'Medium');
+  assert.strictEqual(riskLevelFromScore(69.99), 'High');
+}
+
 function testOperatingHours() {
   assert.strictEqual(getTransactionHour(new Date('2026-07-01T03:00:00')), 3);
   assert.strictEqual(isOutsideOperatingHours(3), true);
   assert.strictEqual(isOutsideOperatingHours(OPERATING_HOURS.openHour), false);
   assert.strictEqual(isOutsideOperatingHours(OPERATING_HOURS.closeHour - 1), false);
   assert.strictEqual(isOutsideOperatingHours(OPERATING_HOURS.closeHour), true);
+}
+
+function testOperatingHoursBoundaries() {
+  assert.strictEqual(isOutsideOperatingHours(OPERATING_HOURS.openHour - 1), true);
+  assert.strictEqual(isOutsideOperatingHours(OPERATING_HOURS.openHour), false);
+  assert.strictEqual(isOutsideOperatingHours(OPERATING_HOURS.closeHour - 1), false);
+  assert.strictEqual(isOutsideOperatingHours(OPERATING_HOURS.closeHour), true);
+}
+
+function testTransactionHourUsesDateLocalHour() {
+  const txnDate = new Date('2026-07-01T21:30:00');
+  assert.strictEqual(getTransactionHour(txnDate), txnDate.getHours());
 }
 
 function testAddWorkingDays() {
@@ -51,7 +70,10 @@ function testStrTransitions() {
 async function main() {
   suite('Risk Engine');
   await runTest('maps numeric scores to risk level bands', testRiskLevelBands);
+  await runTest('handles risk band boundary edge values', testRiskLevelBoundaryValues);
   await runTest('detects transactions outside operating hours', testOperatingHours);
+  await runTest('treats opening hour as allowed and closing hour as blocked', testOperatingHoursBoundaries);
+  await runTest('extracts the transaction hour from a Date object', testTransactionHourUsesDateLocalHour);
   await runTest('adds working days while skipping weekends', testAddWorkingDays);
   await runTest('validates allowed STR status transitions', testStrTransitions);
   finish();
