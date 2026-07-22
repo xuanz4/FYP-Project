@@ -233,7 +233,10 @@ async function handleDatabaseRfiRequest(req, res) {
   try {
     await database.withTransaction(async (tx) => {
       if (context.caseId) {
-        await tx.execute('UPDATE cases SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE case_id = ?', ['Pending RFI', context.caseId]);
+        await tx.execute(
+          'UPDATE cases SET status = ?, last_actioned_by = ?, last_actioned_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE case_id = ?',
+          ['Pending RFI', req.session.user.id, context.caseId],
+        );
       }
       await tx.execute('UPDATE transactions SET action_status = ?, updated_at = CURRENT_TIMESTAMP WHERE transaction_id = ?', ['Pending RFI', context.transactionId]);
       await tx.execute(

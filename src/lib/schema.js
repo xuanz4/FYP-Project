@@ -89,11 +89,12 @@ const ensureCaseAssignmentColumns = memoizeAsync(async function ensureCaseAssign
     `SELECT COLUMN_NAME, COLUMN_TYPE
      FROM INFORMATION_SCHEMA.COLUMNS
      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'cases'
-       AND COLUMN_NAME IN ('due_at', 'status')`,
+       AND COLUMN_NAME IN ('due_at', 'status', 'last_actioned_by', 'last_actioned_at')`,
     [dbName],
   );
   const dueColumn = columns.find((row) => row.COLUMN_NAME === 'due_at');
   const statusColumn = columns.find((row) => row.COLUMN_NAME === 'status');
+  const hasCaseColumn = (column) => columns.some((row) => row.COLUMN_NAME === column);
 
   if (!dueColumn) {
     await database.execute('ALTER TABLE cases ADD COLUMN due_at DATETIME NULL AFTER notes');
@@ -101,6 +102,18 @@ const ensureCaseAssignmentColumns = memoizeAsync(async function ensureCaseAssign
 
   if (statusColumn && !statusColumn.COLUMN_TYPE.includes("'Under Review'")) {
     await database.execute("ALTER TABLE cases MODIFY status ENUM('Open', 'Under Review', 'Pending RFI', 'Pending Senior Review', 'Escalated', 'Dismissed as False Positive', 'STR Filed', 'Resolved') NOT NULL DEFAULT 'Open'");
+  }
+
+  // Tracks whichever analyst/senior analyst/STRO most recently took ANY action on the case
+  // (assign, RFI, escalate, refer to STRO, STR file, resolve) - distinct from
+  // referred_to_stro_by, which only ever reflects the literal STRO referral. Powers the
+  // "Referred By" display on the transaction detail page so it updates after every action
+  // instead of staying "Not assigned" until a case is specifically routed to STRO.
+  if (!hasCaseColumn('last_actioned_by')) {
+    await database.execute('ALTER TABLE cases ADD COLUMN last_actioned_by VARCHAR(20) NULL AFTER assigned_to');
+  }
+  if (!hasCaseColumn('last_actioned_at')) {
+    await database.execute('ALTER TABLE cases ADD COLUMN last_actioned_at DATETIME NULL AFTER last_actioned_by');
   }
 });
 

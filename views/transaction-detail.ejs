@@ -21,9 +21,12 @@
     const rfiRecipientSource = savedRfiRecipientEmail
         ? ((tx.accountType || tx.account_type) === 'Organisation' ? 'saved-organisation-contact' : 'saved-individual')
         : 'missing';
-    // Analyst never receives tx.rfi_email (stripped server-side per RBAC), so an empty value here
-    // never means "no contact on file" for that role — it always sends via server-side resolution.
-    const rfiRecipientHiddenForRole = isAnalyst;
+    // Mirrors transactionsController.js's contactVisible: Admin and Analyst always receive
+    // tx.rfi_email; Senior Analyst/STRO only once the case is routed to their role. Everyone
+    // else has it stripped server-side, so an empty value there never means "no contact on
+    // file" — it always sends via server-side resolution instead.
+    const routedToCurrentRole = caseInfo?.assigned_role === role || caseInfo?.escalation_destination === role;
+    const rfiRecipientHiddenForRole = (isSenior || isStro) && !routedToCurrentRole;
     const amount = Number(tx.amount || 0);
     const currency = tx.currency || 'SGD';
     const transactionStatus = tx.status || 'Flagged';
@@ -89,7 +92,10 @@
     const strStatus = caseInfo?.str_status || caseInfo?.strStatus || 'Not Started';
     const routedToStro = caseInfo?.assigned_role === 'STRO' || caseInfo?.assignedRole === 'STRO' || caseInfo?.escalation_destination === 'STRO' || caseInfo?.escalationDestination === 'STRO';
     const escalationDestination = caseInfo?.escalation_destination || caseInfo?.escalationDestination || (routedToStro ? 'STRO' : caseInfo?.assigned_role || caseInfo?.assignedRole || 'Not assigned');
-    const referredBy = caseInfo?.referred_by_user_name || caseInfo?.referredByName || caseInfo?.referred_to_stro_by || 'Not assigned';
+    // last_actioned_by_name tracks whoever most recently took ANY action on the case (assign,
+    // RFI, escalate, refer to STRO, STR file, resolve) - falls back to the older
+    // referred-to-STRO-specific fields for cases actioned before that column existed.
+    const referredBy = caseInfo?.last_actioned_by_name || caseInfo?.referred_by_user_name || caseInfo?.referredByName || caseInfo?.referred_to_stro_by || 'Not assigned';
     const canReferToStro = !isResolved && isSenior && !!caseInfo && !routedToStro && strStatus === 'Not Started';
     const canStroWorkStr = !isResolved && isStro && routedToStro && strStatus === 'Recommended';
     const canStroRequestInfo = canStroWorkStr;
@@ -295,26 +301,51 @@
                     <article class="review-info-card">
                         <h3><%= (isSenior || isStro) ? 'Transaction Details' : 'Transaction Information' %></h3>
                         <dl class="review-definition-grid">
-                            <div><dt>Unique Transaction Reference</dt><dd><%= tx.unique_transaction_reference || 'Not assigned' %></dd></div>
+                            <div>
+                                <dt>Unique Transaction Reference</dt>
+                                <dd>
+                                    <% if (isSenior || isStro) { %>
+                                        <button type="button" id="utrDetailsToggle" class="link-button" aria-expanded="false" aria-controls="utrDetailsPanel"><%= tx.unique_transaction_reference || 'Not assigned' %></button>
+                                    <% } else { %>
+                                        <%= tx.unique_transaction_reference || 'Not assigned' %>
+                                    <% } %>
+                                </dd>
+                            </div>
                             <div><dt>Amount</dt><dd><%= currency %> <%= amount.toFixed(2) %></dd></div>
                             <div><dt>Direction</dt><dd><%= tx.direction || 'Local card payment' %></dd></div>
                             <div><dt>Channel</dt><dd><%= tx.channel || 'Card' %></dd></div>
                             <div><dt>Country</dt><dd><%= tx.country || 'Singapore' %></dd></div>
                             <div><dt>Counterparty</dt><dd><%= tx.counterparty || tx.counterpartyName || merchantName %></dd></div>
                             <div><dt>Counterparty country</dt><dd><%= tx.counterpartyCountry || tx.counterparty_country || 'Singapore' %></dd></div>
-                            <div><dt>Merchant MID</dt><dd><%= tx.merchant_mid || 'Not assigned' %></dd></div>
                             <div><dt>Store ID</dt><dd><%= tx.store_id || 'Not assigned' %></dd></div>
                             <div><dt>Payment reference</dt><dd><%= tx.paymentReference || tx.transaction_code || tx.transaction_id || 'Not assigned' %></dd></div>
                             <div><dt>Date and time</dt><dd><%= tx.created_at || tx.createdAt ? new Date(tx.created_at || tx.createdAt).toLocaleString('en-SG') : 'Not assigned' %></dd></div>
                         </dl>
+                        <% if (isSenior || isStro) { %>
+                            <dl id="utrDetailsPanel" class="review-definition-grid utr-details-panel is-hidden">
+                                <div><dt>Merchant ID</dt><dd><%= tx.merchant_id || 'Not assigned' %></dd></div>
+                                <div><dt>Merchant MID</dt><dd><%= tx.merchant_mid || 'Not assigned' %></dd></div>
+                                <div class="wide">
+                                    <dt>Flagged Transaction Rate Calculation</dt>
+                                    <dd>
+                                        <% if (tx.profile_flagged_transaction_count !== null && tx.profile_flagged_transaction_count !== undefined && tx.profile_transaction_count) { %>
+                                            <%= tx.profile_flagged_transaction_count %> flagged of <%= tx.profile_transaction_count %> historical transactions = <%= Math.round((Number(tx.profile_flagged_transaction_count) / Number(tx.profile_transaction_count)) * 100) %>%
+                                        <% } else { %>
+                                            Insufficient transaction history
+                                        <% } %>
+                                    </dd>
+                                </div>
+                            </dl>
+                        <% } %>
                     </article>
                     <article class="review-info-card">
                         <h3><%= (isSenior || isStro) ? 'Merchant Details' : 'Customer or Organisation Profile' %></h3>
                         <dl class="review-definition-grid">
                             <div><dt>Account type</dt><dd><%= tx.accountType || 'Merchant card account' %></dd></div>
                             <div><dt>Name</dt><dd><%= customerName %></dd></div>
-                            <div><dt>Merchant ID</dt><dd><%= tx.merchant_id || 'Not assigned' %></dd></div>
-                            <div><dt>Merchant MID</dt><dd><%= tx.merchant_mid || 'Merchant account identifier unavailable' %></dd></div>
+                            <% if (isAnalyst) { %>
+                                <div><dt>Merchant ID</dt><dd><%= tx.merchant_id || 'Not assigned' %></dd></div>
+                            <% } %>
                             <div><dt>KYC status</dt><dd><%= tx.kycStatus || tx.kyc_status || 'Verified' %></dd></div>
                             <div><dt>Merchant risk</dt><dd><%= tx.merchantRiskLevel || tx.merchant_risk_level || initialLevel %></dd></div>
                             <div><dt>Profile Risk Score</dt><dd><%= tx.profile_risk_score ?? 'Insufficient transaction history' %></dd></div>
@@ -383,17 +414,6 @@
                             </div>
                         </article>
                     <% } %>
-                    <article class="review-info-card wide">
-                        <h3>Screening Evidence</h3>
-                        <div class="screening-evidence-grid">
-                            <div><span>Sanctions</span><strong><%= tx.sanctionsResult || 'No direct match recorded' %></strong></div>
-                            <div><span>PEP</span><strong><%= tx.pepResult || 'No direct match recorded' %></strong></div>
-                            <div><span>Watchlist</span><strong><%= tx.watchlistResult || (contributions.length ? 'Rule evidence recorded' : 'No direct match recorded') %></strong></div>
-                            <div><span>Adverse media</span><strong><%= tx.adverseMediaResult || 'No direct match recorded' %></strong></div>
-                            <div><span>Matched fields</span><strong><%= contributions.map((rule) => rule.matchedField || rule.field).filter(Boolean).join(', ') || 'Transaction context' %></strong></div>
-                            <div><span>Confidence values</span><strong><%= contributions.map((rule) => rule.confidence ? `${rule.confidence}%` : null).filter(Boolean).join(', ') || 'Not assigned' %></strong></div>
-                        </div>
-                    </article>
                 </div>
             </section>
 
@@ -801,6 +821,7 @@
                         <label>
                             <span>Manual Final Score</span>
                             <input id="manualFinalScore" name="manualFinalScore" type="number" min="0" max="100" step="1" required>
+                            <small>Defaults to the Final Risk Score above - only change it if your reconciliation belief differs.</small>
                         </label>
                         <p id="resolveAssessmentFeedback" class="muted"></p>
                         <div class="modal-actions">
@@ -817,6 +838,12 @@
 <script>
     (() => {
         const rfiRecipientHiddenForRole = <%- JSON.stringify(rfiRecipientHiddenForRole) %>;
+        const utrDetailsToggle = document.querySelector('#utrDetailsToggle');
+        const utrDetailsPanel = document.querySelector('#utrDetailsPanel');
+        utrDetailsToggle?.addEventListener('click', () => {
+            const isHidden = utrDetailsPanel.classList.toggle('is-hidden');
+            utrDetailsToggle.setAttribute('aria-expanded', isHidden ? 'false' : 'true');
+        });
         document.body.dataset.activeReviewTab = 'overview';
         const tabButtons = document.querySelectorAll('[data-review-tab]');
         const tabPanels = document.querySelectorAll('[data-review-panel]');
@@ -865,12 +892,18 @@
             if (finalRiskLevelDisplay) finalRiskLevelDisplay.value = getRiskLevelFromScore(value);
             return true;
         };
+        // The top Final Risk Score and Manual Final Score fields both ask for the resolver's
+        // own confirmed final risk, so keep them in sync until the resolver deliberately edits
+        // Manual Final Score themselves (e.g. to flag a reconciliation discrepancy).
+        let manualFinalScoreTouched = false;
         const openResolveModal = () => {
             if (!resolveModal) return;
             resolveModal.classList.add('open');
             resolveModal.setAttribute('aria-hidden', 'false');
             document.body.classList.add('modal-open');
             if (resolveFeedback) resolveFeedback.textContent = '';
+            manualFinalScoreTouched = false;
+            if (manualFinalScore) manualFinalScore.value = finalRiskScoreInput?.value || '';
             setTimeout(() => finalRiskScoreInput?.focus(), 0);
         };
         const closeResolveModal = () => {
@@ -883,6 +916,10 @@
         finalRiskScoreInput?.addEventListener('input', () => {
             const valid = updateFinalRiskLevel();
             if (resolveFeedback) resolveFeedback.textContent = valid ? '' : 'Final risk score must be a whole number from 0 to 100.';
+            if (manualFinalScore && !manualFinalScoreTouched) manualFinalScore.value = finalRiskScoreInput.value;
+        });
+        manualFinalScore?.addEventListener('input', () => {
+            manualFinalScoreTouched = true;
         });
         resolveOpenButton?.addEventListener('click', (event) => {
             event.preventDefault();
@@ -1042,6 +1079,8 @@
                 }
                 assignToMeButton.remove();
                 if (assignToMeFeedback) assignToMeFeedback.textContent = 'Case assigned to you.';
+                if (document.querySelector('#referredByValue')) document.querySelector('#referredByValue').textContent = <%- JSON.stringify(userName) %>;
+                if (document.querySelector('#caseReferredByValue')) document.querySelector('#caseReferredByValue').textContent = <%- JSON.stringify(userName) %>;
 
                 const activityPanel = document.querySelector('[data-review-panel="activity"]');
                 let timeline = document.querySelector('#activityTimeline');
@@ -1221,6 +1260,8 @@
                 if (assignToMeFeedback) assignToMeFeedback.textContent = '';
                 assignToMeButton?.remove();
                 referStroButton?.remove();
+                if (document.querySelector('#referredByValue')) document.querySelector('#referredByValue').textContent = <%- JSON.stringify(userName) %>;
+                if (document.querySelector('#caseReferredByValue')) document.querySelector('#caseReferredByValue').textContent = <%- JSON.stringify(userName) %>;
                 appendActivity({ action: 'Case Referred to STRO', notes: 'Case referred to STRO for suspicious transaction reporting review.' });
                 closeDetailModal(referStroModal, referStroFeedback);
             } catch (error) {
@@ -1324,6 +1365,8 @@
                 if (strSummaryStatus) strSummaryStatus.textContent = 'Not Required';
                 strModalButton?.remove();
                 strNotRequiredButton?.remove();
+                if (document.querySelector('#referredByValue')) document.querySelector('#referredByValue').textContent = <%- JSON.stringify(userName) %>;
+                if (document.querySelector('#caseReferredByValue')) document.querySelector('#caseReferredByValue').textContent = <%- JSON.stringify(userName) %>;
                 appendActivity({ action: 'STR Marked Not Required', notes: 'STR marked not required after STRO review.' });
                 closeDetailModal(strNotRequiredModal, strNotRequiredFeedback);
             } catch (error) {
@@ -1472,6 +1515,8 @@
                 if (!response.ok) throw new Error(result.message || 'The RFI email could not be sent.');
                 closeModal();
                 if (assessmentStatusValue) assessmentStatusValue.textContent = 'Waiting for Information';
+                if (document.querySelector('#referredByValue')) document.querySelector('#referredByValue').textContent = <%- JSON.stringify(userName) %>;
+                if (document.querySelector('#caseReferredByValue')) document.querySelector('#caseReferredByValue').textContent = <%- JSON.stringify(userName) %>;
                 appendActivity({
                     action: <%- JSON.stringify(isStro ? 'Additional Information Requested by STRO' : 'Request for Information Sent') %>,
                     notes: `RFI sent by SMTP to ${result.recipient || openButton?.dataset.recipientEmail || 'saved recipient'}.`,

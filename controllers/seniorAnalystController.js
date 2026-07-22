@@ -63,6 +63,7 @@ async function loadSeniorCases(req) {
             assigned.user_name AS assigned_user_name, creator.user_name AS created_by_name,
             creator.user_role AS created_by_role, referred.user_name AS referred_by_user_name,
             referred.user_role AS referred_by_user_role,
+            lastActor.user_name AS last_actioned_by_name,
             t.amount, t.risk_score, t.risk_level, t.status AS transaction_status, t.action_status,
             m.merchant_name, m.mcc_code, COUNT(DISTINCT tmr.rule_id) AS rules_count,
             sr.str_status
@@ -72,13 +73,14 @@ async function loadSeniorCases(req) {
      LEFT JOIN users assigned ON assigned.user_id = c.assigned_to
      LEFT JOIN users creator ON creator.user_id = c.created_by
      LEFT JOIN users referred ON referred.user_id = c.referred_to_stro_by
+     LEFT JOIN users lastActor ON lastActor.user_id = c.last_actioned_by
      LEFT JOIN transaction_matched_rules tmr ON tmr.transaction_id = t.transaction_id
      LEFT JOIN str_reports sr ON sr.case_id = c.case_id
      ${whereSql}
      GROUP BY c.case_id, c.transaction_id, c.created_by, c.assigned_to, c.assigned_role,
               c.escalation_destination, c.status, c.decision, c.due_at, c.created_at, c.updated_at,
               assigned.user_name, creator.user_name, creator.user_role, referred.user_name,
-              referred.user_role, t.amount, t.risk_score, t.risk_level, t.status, t.action_status,
+              referred.user_role, lastActor.user_name, t.amount, t.risk_score, t.risk_level, t.status, t.action_status,
               m.merchant_name, m.mcc_code, sr.str_status
      ORDER BY ${seniorCaseOrder(filters.sort)}
      LIMIT ? OFFSET ?`,

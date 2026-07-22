@@ -52,13 +52,15 @@ async function loadStroCases(req) {
     `SELECT c.case_id, c.transaction_id, c.assigned_to, c.assigned_role, c.status,
             c.escalation_destination, c.due_at, c.created_at, c.updated_at,
             assigned.user_name AS assigned_user_name, referred.user_name AS referred_by_user_name,
-            referred.user_role AS referred_by_user_role, t.amount, t.risk_score, t.risk_level,
+            referred.user_role AS referred_by_user_role, lastActor.user_name AS last_actioned_by_name,
+            t.amount, t.risk_score, t.risk_level,
             m.merchant_name, m.mcc_code, sr.str_status
      FROM cases c
      JOIN transactions t ON t.transaction_id = c.transaction_id
      LEFT JOIN merchants m ON m.merchant_id = t.merchant_id
      LEFT JOIN users assigned ON assigned.user_id = c.assigned_to
      LEFT JOIN users referred ON referred.user_id = c.referred_to_stro_by
+     LEFT JOIN users lastActor ON lastActor.user_id = c.last_actioned_by
      LEFT JOIN str_reports sr ON sr.case_id = c.case_id
      ${whereSql}
      ORDER BY c.status IN ('Resolved', 'Dismissed as False Positive', 'STR Filed') ASC,

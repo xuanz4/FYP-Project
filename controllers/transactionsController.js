@@ -32,7 +32,8 @@ async function transactionDetailPage(req, res) {
       `SELECT t.*, m.merchant_name, m.merchant_mid, m.mcc_risk_score,
               mc.contact_name, mc.rfi_email, mc.phone_number,
               mrp.profile_risk_score, mrp.profile_risk_level, mrp.transaction_count AS profile_transaction_count,
-              mrp.flagged_transaction_rate, mrp.escalation_count AS profile_escalation_count,
+              mrp.flagged_transaction_rate, mrp.flagged_transaction_count AS profile_flagged_transaction_count,
+              mrp.escalation_count AS profile_escalation_count,
               mrp.risk_last_calculated_at
        FROM transactions t
        LEFT JOIN merchants m ON t.merchant_id = m.merchant_id
@@ -45,6 +46,7 @@ async function transactionDetailPage(req, res) {
     database.query(
       `SELECT c.case_id, c.transaction_id, c.created_by, c.assigned_to, c.status, c.notes,
               c.assigned_role, c.escalation_destination, c.referred_to_stro_at, c.referred_to_stro_by,
+              c.last_actioned_by, c.last_actioned_at,
               c.due_at, c.created_at, c.updated_at, u.user_name AS assigned_user_name,
               c.decision, c.resolution_reason, c.analyst_notes, c.resolved_at, c.resolved_by,
               resolver.user_name AS resolved_by_name,
@@ -54,7 +56,8 @@ async function transactionDetailPage(req, res) {
               sr.filed_by, sr.filing_date, sr.filed_at, sr.not_required_reason, sr.updated_at AS str_updated_at,
               prepared.user_name AS prepared_by_name,
               filed.user_name AS filed_by_name, referred.user_name AS referred_by_user_name,
-              referred.user_role AS referred_by_user_role
+              referred.user_role AS referred_by_user_role,
+              lastActor.user_name AS last_actioned_by_name
        FROM cases c
        LEFT JOIN users u ON u.user_id = c.assigned_to
        LEFT JOIN str_reports sr ON sr.case_id = c.case_id
@@ -62,6 +65,7 @@ async function transactionDetailPage(req, res) {
        LEFT JOIN users filed ON filed.user_id = sr.filed_by
        LEFT JOIN users referred ON referred.user_id = c.referred_to_stro_by
        LEFT JOIN users resolver ON resolver.user_id = c.resolved_by
+       LEFT JOIN users lastActor ON lastActor.user_id = c.last_actioned_by
        WHERE c.transaction_id = ?
        ORDER BY c.created_at DESC`,
       [req.params.id],
@@ -116,11 +120,11 @@ async function transactionDetailPage(req, res) {
 
   // Field-level RBAC enforced here, server-side, not in the view template: contact info is
   // simply absent from the render data for roles that shouldn't have it, rather than hidden
-  // with CSS. Analyst never gets it; Senior Analyst/STRO only once the case is escalated to
-  // that role; Admin always has full access via Merchant Management.
+  // with CSS. Analyst always has it as the first-line reviewer; Senior Analyst/STRO only once
+  // the case is escalated to that role; Admin always has full access via Merchant Management.
   const role = req.session.user.role;
   const routedToRole = caseRecord?.assigned_role === role || caseRecord?.escalation_destination === role;
-  const contactVisible = role === 'Admin' || ((role === 'Senior Analyst' || role === 'STRO') && routedToRole);
+  const contactVisible = role === 'Admin' || role === 'Analyst' || ((role === 'Senior Analyst' || role === 'STRO') && routedToRole);
   if (!contactVisible) {
     delete transaction.contact_name;
     delete transaction.rfi_email;
@@ -210,9 +214,10 @@ async function assignToMe(req, res) {
     const dueAtSql = dueAt.toISOString().slice(0, 19).replace('T', ' ');
     const [updateResult] = await database.execute(
       `UPDATE cases
-       SET assigned_to = ?, status = 'Under Review', due_at = ?, updated_at = CURRENT_TIMESTAMP
+       SET assigned_to = ?, status = 'Under Review', due_at = ?,
+           last_actioned_by = ?, last_actioned_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
        WHERE case_id = ? AND assigned_to IS NULL`,
-      [currentUser.id, dueAtSql, caseRow.case_id],
+      [currentUser.id, dueAtSql, currentUser.id, caseRow.case_id],
     );
     if (updateResult.affectedRows === 0) {
       return res.status(409).json({ success: false, message: 'This case was assigned by another user. Please refresh the page.' });
@@ -428,9 +433,11 @@ async function referToStro(req, res) {
          assigned_to = NULL,
          referred_to_stro_at = ?,
          referred_to_stro_by = ?,
+         last_actioned_by = ?,
+         last_actioned_at = ?,
          updated_at = CURRENT_TIMESTAMP
      WHERE case_id = ?`,
-    [formatSqlDateTime(now), req.session.user.id, context.case_id],
+    [formatSqlDateTime(now), req.session.user.id, req.session.user.id, formatSqlDateTime(now), context.case_id],
   );
   await database.execute(
     `INSERT INTO str_reports (
@@ -510,9 +517,11 @@ async function escalate(req, res) {
            escalation_destination = 'Senior Analyst',
            assigned_to = NULL,
            notes = COALESCE(?, notes),
+           last_actioned_by = ?,
+           last_actioned_at = CURRENT_TIMESTAMP,
            updated_at = CURRENT_TIMESTAMP
        WHERE case_id = ?`,
-      [notes, context.case_id],
+      [notes, req.session.user.id, context.case_id],
     );
     await database.execute(
       "UPDATE transactions SET action_status = 'Pending Senior Review', updated_at = CURRENT_TIMESTAMP WHERE transaction_id = ?",
@@ -535,6 +544,7 @@ async function escalate(req, res) {
     });
   }
 
+  const escalatedAtSql = formatSqlDateTime(new Date());
   await database.execute(
     `UPDATE cases
      SET status = 'Escalated',
@@ -544,9 +554,11 @@ async function escalate(req, res) {
          referred_to_stro_at = ?,
          referred_to_stro_by = ?,
          notes = COALESCE(?, notes),
+         last_actioned_by = ?,
+         last_actioned_at = ?,
          updated_at = CURRENT_TIMESTAMP
      WHERE case_id = ?`,
-    [formatSqlDateTime(new Date()), req.session.user.id, notes, context.case_id],
+    [escalatedAtSql, req.session.user.id, notes, req.session.user.id, escalatedAtSql, context.case_id],
   );
   await database.execute(
     "UPDATE transactions SET action_status = 'Escalated', updated_at = CURRENT_TIMESTAMP WHERE transaction_id = ?",
@@ -686,9 +698,9 @@ async function fileStr(req, res) {
     await database.execute(
       `UPDATE cases
        SET status = 'STR Filed', decision = 'Escalated', resolution_reason = 'STR Filed',
-           resolved_at = ?, resolved_by = ?, updated_at = CURRENT_TIMESTAMP
+           resolved_at = ?, resolved_by = ?, last_actioned_by = ?, last_actioned_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
        WHERE case_id = ?`,
-      [resolvedAtSql, req.session.user.id, context.case_id],
+      [resolvedAtSql, req.session.user.id, req.session.user.id, context.case_id],
     );
     await database.execute(
       `UPDATE transactions
@@ -741,6 +753,10 @@ async function strNotRequired(req, res) {
      SET str_status = 'Not Required', not_required_reason = ?, updated_at = CURRENT_TIMESTAMP
      WHERE case_id = ?`,
     [reason, context.case_id],
+  );
+  await database.execute(
+    'UPDATE cases SET last_actioned_by = ?, last_actioned_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE case_id = ?',
+    [req.session.user.id, context.case_id],
   );
   await auditCaseAction({
     transactionId: context.transaction_id,

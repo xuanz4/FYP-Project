@@ -1,6 +1,6 @@
 const database = require('../database');
 const { id } = require('./ids');
-const { ensureDatabaseResolveColumns, ensureRiskAndContactSchema } = require('./schema');
+const { ensureDatabaseResolveColumns, ensureRiskAndContactSchema, ensureCaseAssignmentColumns } = require('./schema');
 const { parseFinalRiskScore, getRiskLevelFromScore, hasMeaningfulAnalystNotes } = require('./strDraft');
 const { assessmentDecisions, resolutionReasons } = require('../constants');
 const { roleCanPerform, forbidJson } = require('../middleware/auth');
@@ -43,6 +43,7 @@ async function handleDatabaseResolveRequest(req, res) {
   try {
     await ensureDatabaseResolveColumns();
     await ensureRiskAndContactSchema();
+    await ensureCaseAssignmentColumns();
     [rows] = await database.query(
       `SELECT t.transaction_id, t.unique_transaction_reference, t.risk_score, t.risk_level, t.status, t.action_status,
               t.final_risk_score, t.final_risk_level,
@@ -137,12 +138,12 @@ async function handleDatabaseResolveRequest(req, res) {
       `UPDATE cases
        SET status = ?, decision = ?, resolution_reason = ?, analyst_notes = ?, resolved_at = ?, resolved_by = ?,
            manual_mcc_contribution = ?, manual_profile_contribution = ?, manual_detection_contribution = ?, manual_final_score = ?,
-           discrepancy_flag = ?, discrepancy_notes = ?, updated_at = CURRENT_TIMESTAMP
+           discrepancy_flag = ?, discrepancy_notes = ?, last_actioned_by = ?, last_actioned_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
        WHERE case_id = ?`,
       [
         nextStatus, decision, resolutionReason, analystNotes, resolvedAtSql, req.session.user.id,
         manualMccContribution, manualProfileContribution, manualDetectionContribution, manualFinalScore,
-        discrepancyFlag ? 1 : 0, discrepancyNotes, row.case_id,
+        discrepancyFlag ? 1 : 0, discrepancyNotes, req.session.user.id, row.case_id,
       ],
     );
   }
