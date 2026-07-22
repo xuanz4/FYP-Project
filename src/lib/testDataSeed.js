@@ -16,9 +16,8 @@ function stddev(values, avg) {
   return Math.sqrt(variance);
 }
 
-// Per-merchant thresholds derived from that merchant's own real transaction history, in the
-// same spirit as the original hand-picked MERCH-A/B/C thresholds in FYP_Transaction_Monitoring.sql,
-// but computed rather than guessed. Admin can still hand-edit any of these afterwards via /admin/rules.
+// Per-merchant thresholds derived from that merchant's own real transaction history, computed
+// rather than guessed. Admin can still hand-edit any of these afterwards via /admin/rules.
 function buildMerchantRuleRows(merchantId, amounts) {
   const avg = mean(amounts);
   const sd = stddev(amounts, avg);

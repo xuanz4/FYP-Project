@@ -3296,6 +3296,7 @@ button,
 }
 
 .app-shell.role-admin .management-dialog h2 {
+  order: -1;
   margin: -22px -22px 4px;
   padding: 20px 22px;
   border-bottom: 1px solid #e2ecea;
