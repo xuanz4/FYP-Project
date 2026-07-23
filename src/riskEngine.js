@@ -13,6 +13,8 @@ const NEAR_THRESHOLD_WINDOW_HOURS = 24;
 const FOREIGN_ISSUER_WINDOW_MIN = 60;
 const CARD_TESTING_WINDOW_MIN = 10;
 const CARD_TESTING_AMOUNT_CEILING = 20;
+const CARD_SPEND_WINDOW_HOURS = 24;
+const LOW_VALUE_CARD_BURST_WINDOW_MIN = 15;
 
 function riskLevelFromScore(score) {
   if (score >= 70) return 'Critical';
@@ -47,7 +49,7 @@ async function loadMerchantProfileContribution(database, merchantMid) {
 async function loadRecentMerchantHistory(database, merchantId, txnTime) {
   const windowStart = new Date(txnTime.getTime() - AGGREGATE_WINDOW_HOURS * 60 * 60 * 1000);
   const [rows] = await database.query(
-    `SELECT store_id, amount, issuer_country, txn_time
+    `SELECT store_id, amount, issuer_country, txn_time, card_ref
      FROM transactions
      WHERE merchant_id = ? AND txn_time >= ? AND txn_time < ?`,
     [merchantId, windowStart, txnTime],
@@ -57,6 +59,7 @@ async function loadRecentMerchantHistory(database, merchantId, txnTime) {
     amount: Number(row.amount),
     issuerCountry: row.issuer_country,
     txnTime: new Date(row.txn_time),
+    cardRef: row.card_ref || null,
   }));
 }
 
@@ -106,8 +109,31 @@ function buildDerivedSignals(txn, history) {
     && minutesBetween(row.txnTime, txn.txnTime) <= CARD_TESTING_WINDOW_MIN
   )).length + (txn.amount < CARD_TESTING_AMOUNT_CEILING ? 1 : 0);
 
+  // Same-card signals: matched on card_ref (a tokenised/hashed card reference from the partner
+  // feed, never a raw PAN - see src/database.js ensurePartnerSchema). No cardRef on this
+  // transaction means these fall back to "this transaction alone" rather than false-matching
+  // every other cardless row against each other.
+  const cardSpend24h = txn.cardRef
+    ? history
+      .filter((row) => row.cardRef === txn.cardRef && minutesBetween(row.txnTime, txn.txnTime) <= CARD_SPEND_WINDOW_HOURS * 60)
+      .reduce((sum, row) => sum + row.amount, 0) + txn.amount
+    : txn.amount;
+
+  const lowValueCardBurst = txn.cardRef
+    ? history.filter((row) => (
+      row.cardRef === txn.cardRef && row.amount < CARD_TESTING_AMOUNT_CEILING
+      && minutesBetween(row.txnTime, txn.txnTime) <= LOW_VALUE_CARD_BURST_WINDOW_MIN
+    )).length + (txn.amount < CARD_TESTING_AMOUNT_CEILING ? 1 : 0)
+    : (txn.amount < CARD_TESTING_AMOUNT_CEILING ? 1 : 0);
+
   return {
-    storeVelocity, crossStoreVelocity: distinctStores.size, aggregate24h, foreignIssuerCount, cardTestingBurst,
+    storeVelocity,
+    crossStoreVelocity: distinctStores.size,
+    aggregate24h,
+    foreignIssuerCount,
+    cardTestingBurst,
+    cardSpend24h,
+    lowValueCardBurst,
   };
 }
 
@@ -173,6 +199,12 @@ function evaluateAgainstRules(txn, rules, signals, history) {
       case 'card_testing_burst':
         hit = count !== null && signals.cardTestingBurst >= count;
         break;
+      case 'card_spend_24h':
+        hit = threshold !== null && signals.cardSpend24h > threshold;
+        break;
+      case 'low_value_burst':
+        hit = count !== null && signals.lowValueCardBurst >= count;
+        break;
       case 'edd_high_risk':
         // Completing the EDD checklist (see src/lib/merchantCdd.js) actually removes this
         // contribution from future transactions - the static risk_tier flag alone is no
@@ -200,7 +232,7 @@ function evaluateAgainstRules(txn, rules, signals, history) {
 //        merchantExpectedAvgTicket, merchantExpectedOperatingHours, merchantExpectedCountries,
 //        merchantCddReviewOverdue, merchantEddComplete (all optional, from merchantCdd.js -
 //        absent means legacy/no-CDD-data behaviour), storeId,
-//        amount, issuerCountry, txnTime (Date) }
+//        amount, issuerCountry, txnTime (Date), cardRef (optional tokenised card reference) }
 async function evaluateTransaction({
   txn, database,
 }) {

@@ -16,6 +16,7 @@ const { ensureRiskAndContactSchema } = require('../src/lib/schema');
 const { fetchLatestRfiResponse } = require('../src/services/rfiInboxService');
 const { loadMerchantCddContext } = require('../src/lib/merchantCdd');
 const { setEddChecklistField } = require('../src/lib/eddChecklist');
+const { saveCddDocument, listCddDocuments } = require('../src/lib/cddDocuments');
 const { buildMailboxReference } = require('../src/lib/rfiEvidence');
 const {
   emptyStrAutoFill,
@@ -167,7 +168,7 @@ async function transactionDetailPage(req, res) {
   // Merchant due-diligence context is investigative material, not a sensitive identifier -
   // visible to the Analyst from the start (unlike merchant_mid/contact info above), so it
   // doesn't follow the escalation gate.
-  const [cddContext, screeningRows, evidenceRows] = await Promise.all([
+  const [cddContext, screeningRows, evidenceRows, documentRows] = await Promise.all([
     loadMerchantCddContext(database, transaction.merchant_id),
     database.query(
       `SELECT screening_id, screening_type, result, screened_against, notes, screened_at
@@ -179,6 +180,7 @@ async function transactionDetailPage(req, res) {
        FROM case_rfi_evidence WHERE case_id = ? ORDER BY recorded_at DESC`,
       [caseRecord.case_id],
     ).then(([r]) => r).catch(() => []) : Promise.resolve([]),
+    listCddDocuments(database, transaction.merchant_id).catch(() => []),
   ]);
 
   return res.render('transaction-detail', {
@@ -194,6 +196,7 @@ async function transactionDetailPage(req, res) {
     cddContext,
     screeningRecords: screeningRows,
     rfiEvidence: evidenceRows,
+    cddDocuments: documentRows,
   });
 }
 
@@ -883,6 +886,7 @@ async function ingestTransactionEndpoint(req, res) {
       fee: req.body.fee ?? 0,
       txnTime: req.body.txnTime ? new Date(req.body.txnTime) : new Date(),
       note: req.body.note || null,
+      cardRef: req.body.cardRef || null,
     };
 
     const evaluation = await ingestTransaction(database, raw, merchant, { broadcast });
@@ -962,6 +966,50 @@ async function updateCaseEddChecklist(req, res) {
   );
 
   return res.status(200).json({ success: true, fieldKey, completed });
+}
+
+// Mirrors EDD_CHECKLIST_ROLE_FIELDS's split: an Analyst may only attach evidence for the two
+// checklist items they're allowed to complete themselves; Enhanced Verification/Screening/Other
+// stay Senior Analyst/Admin territory, same as the checklist fields they back.
+const DOCUMENT_TYPE_ROLE_MAP = {
+  Analyst: ['Source of Funds', 'Site Visit'],
+  'Senior Analyst': ['Source of Funds', 'Site Visit', 'Enhanced Verification', 'Screening', 'Other'],
+  Admin: ['Source of Funds', 'Site Visit', 'Enhanced Verification', 'Screening', 'Other'],
+};
+
+async function uploadCaseDocument(req, res) {
+  const currentUser = req.session?.user;
+  const allowedTypes = currentUser ? DOCUMENT_TYPE_ROLE_MAP[currentUser.role] : null;
+  if (!allowedTypes || !req.file) return res.status(403).send('Forbidden');
+
+  const documentType = String(req.body.documentType || '').trim();
+  if (!allowedTypes.includes(documentType)) return res.status(403).send('Forbidden');
+
+  await ensureRiskAndContactSchema();
+  const [transactionRows] = await database.query('SELECT merchant_id FROM transactions WHERE transaction_id = ? LIMIT 1', [req.params.id]);
+  const merchantId = transactionRows[0]?.merchant_id;
+  if (!merchantId) return res.status(404).send('Transaction not found');
+
+  const documentId = await saveCddDocument(database, {
+    merchantId,
+    documentType,
+    originalFilename: req.file.originalname,
+    storedFilename: req.file.filename,
+    mimeType: req.file.mimetype,
+    fileSize: req.file.size,
+    notes: String(req.body.documentNotes || '').trim() || null,
+    uploadedBy: currentUser.id,
+  });
+  await database.execute(
+    `INSERT INTO audit_logs (audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+    [
+      id('AUD'), req.params.id, 'MerchantCddDocument', documentId, 'Merchant CDD Document Uploaded', currentUser.id,
+      `${documentType} document "${req.file.originalname}" uploaded for merchant ${merchantId} by ${currentUser.name} (${currentUser.role}).`,
+    ],
+  );
+
+  return res.redirect(`/transactions/${req.params.id}`);
 }
 
 const RFI_EVIDENCE_TYPES = ['RFI Reply Reviewed', 'Document Reference', 'Analyst Finding', 'Other'];
@@ -1062,6 +1110,7 @@ module.exports = {
   ingestTransactionEndpoint,
   latestRfiResponseEndpoint,
   updateCaseEddChecklist,
+  uploadCaseDocument,
   logRfiEvidence,
   apiNotFound,
 };

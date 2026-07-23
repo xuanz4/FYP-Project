@@ -26,6 +26,7 @@ const testFiles = [
   'transactionIngestion.test.js',
   'merchantRiskProfile.test.js',
   'merchantCdd.test.js',
+  'cddDocuments.test.js',
   'resolveWorkflow.test.js',
   'viewContracts.test.js',
 ];

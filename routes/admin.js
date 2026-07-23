@@ -1,5 +1,6 @@
 const express = require('express');
 const { requireRole } = require('../src/middleware/auth');
+const { uploadCddDocument } = require('../src/middleware/upload');
 const adminController = require('../controllers/adminController');
 
 const router = express.Router();
@@ -22,6 +23,7 @@ router.post('/admin/merchants/:id/edd-checklist', requireRole('Admin'), adminCon
 router.post('/admin/merchants/:id/beneficial-owners', requireRole('Admin'), adminController.addBeneficialOwner);
 router.post('/admin/merchants/:id/beneficial-owners/:ownerId/delete', requireRole('Admin'), adminController.deleteBeneficialOwner);
 router.post('/admin/merchants/:id/screening', requireRole('Admin'), adminController.addScreeningRecord);
+router.post('/admin/merchants/:id/documents', requireRole('Admin'), uploadCddDocument, adminController.uploadMerchantDocument);
 
 router.post('/admin/rules', requireRole('Admin'), adminController.createRule);
 router.post('/admin/rules/:id', requireRole('Admin'), adminController.updateRule);

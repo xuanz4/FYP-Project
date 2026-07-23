@@ -6,7 +6,7 @@ const { ensureAnalystListSchema, analystFiltersFromQuery, getAnalystFilterOption
 
 function analystTransactionBaseSelect() {
   return `SELECT t.transaction_id, t.merchant_id, t.amount, t.transaction_code,
-                 t.scheme, t.issuer_country, t.entry_mode, t.txn_time,
+                 t.scheme, t.issuer_country, t.entry_mode, t.card_ref, t.txn_time,
                  t.risk_score, t.risk_level, t.status, t.action_status,
                  t.created_at, t.updated_at,
                  m.merchant_name, m.mcc_code,
@@ -25,7 +25,7 @@ function analystTransactionBaseSelect() {
 
 function analystGroupBy() {
   return `GROUP BY t.transaction_id, t.merchant_id, t.amount, t.transaction_code,
-                  t.scheme, t.issuer_country, t.entry_mode, t.txn_time,
+                  t.scheme, t.issuer_country, t.entry_mode, t.card_ref, t.txn_time,
                   t.risk_score, t.risk_level, t.status, t.action_status,
                   t.created_at, t.updated_at, m.merchant_name, m.mcc_code,
                   c.case_id, c.status, c.assigned_to, c.assigned_role,

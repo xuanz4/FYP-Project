@@ -38,7 +38,7 @@
               <td><strong><%= item.transaction_id %></strong><div class="muted"><%= item.transaction_code || '' %></div></td>
               <td><%= fmtDate(item.txn_time || item.created_at) %></td>
               <td title="<%= item.merchant_name || 'Unknown Merchant' %>"><strong><%= item.merchant_name || 'Unknown Merchant' %></strong><div class="muted">MCC <%= item.mcc_code || 'N/A' %></div></td>
-              <td><%= (item.scheme || '').toUpperCase() %><div class="muted"><%= item.issuer_country || '' %> · <%= item.entry_mode || '' %></div></td>
+              <td><%= (item.scheme || '').toUpperCase() %><div class="muted"><%= item.issuer_country || '' %> · <%= item.entry_mode || '' %></div><div class="muted"><%= item.card_ref || 'No card ref' %></div></td>
               <td class="num">SGD <%= Number(item.amount || 0).toFixed(2) %></td>
               <td><span class="risk-badge risk-<%= String(item.risk_level || 'low').toLowerCase() %>"><%= item.risk_level || 'Low' %></span></td>
               <td><span class="status-pill status-<%= String(item.status || '').toLowerCase() %>"><%= item.status || 'Not assigned' %></span></td>

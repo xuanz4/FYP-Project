@@ -128,6 +128,10 @@ async function ensurePartnerSchema() {
     ['fee', 'ALTER TABLE transactions ADD COLUMN fee DECIMAL(10,2) NULL AFTER net'],
     ['txn_time', 'ALTER TABLE transactions ADD COLUMN txn_time DATETIME NULL AFTER fee'],
     ['source_note', 'ALTER TABLE transactions ADD COLUMN source_note VARCHAR(255) NULL AFTER txn_time'],
+    // Tokenised/hashed card reference from the partner feed - never a raw PAN. Lets the risk
+    // engine detect repeated use of the same card (card_spend_24h, low_value_burst rule types)
+    // without this system ever handling or storing an actual card number.
+    ['card_ref', 'ALTER TABLE transactions ADD COLUMN card_ref VARCHAR(64) NULL'],
   ];
   for (const [column, sql] of newTransactionColumns) {
     if (!hasTxnColumn(column)) await execute(sql);

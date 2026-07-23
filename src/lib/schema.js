@@ -388,6 +388,28 @@ const ensureMerchantCddSchema = memoizeAsync(async function ensureMerchantCddSch
     )`,
   );
 
+  // Supporting evidence files for the CDD baseline / EDD checklist / screening records - stored
+  // on local disk under uploads/cdd/<merchantId>/ (see src/middleware/upload.js), never under
+  // /public, so a file is only reachable through the authenticated download route. document_type
+  // mirrors the EDD checklist's field grouping so a document can be tied to the checklist item
+  // it supports; 'Screening' and 'Other' cover screening-record backup and anything else.
+  await database.execute(
+    `CREATE TABLE IF NOT EXISTS merchant_cdd_documents (
+      document_id VARCHAR(40) PRIMARY KEY,
+      merchant_id VARCHAR(20) NOT NULL,
+      document_type ENUM('Source of Funds', 'Site Visit', 'Enhanced Verification', 'Screening', 'Other') NOT NULL,
+      original_filename VARCHAR(255) NOT NULL,
+      stored_filename VARCHAR(255) NOT NULL,
+      mime_type VARCHAR(100) NOT NULL,
+      file_size INT NOT NULL,
+      notes TEXT NULL,
+      uploaded_by VARCHAR(20) NULL,
+      uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_merchant_cdd_documents_merchant (merchant_id),
+      FOREIGN KEY (merchant_id) REFERENCES merchants(merchant_id) ON DELETE CASCADE
+    )`,
+  );
+
   // Split by who may set each field - see merchantCdd.js's eddComplete: the first three plus
   // senior_signoff_completed are all required, and senior_signoff_completed is only ever
   // written by a Senior Analyst/Admin write path, never by the Analyst-scoped endpoint - so no

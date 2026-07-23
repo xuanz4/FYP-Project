@@ -33,7 +33,10 @@ async function ensureMerchant(database, merchant) {
 }
 
 // raw: { id, merchantId, storeId, amount, method, scheme, issuer, transactionType, entryMode,
-//        status, statusLabel, statusTone, net, fee, txnTime, note }
+//        status, statusLabel, statusTone, net, fee, txnTime, note, cardRef }
+// cardRef is an optional tokenised/hashed card reference from the partner feed (never a raw
+// PAN) - present only once the partner adds it; absent transactions just don't get matched
+// against other cards.
 // merchant: { merchantMid, merchantCountry, riskTier, mccRiskScore } - looked up by the caller
 // so we don't re-query per row.
 async function ingestTransaction(database, raw, merchant, { broadcast } = {}) {
@@ -52,6 +55,7 @@ async function ingestTransaction(database, raw, merchant, { broadcast } = {}) {
       storeId: raw.storeId,
       amount: Number(raw.amount),
       issuerCountry: raw.issuer,
+      cardRef: raw.cardRef || null,
       txnTime,
       merchantExpectedAvgTicket: cddContext.expectedAvgTicket,
       merchantExpectedOperatingHours: cddContext.expectedOperatingHours,
@@ -70,15 +74,15 @@ async function ingestTransaction(database, raw, merchant, { broadcast } = {}) {
       transaction_type, entry_mode, payment_status, payment_status_label, payment_status_tone,
       net, fee, txn_time, source_note, risk_score, risk_level,
       mcc_risk_contribution, profile_risk_contribution, transaction_detection_contribution,
-      status, action_status, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'None', ?)`,
+      status, action_status, created_at, card_ref
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'None', ?, ?)`,
     [
       raw.id, uniqueTransactionReference, raw.merchantId, raw.storeId || null, raw.amount, raw.method || null, raw.scheme || null, raw.issuer || null,
       raw.transactionType || null, raw.entryMode || null, raw.status || null, raw.statusLabel || null, raw.statusTone || null,
       raw.net ?? null, raw.fee ?? null, txnTime, raw.note || null,
       evaluation.riskScore, evaluation.riskLevel,
       evaluation.mccRiskContribution, evaluation.profileRiskContribution, evaluation.detectionContribution,
-      evaluation.status, txnTime,
+      evaluation.status, txnTime, raw.cardRef || null,
     ],
   );
 

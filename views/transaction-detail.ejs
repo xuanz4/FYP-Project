@@ -137,6 +137,13 @@
     // resolveWorkflow.js's cddGateRequirement.
     const canEditEddAnalystFields = isAnalyst && cdd.eddRequired && !isResolved;
     const canEditEddSignoff = (isSenior || isAdmin) && cdd.eddRequired;
+    // Same role split as the checklist itself (EDD_CHECKLIST_ROLE_FIELDS in
+    // transactionsController.js): an Analyst can only attach evidence for the two items they can
+    // complete themselves, Senior Analyst/Admin can attach any document type.
+    const cddDocumentsList = Array.isArray(cddDocuments) ? cddDocuments : [];
+    const documentUploadTypes = (isSenior || isAdmin) ? ['Source of Funds', 'Site Visit', 'Enhanced Verification', 'Screening', 'Other']
+        : (isAnalyst ? ['Source of Funds', 'Site Visit'] : []);
+    const canUploadCddDocument = documentUploadTypes.length > 0 && !isResolved;
 %>
 
 <main class="transaction-review-page">
@@ -357,6 +364,22 @@
                         <li class="empty-inline">No screening records on file.</li>
                     <% } %>
                 </ul>
+                <h3>Supporting Documents</h3>
+                <ul class="admin-inline-list">
+                    <% if (cddDocumentsList.length) { cddDocumentsList.forEach((doc) => { %>
+                        <li><strong><%= doc.document_type %></strong>: <a href="/documents/<%= doc.document_id %>/download" target="_blank" rel="noopener"><%= doc.original_filename %></a> (<%= Math.round(doc.file_size / 1024) %> KB)<% if (doc.notes) { %> - <%= doc.notes %><% } %></li>
+                    <% }) } else { %>
+                        <li class="empty-inline">No documents on file.</li>
+                    <% } %>
+                </ul>
+                <% if (canUploadCddDocument) { %>
+                    <form id="cddDocumentForm" class="edd-inline-form" method="post" action="/api/transactions/<%= transactionId %>/cdd-documents" enctype="multipart/form-data">
+                        <label><span>Document Type</span><select name="documentType"><% documentUploadTypes.forEach((t) => { %><option value="<%= t %>"><%= t %></option><% }) %></select></label>
+                        <label><span>File (PDF/JPG/PNG, max 5MB)</span><input name="document" type="file" accept=".pdf,.jpg,.jpeg,.png" required></label>
+                        <label><span>Notes</span><input name="documentNotes" placeholder="What this document shows"></label>
+                        <button type="submit" class="secondary-btn">Upload Document</button>
+                    </form>
+                <% } %>
             </article>
         </section>
 
