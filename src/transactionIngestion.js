@@ -44,7 +44,10 @@ async function ingestTransaction(database, raw, merchant, { broadcast } = {}) {
   await ensureRiskAndContactSchema();
 
   const txnTime = raw.txnTime instanceof Date ? raw.txnTime : new Date(raw.txnTime);
-  const cddContext = await loadMerchantCddContext(database, raw.merchantId);
+  // The checklist is per-transaction (see merchantCdd.js) - passing raw.id here means a new
+  // transaction never inherits an "EDD complete" checklist from a prior transaction of the same
+  // merchant; it always starts with no checklist row until an analyst creates one for this case.
+  const cddContext = await loadMerchantCddContext(database, raw.merchantId, { transactionId: raw.id });
 
   const evaluation = await evaluateTransaction({
     txn: {
@@ -57,6 +60,8 @@ async function ingestTransaction(database, raw, merchant, { broadcast } = {}) {
       amount: Number(raw.amount),
       issuerCountry: raw.issuer,
       cardRef: raw.cardRef || null,
+      cvvValidationResult: raw.cvvValidationResult || null,
+      expiryValidationResult: raw.expiryValidationResult || null,
       txnTime,
       merchantExpectedAvgTicket: cddContext.expectedAvgTicket,
       merchantExpectedOperatingHours: cddContext.expectedOperatingHours,

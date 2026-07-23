@@ -3,7 +3,6 @@ const emailService = require('../src/services/emailService');
 const { paginationMeta, appendWhere } = require('../src/lib/query');
 const { logAdminAudit } = require('../src/lib/auditLog');
 const { ensureMerchantContactsTable, ensureMerchantCddSchema } = require('../src/lib/schema');
-const { setEddChecklistField } = require('../src/lib/eddChecklist');
 const { id } = require('../src/lib/ids');
 
 function adminFiltersFromQuery(query) {
@@ -63,15 +62,10 @@ async function loadAdminMerchants(req) {
             mc.contact_name, mc.rfi_email, mc.phone_number, mc.store_id AS contact_store_id, mc.status AS contact_status,
             cdd.kyc_status, cdd.verification_date, cdd.next_review_date,
             cdd.expected_monthly_volume, cdd.expected_avg_ticket, cdd.expected_countries,
-            cdd.expected_operating_open_hour, cdd.expected_operating_close_hour,
-            edd.source_of_funds_verified, edd.source_of_funds_notes,
-            edd.site_visit_completed, edd.site_visit_notes,
-            edd.enhanced_verification_completed, edd.enhanced_verification_notes,
-            edd.senior_signoff_completed, edd.senior_signoff_notes
+            cdd.expected_operating_open_hour, cdd.expected_operating_close_hour
      FROM merchants m
      LEFT JOIN merchant_contacts mc ON mc.merchant_id = m.merchant_id
      LEFT JOIN merchant_cdd_profiles cdd ON cdd.merchant_id = m.merchant_id
-     LEFT JOIN merchant_edd_checklist edd ON edd.merchant_id = m.merchant_id
      ${whereSql} ORDER BY m.merchant_name ASC LIMIT ? OFFSET ?`,
     [...values, pagination.limit, pagination.offset],
   );
@@ -200,29 +194,6 @@ async function upsertMerchantCddFields(req, merchantId) {
     entityId: merchantId,
     notes: `KYC status ${kycStatus}, next review ${nextReviewDate || 'not set'}, expected avg ticket ${expectedAvgTicket ?? 'not set'}, expected countries ${expectedCountries || 'not set'}`,
   });
-}
-
-// Admin maintains the baseline checks. Enhanced verification and final sign-off are completed
-// by a Senior Analyst from the case workspace.
-async function updateEddChecklist(req, res) {
-  await ensureMerchantCddSchema();
-  const merchantId = req.params.id;
-  const fieldKeys = ['sourceOfFunds', 'siteVisit'];
-  for (const fieldKey of fieldKeys) {
-    const completed = req.body[`${fieldKey}Completed`] === '1' || req.body[`${fieldKey}Completed`] === 'true';
-    const notes = String(req.body[`${fieldKey}Notes`] || '').trim() || null;
-    // eslint-disable-next-line no-await-in-loop
-    await setEddChecklistField(database, {
-      merchantId, fieldKey, completed, notes, userId: req.session.user.id,
-    });
-  }
-  await logAdminAudit({
-    action: 'Merchant EDD Checklist Updated',
-    userId: req.session.user.id,
-    entityType: 'MerchantEddChecklist',
-    entityId: merchantId,
-  });
-  return res.redirect('/admin/merchants');
 }
 
 // Self-declared, not independently verified - no registry lookup exists in this project's
@@ -681,7 +652,6 @@ module.exports = {
   createMerchant,
   updateMerchant,
   deleteMerchant,
-  updateEddChecklist,
   addBeneficialOwner,
   deleteBeneficialOwner,
   addScreeningRecord,

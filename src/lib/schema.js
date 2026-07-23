@@ -485,9 +485,26 @@ const ensureMerchantCddSchema = memoizeAsync(async function ensureMerchantCddSch
   // senior_signoff_completed are all required, and senior_signoff_completed is only ever
   // written by a Senior Analyst/Admin write path, never by the Analyst-scoped endpoint - so no
   // single role can satisfy the resolve-gate on their own say-so.
+  //
+  // Keyed by transaction_id (one row per transaction's case), not merchant_id: an earlier
+  // version keyed this table by merchant_id alone, which meant completing the checklist (or
+  // uploading supporting evidence) against one transaction's case silently marked every other
+  // transaction of the same merchant as complete too. If an install still has that old
+  // merchant-keyed table, there is no sound way to backfill which transaction each row
+  // belonged to, so it's dropped and rebuilt rather than migrated in place.
+  const [existingEddColumns] = await database.query(
+    `SELECT COLUMN_NAME
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'merchant_edd_checklist' AND COLUMN_NAME = 'transaction_id'`,
+    [dbName],
+  );
+  if (!existingEddColumns.length) {
+    await database.execute('DROP TABLE IF EXISTS merchant_edd_checklist');
+  }
   await database.execute(
     `CREATE TABLE IF NOT EXISTS merchant_edd_checklist (
-      merchant_id VARCHAR(20) PRIMARY KEY,
+      transaction_id VARCHAR(40) PRIMARY KEY,
+      merchant_id VARCHAR(20) NOT NULL,
       source_of_funds_verified TINYINT(1) NOT NULL DEFAULT 0,
       source_of_funds_notes TEXT NULL,
       source_of_funds_by VARCHAR(20) NULL,
@@ -504,7 +521,34 @@ const ensureMerchantCddSchema = memoizeAsync(async function ensureMerchantCddSch
       senior_signoff_notes TEXT NULL,
       senior_signoff_by VARCHAR(20) NULL,
       senior_signoff_at DATETIME NULL,
-      FOREIGN KEY (merchant_id) REFERENCES merchants(merchant_id) ON DELETE CASCADE
+      INDEX idx_merchant_edd_checklist_merchant (merchant_id),
+      FOREIGN KEY (merchant_id) REFERENCES merchants(merchant_id) ON DELETE CASCADE,
+      FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE
+    )`,
+  );
+
+  // CDD checklist: the baseline due-diligence steps every transaction's case must clear,
+  // regardless of risk level (see merchantCdd.js's computeCddComplete). One row per transaction,
+  // same shape and same reasoning as merchant_edd_checklist above - a transaction's own
+  // checklist, never shared with sibling transactions of the same merchant. The two steps mirror
+  // the Analyst-uploadable document types in transactionsController.js's DOCUMENT_TYPE_ROLE_MAP
+  // ('Business Registration', 'Screening'): uploading the document is separate evidence, this
+  // table is the analyst's explicit confirmation that it was checked.
+  await database.execute(
+    `CREATE TABLE IF NOT EXISTS merchant_cdd_checklist (
+      transaction_id VARCHAR(40) PRIMARY KEY,
+      merchant_id VARCHAR(20) NOT NULL,
+      business_registration_verified TINYINT(1) NOT NULL DEFAULT 0,
+      business_registration_notes TEXT NULL,
+      business_registration_by VARCHAR(20) NULL,
+      business_registration_at DATETIME NULL,
+      screening_verified TINYINT(1) NOT NULL DEFAULT 0,
+      screening_notes TEXT NULL,
+      screening_by VARCHAR(20) NULL,
+      screening_at DATETIME NULL,
+      INDEX idx_merchant_cdd_checklist_merchant (merchant_id),
+      FOREIGN KEY (merchant_id) REFERENCES merchants(merchant_id) ON DELETE CASCADE,
+      FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE
     )`,
   );
   // Keep historical rows consistent with the sign-off rule introduced in the case workspace.
@@ -579,6 +623,34 @@ const ensureMerchantCddSchema = memoizeAsync(async function ensureMerchantCddSch
   }
 });
 
+// Global rules so 'cvv_check_failed'/'expiry_check_failed' need no special-casing in the
+// additive score formula (see riskEngine.js) - just other matched compliance_rules rows,
+// seeded once idempotently, same pattern as 'cdd_review_overdue' above.
+const ensureCardVerificationRules = memoizeAsync(async function ensureCardVerificationRules() {
+  const dbName = process.env.DB_NAME;
+  if (!dbName || !database.isEnabled()) return;
+
+  const [existingRules] = await database.query(
+    "SELECT rule_type FROM compliance_rules WHERE rule_type IN ('cvv_check_failed', 'expiry_check_failed') AND merchant_id IS NULL",
+  );
+  const hasRule = (ruleType) => existingRules.some((row) => row.rule_type === ruleType);
+
+  if (!hasRule('cvv_check_failed')) {
+    await database.execute(
+      `INSERT INTO compliance_rules (rule_id, merchant_id, rule_name, risk_level, reason, weight, amount_threshold, count_threshold, rule_type, is_active)
+       VALUES (?, NULL, ?, 'Medium', ?, 20, NULL, NULL, 'cvv_check_failed', 1)`,
+      [id('RULE'), 'CVV check failed', "The card's CVV did not match on authorisation"],
+    );
+  }
+  if (!hasRule('expiry_check_failed')) {
+    await database.execute(
+      `INSERT INTO compliance_rules (rule_id, merchant_id, rule_name, risk_level, reason, weight, amount_threshold, count_threshold, rule_type, is_active)
+       VALUES (?, NULL, ?, 'Medium', ?, 15, NULL, NULL, 'expiry_check_failed', 1)`,
+      [id('RULE'), 'Card expiry check failed', "The card's expiry date did not match on authorisation"],
+    );
+  }
+});
+
 // Single call site for every ensure* above - covers the risk-formula, merchant-profile,
 // merchant-contacts, case-reconciliation and merchant-CDD/EDD schema in one idempotent pass.
 const ensureRiskAndContactSchema = memoizeAsync(async function ensureRiskAndContactSchema() {
@@ -587,6 +659,7 @@ const ensureRiskAndContactSchema = memoizeAsync(async function ensureRiskAndCont
   await ensureMerchantContactsTable();
   await ensureCaseReconciliationColumns();
   await ensureMerchantCddSchema();
+  await ensureCardVerificationRules();
 });
 
 module.exports = {

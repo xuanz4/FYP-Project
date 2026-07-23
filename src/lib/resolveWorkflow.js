@@ -142,6 +142,7 @@ async function handleDatabaseResolveRequest(req, res) {
 
   const cddContext = await loadMerchantCddContext(database, row.merchant_id, {
     transactionRiskLevel: row.risk_level,
+    transactionId: row.transaction_id,
   });
   const cddGate = cddGateRequirement({ role: req.session.user.role, cddContext });
   if (!cddGate.allowed) {

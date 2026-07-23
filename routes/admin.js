@@ -18,7 +18,6 @@ router.post('/admin/users/:id/delete', requireRole('Admin'), adminController.del
 router.post('/admin/merchants', requireRole('Admin'), adminController.createMerchant);
 router.post('/admin/merchants/:id', requireRole('Admin'), adminController.updateMerchant);
 router.post('/admin/merchants/:id/delete', requireRole('Admin'), adminController.deleteMerchant);
-router.post('/admin/merchants/:id/edd-checklist', requireRole('Admin'), adminController.updateEddChecklist);
 router.post('/admin/merchants/:id/beneficial-owners', requireRole('Admin'), adminController.addBeneficialOwner);
 router.post('/admin/merchants/:id/beneficial-owners/:ownerId/delete', requireRole('Admin'), adminController.deleteBeneficialOwner);
 router.post('/admin/merchants/:id/screening', requireRole('Admin'), adminController.addScreeningRecord);

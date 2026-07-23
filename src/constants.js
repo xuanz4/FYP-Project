@@ -31,7 +31,7 @@ const strEvidenceOptions = [
 // Rule types (see compliance_rules.rule_type) grouped by which STR evidence checkbox they support.
 const strEvidenceRuleTypeGroups = {
   'Customer profile risk': ['new_or_deviating_customer', 'kyc_pending'],
-  'Transaction behaviour': ['amount', 'recent_merchant_transactions', 'card_spend_24h', 'near_threshold', 'operating_hours', 'low_value_burst'],
+  'Transaction behaviour': ['amount', 'recent_merchant_transactions', 'card_spend_24h', 'near_threshold', 'operating_hours', 'low_value_burst', 'cvv_check_failed', 'expiry_check_failed'],
   'Screening matches': ['jurisdiction'],
 };
 

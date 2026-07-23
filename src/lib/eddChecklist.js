@@ -1,9 +1,11 @@
-// Shared write path for merchant_edd_checklist. Analysts/Admin maintain baseline checks while
-// Enhanced Verification and final sign-off are Senior-Analyst-only case-workspace actions.
-// See resolveWorkflow.js's cddGateRequirement and
+// Shared write path for merchant_edd_checklist, one row per transaction (see schema.js's
+// ensureMerchantCddSchema) - every transaction's case gets its own checklist, so completing it
+// on one transaction never marks another transaction of the same merchant complete. Analysts
+// maintain the baseline checks while Enhanced Verification and final sign-off are
+// Senior-Analyst-only case-workspace actions. See resolveWorkflow.js's cddGateRequirement and
 // merchantCdd.js's computeEddComplete for why senior_signoff_completed is kept structurally
 // distinct from the other three items. Which fieldKey a caller may use is enforced by the
-// caller (adminController.js / transactionsController.js), not here.
+// caller (transactionsController.js), not here.
 const database = require('../database');
 
 const FIELD_DEFS = {
@@ -22,20 +24,21 @@ const FIELD_DEFS = {
 };
 
 async function setEddChecklistField(db, {
-  merchantId, fieldKey, completed, notes, userId,
+  transactionId, merchantId, fieldKey, completed, notes, userId,
 }) {
   const def = FIELD_DEFS[fieldKey];
   if (!def) throw new Error(`Unknown EDD checklist field: ${fieldKey}`);
+  if (!transactionId) throw new Error('transactionId is required to set an EDD checklist field');
   const client = db || database;
   await client.execute(
-    `INSERT INTO merchant_edd_checklist (merchant_id, ${def.completed}, ${def.notes}, ${def.by}, ${def.at})
-     VALUES (?, ?, ?, ?, NOW())
+    `INSERT INTO merchant_edd_checklist (transaction_id, merchant_id, ${def.completed}, ${def.notes}, ${def.by}, ${def.at})
+     VALUES (?, ?, ?, ?, ?, NOW())
      ON DUPLICATE KEY UPDATE
        ${def.completed} = VALUES(${def.completed}),
        ${def.notes} = VALUES(${def.notes}),
        ${def.by} = VALUES(${def.by}),
        ${def.at} = VALUES(${def.at})`,
-    [merchantId, completed ? 1 : 0, notes || null, userId],
+    [transactionId, merchantId, completed ? 1 : 0, notes || null, userId],
   );
 }
 

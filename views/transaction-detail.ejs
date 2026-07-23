@@ -128,12 +128,17 @@
     const cdd = (typeof cddContext !== 'undefined' && cddContext) ? cddContext : {
         kycStatus: 'Not Started', verificationDate: null, nextReviewDate: null, reviewOverdue: false,
         expectedAvgTicket: null, expectedMonthlyVolume: null, expectedCountries: [], expectedOperatingHours: null,
-        cddComplete: false, eddRequired: false, eddComplete: false, checklist: null
+        cddComplete: false, cddChecklist: null, eddRequired: false, eddComplete: false, eddChecklist: null
     };
-    const eddChecklist = cdd.checklist || {};
+    const cddChecklist = cdd.cddChecklist || {};
+    const eddChecklist = cdd.eddChecklist || {};
     const screenings = Array.isArray(screeningRecords) ? screeningRecords : [];
     const evidenceLog = Array.isArray(rfiEvidence) ? rfiEvidence : [];
-    // An Analyst may only record the two Analyst-settable checklist items; sign-off is a
+    // CDD checklist is required for every transaction's case regardless of risk level, and both
+    // steps are Analyst-settable (Senior Analyst may record them too, same as any other
+    // case-workspace duty) - see transactionsController.js's CDD_CHECKLIST_ROLE_FIELDS.
+    const canEditCddChecklist = (isAnalyst || isSenior) && !isResolved;
+    // An Analyst may only record the two Analyst-settable EDD checklist items; sign-off is a
     // separate Senior Analyst/Admin-only control, so an Analyst alone can never satisfy
     // resolveWorkflow.js's cddGateRequirement.
     const canEditEddAnalystFields = isAnalyst && cdd.eddRequired && !isResolved;
@@ -321,7 +326,7 @@
                 <div class="panel-header">
                     <div>
                         <h2>Merchant Due Diligence</h2>
-                        <p>Self-declared CDD baseline and EDD checklist, recorded by Admin - not a substitute for senior review.</p>
+                        <p>Merchant KYC baseline is admin-recorded reference data; the CDD and EDD checklists below belong to this transaction's own case - not a substitute for senior review.</p>
                     </div>
                 </div>
                 <dl class="review-definition-grid">
@@ -333,6 +338,32 @@
                     <div><dt>Expected Countries</dt><dd><%= cdd.expectedCountries.length ? cdd.expectedCountries.join(', ') : 'Not set' %></dd></div>
                     <div><dt>Expected Operating Hours</dt><dd><%= cdd.expectedOperatingHours ? `${cdd.expectedOperatingHours.openHour}:00 - ${cdd.expectedOperatingHours.closeHour}:00` : 'Not set' %></dd></div>
                 </dl>
+                <div class="cdd-section-heading">
+                    <div>
+                        <h3>CDD Checklist</h3>
+                        <% if (!cdd.cddComplete) { %>
+                            <p>Required for every transaction before this case can be resolved.</p>
+                        <% } %>
+                    </div>
+                    <span class="cdd-status <%= cdd.cddComplete ? 'is-complete' : 'is-incomplete' %>"><%= cdd.cddComplete ? 'Complete' : 'Incomplete' %></span>
+                </div>
+                <ul class="admin-inline-list cdd-checklist">
+                    <li class="<%= cddChecklist.business_registration_verified ? 'is-complete' : 'is-outstanding' %>"><span class="cdd-check-icon" aria-hidden="true"><%= cddChecklist.business_registration_verified ? '✓' : '!' %></span><span><strong>Business Registration Verified</strong><small><%= cddChecklist.business_registration_verified ? 'Completed' : 'Outstanding' %></small></span></li>
+                    <li class="<%= cddChecklist.screening_verified ? 'is-complete' : 'is-outstanding' %>"><span class="cdd-check-icon" aria-hidden="true"><%= cddChecklist.screening_verified ? '✓' : '!' %></span><span><strong>Screening Completed</strong><small><%= cddChecklist.screening_verified ? 'Completed' : 'Outstanding' %></small></span></li>
+                </ul>
+                <% if (canEditCddChecklist) { %>
+                    <form id="cddChecklistForm" class="edd-inline-form cdd-action-form">
+                        <div class="cdd-form-heading"><strong>Update checklist</strong><span>Record the outcome of a completed check for this transaction.</span></div>
+                        <label><span>Checklist Item</span><select id="cddFieldKey">
+                            <option value="businessRegistration">Business Registration Verified</option>
+                            <option value="screening">Screening Completed</option>
+                        </select></label>
+                        <label><span>Notes (required to mark complete)</span><input id="cddNotes" placeholder="What was checked and how"></label>
+                        <label class="checkbox-field"><input type="checkbox" id="cddCompleted"><span>Mark Complete</span></label>
+                        <button type="submit" class="secondary-btn">Save Checklist Item</button>
+                        <p id="cddChecklistFeedback" class="form-feedback"></p>
+                    </form>
+                <% } %>
                 <% if (cdd.eddRequired) { %>
                     <div class="cdd-section-heading">
                         <div>
@@ -446,7 +477,6 @@
                             <div><dt>Counterparty</dt><dd><%= tx.counterparty || tx.counterpartyName || merchantName %></dd></div>
                             <div><dt>Counterparty country</dt><dd><%= tx.counterpartyCountry || tx.counterparty_country || 'Singapore' %></dd></div>
                             <div><dt>Store ID</dt><dd><%= tx.store_id || 'Not assigned' %></dd></div>
-                            <div><dt>Payment reference</dt><dd><%= tx.paymentReference || tx.transaction_code || tx.transaction_id || 'Not assigned' %></dd></div>
                             <div><dt>Card</dt><dd><%= tx.card_last4 ? `•••• ${tx.card_last4}` : 'Not provided' %></dd></div>
                             <div><dt>Card scheme</dt><dd><%= tx.scheme ? String(tx.scheme).toUpperCase() : 'Not provided' %></dd></div>
                             <div><dt>BIN / IIN</dt><dd><%= tx.card_bin || 'Not provided' %></dd></div>
@@ -1796,6 +1826,26 @@
             if (!response.ok) throw new Error(result.message || `Request failed (${response.status})`);
             return result;
         };
+
+        const cddChecklistForm = document.querySelector('#cddChecklistForm');
+        cddChecklistForm?.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const feedback = document.querySelector('#cddChecklistFeedback');
+            const submitButton = cddChecklistForm.querySelector('button[type="submit"]');
+            const fieldKey = document.querySelector('#cddFieldKey')?.value || '';
+            const completed = document.querySelector('#cddCompleted')?.checked || false;
+            const notes = document.querySelector('#cddNotes')?.value.trim() || '';
+            if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Saving...'; }
+            if (feedback) feedback.textContent = '';
+            try {
+                await postJson(`/api/transactions/${encodeURIComponent(transactionId)}/cdd-checklist`, { fieldKey, completed, notes });
+                if (feedback) feedback.textContent = 'Saved. Refreshing...';
+                setTimeout(() => window.location.reload(), 600);
+            } catch (error) {
+                if (feedback) feedback.textContent = error.message;
+                if (submitButton) { submitButton.disabled = false; submitButton.textContent = 'Save Checklist Item'; }
+            }
+        });
 
         const eddAnalystForm = document.querySelector('#eddAnalystForm');
         eddAnalystForm?.addEventListener('submit', async (event) => {

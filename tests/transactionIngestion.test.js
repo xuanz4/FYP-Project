@@ -10,6 +10,7 @@ function fakeDatabase({ history = [], rules = [] } = {}) {
       calls.push({ type: 'query', sql, params });
       if (/FROM merchant_risk_profiles/.test(sql)) return [[]];
       if (/FROM merchant_cdd_profiles/.test(sql)) return [[]];
+      if (/FROM merchant_cdd_checklist/.test(sql)) return [[]];
       if (/FROM merchant_edd_checklist/.test(sql)) return [[]];
       if (/SELECT unique_transaction_reference/.test(sql)) return [[]];
       if (/SELECT risk_tier FROM merchants/.test(sql)) return [[{ risk_tier: 'Standard' }]];

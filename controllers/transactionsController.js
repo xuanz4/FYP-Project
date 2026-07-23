@@ -17,6 +17,7 @@ const { ensureRiskAndContactSchema } = require('../src/lib/schema');
 const { fetchLatestRfiResponse } = require('../src/services/rfiInboxService');
 const { loadMerchantCddContext } = require('../src/lib/merchantCdd');
 const { setEddChecklistField } = require('../src/lib/eddChecklist');
+const { setCddChecklistField } = require('../src/lib/cddChecklist');
 const { saveCddDocument, listCddDocuments } = require('../src/lib/cddDocuments');
 const { buildMailboxReference } = require('../src/lib/rfiEvidence');
 const {
@@ -172,6 +173,7 @@ async function transactionDetailPage(req, res) {
   const [cddContext, screeningRows, evidenceRows, documentRows] = await Promise.all([
     loadMerchantCddContext(database, transaction.merchant_id, {
       transactionRiskLevel: transaction.initial_risk_level || transaction.risk_level,
+      transactionId: transaction.transaction_id,
     }),
     database.query(
       `SELECT screening_id, screening_type, result, screened_against, notes, screened_at
@@ -983,7 +985,9 @@ async function latestRfiResponseEndpoint(req, res) {
 
 // Which fieldKey a role may set - an Analyst is deliberately missing 'enhancedVerification'
 // and 'seniorSignoff', so this endpoint can never be the way an Analyst grants themselves the
-// sign-off resolveWorkflow.js's cddGateRequirement checks for. See eddChecklist.js.
+// sign-off resolveWorkflow.js's cddGateRequirement checks for. See eddChecklist.js. The
+// checklist row this writes is scoped to req.params.id (transaction_id), never merchant-wide -
+// every transaction's case gets its own checklist and completing one never affects another.
 const EDD_CHECKLIST_ROLE_FIELDS = {
   Analyst: ['sourceOfFunds', 'siteVisit'],
   'Senior Analyst': ['sourceOfFunds', 'siteVisit', 'enhancedVerification', 'seniorSignoff'],
@@ -1005,15 +1009,16 @@ async function updateCaseEddChecklist(req, res) {
   }
 
   await ensureRiskAndContactSchema();
-  const [transactionRows] = await database.query('SELECT merchant_id FROM transactions WHERE transaction_id = ? LIMIT 1', [req.params.id]);
+  const transactionId = req.params.id;
+  const [transactionRows] = await database.query('SELECT merchant_id FROM transactions WHERE transaction_id = ? LIMIT 1', [transactionId]);
   const merchantId = transactionRows[0]?.merchant_id;
   if (!merchantId) return res.status(404).json({ success: false, message: 'Transaction not found' });
 
   if (fieldKey === 'seniorSignoff' && completed) {
     const [checklistRows] = await database.query(
       `SELECT source_of_funds_verified, site_visit_completed, enhanced_verification_completed
-       FROM merchant_edd_checklist WHERE merchant_id = ? LIMIT 1`,
-      [merchantId],
+       FROM merchant_edd_checklist WHERE transaction_id = ? LIMIT 1`,
+      [transactionId],
     );
     const checklist = checklistRows[0];
     if (
@@ -1029,10 +1034,11 @@ async function updateCaseEddChecklist(req, res) {
   }
 
   await setEddChecklistField(database, {
-    merchantId, fieldKey, completed, notes: notes || null, userId: currentUser.id,
+    transactionId, merchantId, fieldKey, completed, notes: notes || null, userId: currentUser.id,
   });
   if (['sourceOfFunds', 'siteVisit', 'enhancedVerification'].includes(fieldKey) && !completed) {
     await setEddChecklistField(database, {
+      transactionId,
       merchantId,
       fieldKey: 'seniorSignoff',
       completed: false,
@@ -1044,7 +1050,52 @@ async function updateCaseEddChecklist(req, res) {
     `INSERT INTO audit_logs (audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
     [
-      id('AUD'), req.params.id, 'Merchant', merchantId, 'Merchant EDD Checklist Updated', currentUser.id,
+      id('AUD'), transactionId, 'Merchant', merchantId, 'Merchant EDD Checklist Updated', currentUser.id,
+      `${fieldKey} set to ${completed ? 'complete' : 'incomplete'} by ${currentUser.name} (${currentUser.role}).`,
+    ],
+  );
+
+  return res.status(200).json({ success: true, fieldKey, completed });
+}
+
+// CDD checklist is required for every transaction's case, any risk level - unlike EDD_CHECKLIST_
+// ROLE_FIELDS above, both steps are Analyst-settable (Senior Analyst may also record them, same
+// as any other case-workspace duty). The checklist row this writes is scoped to req.params.id
+// (transaction_id), never merchant-wide - see cddChecklist.js.
+const CDD_CHECKLIST_ROLE_FIELDS = {
+  Analyst: ['businessRegistration', 'screening'],
+  'Senior Analyst': ['businessRegistration', 'screening'],
+};
+
+async function updateCaseCddChecklist(req, res) {
+  const currentUser = req.session?.user;
+  const allowedFields = currentUser ? CDD_CHECKLIST_ROLE_FIELDS[currentUser.role] : null;
+  if (!allowedFields) return forbidJson(res);
+
+  const fieldKey = String(req.body.fieldKey || '').trim();
+  if (!allowedFields.includes(fieldKey)) {
+    return res.status(403).json({ success: false, message: `Your role may not set the "${fieldKey || 'requested'}" checklist item.` });
+  }
+  const completed = req.body.completed === true || req.body.completed === '1' || req.body.completed === 'true';
+  const notes = String(req.body.notes || '').trim();
+  if (completed && !hasMeaningfulText(notes, 10)) {
+    return res.status(400).json({ success: false, message: 'Please provide a meaningful note of at least 10 characters when marking a checklist item complete.' });
+  }
+
+  await ensureRiskAndContactSchema();
+  const transactionId = req.params.id;
+  const [transactionRows] = await database.query('SELECT merchant_id FROM transactions WHERE transaction_id = ? LIMIT 1', [transactionId]);
+  const merchantId = transactionRows[0]?.merchant_id;
+  if (!merchantId) return res.status(404).json({ success: false, message: 'Transaction not found' });
+
+  await setCddChecklistField(database, {
+    transactionId, merchantId, fieldKey, completed, notes: notes || null, userId: currentUser.id,
+  });
+  await database.execute(
+    `INSERT INTO audit_logs (audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+    [
+      id('AUD'), transactionId, 'Merchant', merchantId, 'Merchant CDD Checklist Updated', currentUser.id,
       `${fieldKey} set to ${completed ? 'complete' : 'incomplete'} by ${currentUser.name} (${currentUser.role}).`,
     ],
   );
@@ -1204,6 +1255,7 @@ module.exports = {
   ingestTransactionEndpoint,
   latestRfiResponseEndpoint,
   updateCaseEddChecklist,
+  updateCaseCddChecklist,
   uploadCaseDocument,
   logRfiEvidence,
   apiNotFound,

@@ -214,6 +214,12 @@ function evaluateAgainstRules(txn, rules, signals, history) {
       case 'cdd_review_overdue':
         hit = Boolean(txn.merchantCddReviewOverdue);
         break;
+      case 'cvv_check_failed':
+        hit = txn.cvvValidationResult === 'Failed';
+        break;
+      case 'expiry_check_failed':
+        hit = txn.expiryValidationResult === 'Failed';
+        break;
       default:
         hit = false;
     }
@@ -232,7 +238,9 @@ function evaluateAgainstRules(txn, rules, signals, history) {
 //        merchantExpectedAvgTicket, merchantExpectedOperatingHours, merchantExpectedCountries,
 //        merchantCddReviewOverdue, merchantEddComplete (all optional, from merchantCdd.js -
 //        absent means legacy/no-CDD-data behaviour), storeId,
-//        amount, issuerCountry, txnTime (Date), cardRef (optional tokenised card reference) }
+//        amount, issuerCountry, txnTime (Date), cardRef (optional tokenised card reference),
+//        cvvValidationResult, expiryValidationResult (optional, 'Passed'/'Failed'/'Unavailable' -
+//        only an explicit 'Failed' scores; 'Unavailable' is treated as no signal) }
 async function evaluateTransaction({
   txn, database,
 }) {
