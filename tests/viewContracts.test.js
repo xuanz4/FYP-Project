@@ -58,6 +58,23 @@ function testApiRoutesExist() {
   assert.match(routes, /router\.post\('\/api\/transactions\/:id\/refer-to-stro'/);
   assert.match(routes, /router\.patch\('\/api\/transactions\/:id\/str'/);
   assert.match(routes, /router\.post\('\/api\/transactions\/:id\/str\/not-required'/);
+  // The manual CDD checklist endpoint was removed - CDD items are only ever completed as a
+  // side effect of a validated document upload, never through a standalone form/route.
+  assert.doesNotMatch(routes, /\/api\/transactions\/:id\/cdd-checklist/);
+}
+
+// CDD/EDD checklist completion is driven entirely by document uploads (see
+// transactionsController.js's uploadCaseDocument). The only checklist item still submitted
+// through a standalone form is Senior Sign-off, since it's an approval with no document type
+// of its own. This locks in that the manual "Update checklist" forms and their duplicate
+// notes fields don't come back.
+function testChecklistFormsAreUploadDrivenExceptSignoff() {
+  const view = readView('views/transaction-detail.ejs');
+  assert.doesNotMatch(view, /id="cddChecklistForm"/);
+  assert.doesNotMatch(view, /id="eddAnalystForm"/);
+  assert.doesNotMatch(view, /id="eddEnhancedVerificationForm"/);
+  assert.match(view, /id="eddSignoffForm"/);
+  assert.match(view, /id="cddDocumentForm"/);
 }
 
 async function main() {
@@ -66,6 +83,7 @@ async function main() {
   await runTest('renders role-specific sidebar navigation', testSidebarRoleNavigation);
   await runTest('keeps transaction detail workflow controls wired to APIs', testTransactionDetailWorkflowControls);
   await runTest('defines expected transaction API routes', testApiRoutesExist);
+  await runTest('checklist completion is upload-driven except Senior Sign-off', testChecklistFormsAreUploadDrivenExceptSignoff);
   finish();
 }
 

@@ -23,7 +23,6 @@ router.post('/api/transactions', transactionsController.ingestTransactionEndpoin
 router.get('/api/transactions/:id/rfi/latest-response', requireAuth, transactionsController.latestRfiResponseEndpoint);
 router.post('/api/transactions/:id/rfi', (req, res) => handleDatabaseRfiRequest(req, res));
 router.post('/api/transactions/:id/edd-checklist', requireAuth, transactionsController.updateCaseEddChecklist);
-router.post('/api/transactions/:id/cdd-checklist', requireAuth, transactionsController.updateCaseCddChecklist);
 router.post(
   '/api/transactions/:id/cdd-documents',
   requireRole('Analyst', 'Senior Analyst'),

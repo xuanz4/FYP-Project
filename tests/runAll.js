@@ -29,6 +29,7 @@ const testFiles = [
   'cddDocuments.test.js',
   'uploadValidation.test.js',
   'resolveWorkflow.test.js',
+  'checklistAutoComplete.test.js',
   'viewContracts.test.js',
 ];
 

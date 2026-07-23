@@ -983,14 +983,12 @@ async function latestRfiResponseEndpoint(req, res) {
   }
 }
 
-// Which fieldKey a role may set - an Analyst is deliberately missing 'enhancedVerification'
-// and 'seniorSignoff', so this endpoint can never be the way an Analyst grants themselves the
-// sign-off resolveWorkflow.js's cddGateRequirement checks for. See eddChecklist.js. The
-// checklist row this writes is scoped to req.params.id (transaction_id), never merchant-wide -
-// every transaction's case gets its own checklist and completing one never affects another.
+// Senior Sign-off is the one EDD checklist item that stays a manual attestation - it's an
+// approval decision, not evidence, so there's no document type to upload for it. The other
+// three EDD fields (sourceOfFunds, siteVisit, enhancedVerification) are set automatically by
+// uploadCaseDocument below when a matching document is uploaded, never through this endpoint.
 const EDD_CHECKLIST_ROLE_FIELDS = {
-  Analyst: ['sourceOfFunds', 'siteVisit'],
-  'Senior Analyst': ['sourceOfFunds', 'siteVisit', 'enhancedVerification', 'seniorSignoff'],
+  'Senior Analyst': ['seniorSignoff'],
 };
 
 async function updateCaseEddChecklist(req, res) {
@@ -1014,7 +1012,7 @@ async function updateCaseEddChecklist(req, res) {
   const merchantId = transactionRows[0]?.merchant_id;
   if (!merchantId) return res.status(404).json({ success: false, message: 'Transaction not found' });
 
-  if (fieldKey === 'seniorSignoff' && completed) {
+  if (completed) {
     const [checklistRows] = await database.query(
       `SELECT source_of_funds_verified, site_visit_completed, enhanced_verification_completed
        FROM merchant_edd_checklist WHERE transaction_id = ? LIMIT 1`,
@@ -1036,16 +1034,6 @@ async function updateCaseEddChecklist(req, res) {
   await setEddChecklistField(database, {
     transactionId, merchantId, fieldKey, completed, notes: notes || null, userId: currentUser.id,
   });
-  if (['sourceOfFunds', 'siteVisit', 'enhancedVerification'].includes(fieldKey) && !completed) {
-    await setEddChecklistField(database, {
-      transactionId,
-      merchantId,
-      fieldKey: 'seniorSignoff',
-      completed: false,
-      notes: 'Automatically revoked because an EDD prerequisite was marked incomplete.',
-      userId: currentUser.id,
-    });
-  }
   await database.execute(
     `INSERT INTO audit_logs (audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
@@ -1058,56 +1046,25 @@ async function updateCaseEddChecklist(req, res) {
   return res.status(200).json({ success: true, fieldKey, completed });
 }
 
-// CDD checklist is required for every transaction's case, any risk level - unlike EDD_CHECKLIST_
-// ROLE_FIELDS above, both steps are Analyst-settable (Senior Analyst may also record them, same
-// as any other case-workspace duty). The checklist row this writes is scoped to req.params.id
-// (transaction_id), never merchant-wide - see cddChecklist.js.
-const CDD_CHECKLIST_ROLE_FIELDS = {
-  Analyst: ['businessRegistration', 'screening'],
-  'Senior Analyst': ['businessRegistration', 'screening'],
-};
-
-async function updateCaseCddChecklist(req, res) {
-  const currentUser = req.session?.user;
-  const allowedFields = currentUser ? CDD_CHECKLIST_ROLE_FIELDS[currentUser.role] : null;
-  if (!allowedFields) return forbidJson(res);
-
-  const fieldKey = String(req.body.fieldKey || '').trim();
-  if (!allowedFields.includes(fieldKey)) {
-    return res.status(403).json({ success: false, message: `Your role may not set the "${fieldKey || 'requested'}" checklist item.` });
-  }
-  const completed = req.body.completed === true || req.body.completed === '1' || req.body.completed === 'true';
-  const notes = String(req.body.notes || '').trim();
-  if (completed && !hasMeaningfulText(notes, 10)) {
-    return res.status(400).json({ success: false, message: 'Please provide a meaningful note of at least 10 characters when marking a checklist item complete.' });
-  }
-
-  await ensureRiskAndContactSchema();
-  const transactionId = req.params.id;
-  const [transactionRows] = await database.query('SELECT merchant_id FROM transactions WHERE transaction_id = ? LIMIT 1', [transactionId]);
-  const merchantId = transactionRows[0]?.merchant_id;
-  if (!merchantId) return res.status(404).json({ success: false, message: 'Transaction not found' });
-
-  await setCddChecklistField(database, {
-    transactionId, merchantId, fieldKey, completed, notes: notes || null, userId: currentUser.id,
-  });
-  await database.execute(
-    `INSERT INTO audit_logs (audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-    [
-      id('AUD'), transactionId, 'Merchant', merchantId, 'Merchant CDD Checklist Updated', currentUser.id,
-      `${fieldKey} set to ${completed ? 'complete' : 'incomplete'} by ${currentUser.name} (${currentUser.role}).`,
-    ],
-  );
-
-  return res.status(200).json({ success: true, fieldKey, completed });
-}
-
 // Separate case-workspace upload duties: Analysts provide CDD evidence and Senior Analysts
 // provide EDD evidence. Admin transaction access is read-only.
 const DOCUMENT_TYPE_ROLE_MAP = {
   Analyst: ['Business Registration', 'Screening'],
   'Senior Analyst': ['Source of Funds', 'Site Visit', 'Enhanced Verification'],
+};
+
+// A successful upload IS the checklist evidence, so the matching checklist field is completed
+// automatically here rather than through a separate manual form - see setCddChecklistField/
+// setEddChecklistField below. The upload's own documentNotes becomes the checklist note, so
+// there is only ever one notes field for a given piece of evidence.
+const CDD_DOCUMENT_TYPE_TO_FIELD = {
+  'Business Registration': 'businessRegistration',
+  Screening: 'screening',
+};
+const EDD_DOCUMENT_TYPE_TO_FIELD = {
+  'Source of Funds': 'sourceOfFunds',
+  'Site Visit': 'siteVisit',
+  'Enhanced Verification': 'enhancedVerification',
 };
 
 async function uploadCaseDocument(req, res) {
@@ -1133,6 +1090,7 @@ async function uploadCaseDocument(req, res) {
   const caseId = transactionRows[0]?.case_id;
   if (!caseId) return res.status(400).send('Supporting documents can only be uploaded to an active transaction case.');
 
+  const documentNotes = String(req.body.documentNotes || '').trim() || null;
   const documentId = await saveCddDocument(database, {
     merchantId,
     transactionId: req.params.id,
@@ -1142,7 +1100,7 @@ async function uploadCaseDocument(req, res) {
     storedFilename: req.file.filename,
     mimeType: req.file.mimetype,
     fileSize: req.file.size,
-    notes: String(req.body.documentNotes || '').trim() || null,
+    notes: documentNotes,
     uploadedBy: currentUser.id,
   });
   await database.execute(
@@ -1153,6 +1111,35 @@ async function uploadCaseDocument(req, res) {
       `${documentType} document "${req.file.originalname}" uploaded for transaction ${req.params.id}, case ${caseId}, by ${currentUser.name} (${currentUser.role}).`,
     ],
   );
+
+  const cddFieldKey = CDD_DOCUMENT_TYPE_TO_FIELD[documentType];
+  if (cddFieldKey) {
+    await setCddChecklistField(database, {
+      transactionId: req.params.id, merchantId, fieldKey: cddFieldKey, completed: true, notes: documentNotes, userId: currentUser.id,
+    });
+    await database.execute(
+      `INSERT INTO audit_logs (audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [
+        id('AUD'), req.params.id, 'Merchant', merchantId, 'Merchant CDD Checklist Updated', currentUser.id,
+        `${cddFieldKey} set to complete by ${currentUser.name} (${currentUser.role}) via document upload.`,
+      ],
+    );
+  }
+  const eddFieldKey = EDD_DOCUMENT_TYPE_TO_FIELD[documentType];
+  if (eddFieldKey) {
+    await setEddChecklistField(database, {
+      transactionId: req.params.id, merchantId, fieldKey: eddFieldKey, completed: true, notes: documentNotes, userId: currentUser.id,
+    });
+    await database.execute(
+      `INSERT INTO audit_logs (audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [
+        id('AUD'), req.params.id, 'Merchant', merchantId, 'Merchant EDD Checklist Updated', currentUser.id,
+        `${eddFieldKey} set to complete by ${currentUser.name} (${currentUser.role}) via document upload.`,
+      ],
+    );
+  }
 
   return res.redirect(`/transactions/${req.params.id}`);
 }
@@ -1255,8 +1242,10 @@ module.exports = {
   ingestTransactionEndpoint,
   latestRfiResponseEndpoint,
   updateCaseEddChecklist,
-  updateCaseCddChecklist,
   uploadCaseDocument,
   logRfiEvidence,
   apiNotFound,
+  DOCUMENT_TYPE_ROLE_MAP,
+  CDD_DOCUMENT_TYPE_TO_FIELD,
+  EDD_DOCUMENT_TYPE_TO_FIELD,
 };
