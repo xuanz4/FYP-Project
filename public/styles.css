@@ -2125,42 +2125,6 @@ button,
   display: block;
 }
 
-.login-form-options {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  margin-top: -1px;
-}
-
-.login-form .remember-option {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  color: #617083;
-  cursor: pointer;
-}
-
-.login-form .remember-option input {
-  width: 18px;
-  height: 18px;
-  margin: 0;
-  accent-color: var(--login-green);
-}
-
-.login-form .remember-option span {
-  color: #617083;
-  font-size: 0.82rem;
-  font-weight: 500;
-  text-transform: none;
-}
-
-.forgot-password {
-  color: #00895c;
-  font-size: 0.82rem;
-  font-weight: 700;
-}
-
 .login-submit {
   min-height: 58px;
   display: flex;
