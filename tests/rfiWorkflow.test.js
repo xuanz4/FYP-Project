@@ -122,14 +122,14 @@ function testSmtpConfiguration() {
 function testNeutralMultipartContent() {
   const message = emailService.buildRfiEmail({
     recipientName: '<Customer>',
-    transactionId: 'TXN-001',
+    transactionId: 'UNIT-REFERENCE-A',
     transactionDate: '20/07/2026, 10:00:00',
     currency: 'SGD',
     amount: 123.4,
     informationRequested: 'Please provide <invoice> & receipt.\nThank you.',
   });
   assert.match(message.text, /Request|provide/i);
-  assert.match(message.text, /TXN-001/);
+  assert.match(message.text, /UNIT-REFERENCE-A/);
   assert.match(message.html, /&lt;Customer&gt;/);
   assert.match(message.html, /&lt;invoice&gt; &amp; receipt/);
   assert.doesNotMatch(message.text, /risk score|law enforcement|investigation case/i);
@@ -143,7 +143,7 @@ async function testSmtpDeliveryAndFailures() {
   const options = {
     to: 'contact@merchant.test',
     recipientName: 'Customer',
-    transactionId: 'TXN-001',
+    transactionId: 'UNIT-REFERENCE-A',
     transactionDate: '20/07/2026, 10:00:00',
     currency: 'SGD', amount: 20,
     subject: 'Request for Additional Transaction Information',
@@ -166,8 +166,8 @@ async function testSmtpDeliveryAndFailures() {
   assert.strictEqual(delivery.provider, 'smtp');
   assert.strictEqual(delivery.messageId, 'smtp-message-1');
   assert.strictEqual(verifyCount, 1);
-  assert.match(sentMessage.text, /TXN-001/);
-  assert.match(sentMessage.html, /TXN-001/);
+  assert.match(sentMessage.text, /UNIT-REFERENCE-A/);
+  assert.match(sentMessage.html, /UNIT-REFERENCE-A/);
 
   emailService.resetTransporterForTests();
   await assert.rejects(emailService.sendRfiEmail(options, {
@@ -190,10 +190,9 @@ async function testSmtpDeliveryAndFailures() {
   }
 }
 
-function testFrontendIsLocalOnlyAndProtectsDoubleClick() {
+function testFrontendHasNoPreviewAndProtectsDoubleClick() {
   const view = fs.readFileSync(path.join(__dirname, '..', 'views', 'transaction-detail.ejs'), 'utf8');
-  const previewHandler = view.slice(view.indexOf("previewButton?.addEventListener"), view.indexOf("form?.addEventListener"));
-  assert.doesNotMatch(previewHandler, /fetch\(|sendMail|\/rfi/);
+  assert.doesNotMatch(view, /id="rfiPreviewButton"|id="rfiEmailPreview"|previewButton\?\.addEventListener/);
   assert.match(view, /sendButton\.disabled = true/);
   assert.match(view, /sendButton\.disabled = false/);
   assert.match(view, /const canSendRfi = !isRfiTerminal/);
@@ -210,7 +209,7 @@ async function main() {
   await runTest('rejects unsupported RFI request fields', testRequestBodyRejectsUnsupportedFields);
   await runTest('validates SMTP configuration', testSmtpConfiguration);
   await runTest('builds neutral multipart RFI email content', testNeutralMultipartContent);
-  await runTest('keeps RFI preview local and protects against double click sends', testFrontendIsLocalOnlyAndProtectsDoubleClick);
+  await runTest('removes the RFI preview and protects against double click sends', testFrontendHasNoPreviewAndProtectsDoubleClick);
   await runTest('handles SMTP delivery success and provider failures', testSmtpDeliveryAndFailures);
   finish();
 }

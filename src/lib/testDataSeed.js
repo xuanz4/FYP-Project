@@ -100,6 +100,20 @@ async function upsertRule(database, rule) {
 async function seedTestData(database) {
   const [[{ existing }]] = await database.query('SELECT COUNT(*) AS existing FROM transactions WHERE transaction_id = ?', [transactions[0].id]);
   if (existing > 0) {
+    const [[profileHealth]] = await database.query(
+      `SELECT
+         (SELECT COUNT(*) FROM merchant_risk_profiles) AS profile_count,
+         (SELECT COUNT(DISTINCT merchant_id) FROM transactions) AS expected_profile_count,
+         (SELECT COUNT(*) FROM transactions WHERE profile_risk_contribution > 0) AS positive_contribution_count`,
+    );
+    if (
+      Number(profileHealth.profile_count) < Number(profileHealth.expected_profile_count)
+      || Number(profileHealth.positive_contribution_count) === 0
+    ) {
+      const { rebuildHistoricalProfileRisk } = require('./merchantRiskProfile');
+      const repaired = await rebuildHistoricalProfileRisk(database);
+      return { seeded: false, repaired };
+    }
     return { seeded: false };
   }
 

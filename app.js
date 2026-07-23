@@ -63,6 +63,9 @@ async function startServer() {
     if (result.seeded) {
       console.log(`Seeded test data: ${result.imported} transactions imported, ${result.flagged} flagged.`);
     }
+    if (result.repaired) {
+      console.log(`Repaired profile risk: ${result.repaired.updated} transactions updated, ${result.repaired.positiveProfileContributions} with profile contribution points.`);
+    }
     await backfillCaseDueDates().catch((error) => {
       console.error(`Case due-date backfill failed: ${error.message}`);
     });

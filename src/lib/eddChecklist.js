@@ -1,6 +1,6 @@
-// Shared write path for merchant_edd_checklist, used both by Admin (can set any field) and the
-// case workspace (Analyst may only set sourceOfFunds/siteVisit; senior sign-off is a separate,
-// Senior-Analyst/Admin-only write path) - see resolveWorkflow.js's cddGateRequirement and
+// Shared write path for merchant_edd_checklist. Analysts/Admin maintain baseline checks while
+// Enhanced Verification and final sign-off are Senior-Analyst-only case-workspace actions.
+// See resolveWorkflow.js's cddGateRequirement and
 // merchantCdd.js's computeEddComplete for why senior_signoff_completed is kept structurally
 // distinct from the other three items. Which fieldKey a caller may use is enforced by the
 // caller (adminController.js / transactionsController.js), not here.

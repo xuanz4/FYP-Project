@@ -32,6 +32,104 @@ function buildProfileRiskReasons({
   return reasons;
 }
 
+// Reconstructs the profile component for historical imports in chronological order. Each
+// transaction sees only the same merchant's earlier transactions, matching live ingestion and
+// avoiding future activity leaking into an older transaction's score.
+function buildHistoricalProfileRiskUpdates(rows) {
+  const stateByMerchant = new Map();
+  return rows.map((row) => {
+    const state = stateByMerchant.get(row.merchant_id) || {
+      transactionCount: 0,
+      flaggedTransactionCount: 0,
+      ruleTriggerCount: 0,
+      escalationCount: 0,
+      confirmedSuspiciousCaseCount: 0,
+    };
+    const profileRiskContribution = state.transactionCount >= MIN_TRANSACTIONS_FOR_SCORING
+      ? computeProfileRiskScore({
+        transactionCount: state.transactionCount,
+        flaggedTransactionRate: state.flaggedTransactionCount / state.transactionCount,
+        escalationCount: state.escalationCount,
+        confirmedSuspiciousCaseCount: state.confirmedSuspiciousCaseCount,
+        ruleTriggerCount: state.ruleTriggerCount,
+      })
+      : 0;
+    const riskScore = Math.min(
+      100,
+      Number(row.mcc_risk_contribution || 0)
+        + profileRiskContribution
+        + Number(row.transaction_detection_contribution || 0),
+    );
+    const riskLevel = riskLevelFromScore(riskScore);
+    const status = riskLevel === 'Low' ? 'Cleared' : 'Flagged';
+
+    state.transactionCount += 1;
+    if (status === 'Flagged') state.flaggedTransactionCount += 1;
+    state.ruleTriggerCount += Number(row.rule_trigger_count || 0);
+    state.escalationCount += Number(row.escalated || 0);
+    state.confirmedSuspiciousCaseCount += Number(row.str_filed || 0);
+    stateByMerchant.set(row.merchant_id, state);
+
+    return {
+      transactionId: row.transaction_id,
+      profileRiskContribution,
+      riskScore,
+      riskLevel,
+      status,
+    };
+  });
+}
+
+async function rebuildHistoricalProfileRisk(database) {
+  const [rows] = await database.query(
+    `SELECT t.transaction_id, t.merchant_id, t.txn_time,
+            t.mcc_risk_contribution, t.transaction_detection_contribution,
+            COUNT(DISTINCT tmr.id) AS rule_trigger_count,
+            MAX(c.escalation_destination IS NOT NULL) AS escalated,
+            MAX(sr.str_status = 'Filed') AS str_filed
+     FROM transactions t
+     LEFT JOIN transaction_matched_rules tmr ON tmr.transaction_id = t.transaction_id
+     LEFT JOIN cases c ON c.transaction_id = t.transaction_id
+     LEFT JOIN str_reports sr ON sr.transaction_id = t.transaction_id
+     GROUP BY t.transaction_id
+     ORDER BY t.txn_time, t.transaction_id`,
+  );
+  const updates = buildHistoricalProfileRiskUpdates(rows);
+
+  await database.withTransaction(async (transaction) => {
+    for (const update of updates) {
+      // The database's transactions_auto_case_update trigger opens a case when this repair
+      // changes a previously-cleared transaction to Flagged.
+      // eslint-disable-next-line no-await-in-loop
+      await transaction.execute(
+        `UPDATE transactions
+         SET profile_risk_contribution = ?, risk_score = ?, risk_level = ?, status = ?
+         WHERE transaction_id = ?`,
+        [
+          update.profileRiskContribution,
+          update.riskScore,
+          update.riskLevel,
+          update.status,
+          update.transactionId,
+        ],
+      );
+    }
+  });
+
+  const [merchantRows] = await database.query(
+    'SELECT merchant_id FROM merchants WHERE merchant_mid IS NOT NULL',
+  );
+  for (const merchant of merchantRows) {
+    // eslint-disable-next-line no-await-in-loop
+    await upsertMerchantRiskProfile(database, merchant.merchant_id);
+  }
+
+  return {
+    updated: updates.length,
+    positiveProfileContributions: updates.filter((row) => row.profileRiskContribution > 0).length,
+  };
+}
+
 async function upsertMerchantRiskProfile(database, merchantId) {
   const [merchantRows] = await database.query(
     'SELECT merchant_id, merchant_name, merchant_mid FROM merchants WHERE merchant_id = ? LIMIT 1',
@@ -167,5 +265,7 @@ module.exports = {
   upsertMerchantRiskProfile,
   generateUniqueTransactionReference,
   computeProfileRiskScore,
+  buildHistoricalProfileRiskUpdates,
+  rebuildHistoricalProfileRisk,
   MIN_TRANSACTIONS_FOR_SCORING,
 };

@@ -27,6 +27,7 @@ const testFiles = [
   'merchantRiskProfile.test.js',
   'merchantCdd.test.js',
   'cddDocuments.test.js',
+  'uploadValidation.test.js',
   'resolveWorkflow.test.js',
   'viewContracts.test.js',
 ];

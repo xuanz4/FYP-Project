@@ -4,87 +4,134 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>
-        <%= title %>
-    </title>
+    <title><%= title %></title>
     <link rel="stylesheet" href="/styles.css">
 </head>
 
 <body class="login-page">
-    <div class="login-bg-grid" aria-hidden="true"></div>
     <main class="login-shell">
         <section class="login-hero">
             <div class="login-brand-row">
-                <div class="brand-mark login-brand-mark">TM</div>
-                <div>
-                    <span class="login-brand-kicker">UNIWEB</span>
-                    <strong>Transaction Monitor</strong>
+                <div class="login-brand-shield" aria-hidden="true">
+                    <svg viewBox="0 0 64 72" role="img">
+                        <path d="M32 3 58 14v20c0 17-10.8 28.7-26 35C16.8 61.7 6 51 6 34V14L32 3Z" />
+                        <text x="32" y="42" text-anchor="middle">TM</text>
+                    </svg>
+                </div>
+                <strong>Transaction<br>Monitor</strong>
+            </div>
+
+            <div class="login-hero-copy">
+                <span class="login-status-pill">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3" /></svg>
+                    Secure review workspace
+                </span>
+                <h1>Transaction<br>Monitor</h1>
+                <p>Monitor payment activity, review flagged alerts, route cases, and make compliance decisions from one secure workspace.</p>
+            </div>
+
+            <div class="login-security-scene" aria-hidden="true">
+                <div class="login-orbit orbit-one"></div>
+                <div class="login-orbit orbit-two"></div>
+                <div class="login-scene-tile tile-chart">
+                    <svg viewBox="0 0 24 24"><path d="M5 19V12M12 19V7M19 19V3" /></svg>
+                </div>
+                <div class="login-scene-tile tile-bell">
+                    <svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>
+                </div>
+                <div class="login-scene-tile tile-user">
+                    <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-5 3-8 8-8s8 3 8 8" /></svg>
+                </div>
+                <div class="login-scene-tile tile-file">
+                    <svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6zM14 3v5h5M9 13h6M9 17h4" /></svg>
+                </div>
+                <div class="login-main-shield">
+                    <svg viewBox="0 0 120 140">
+                        <defs>
+                            <linearGradient id="shieldFill" x1="0" x2="1" y1="0" y2="1">
+                                <stop offset="0" stop-color="#8fffd1" />
+                                <stop offset="1" stop-color="#087b59" />
+                            </linearGradient>
+                        </defs>
+                        <path class="shield-glow" d="M60 4 112 28v39c0 35-21 57-52 69C29 124 8 102 8 67V28L60 4Z" />
+                        <path class="shield-face" d="M60 13 103 33v34c0 28-16 48-43 59C33 115 17 95 17 67V33L60 13Z" />
+                        <path class="shield-check" d="m38 68 15 16 31-38" />
+                    </svg>
                 </div>
             </div>
-            <div>
-                <span class="login-status-pill">Secure review workspace</span>
-                <h1>Transaction Monitor</h1>
-                <p>Monitor payment activity, review flagged alerts, route cases, and prepare compliance decisions from one protected workspace.</p>
-            </div>
-            <div class="login-role-strip" aria-label="Authorised roles">
-                <span>Admin</span>
-                <span>Analyst</span>
-                <span>Senior Analyst</span>
-                <span>STRO</span>
-            </div>
-            <div class="login-preview" aria-label="Security controls">
-                <div class="login-preview-header">
-                    <span>Private Access</span>
-                    <strong>Role-based case review</strong>
-                </div>
-                <div class="login-security-visual" aria-hidden="true">
-                    <div class="security-ring">
-                        <span>TM</span>
-                    </div>
-                    <div class="security-lines">
-                        <i></i>
-                        <i></i>
-                        <i></i>
-                    </div>
-                </div>
-                <div class="login-privacy-list">
-                    <span>Session-protected tools</span>
-                    <span>Audit-ready activity trail</span>
-                    <span>Controlled reviewer access</span>
-                </div>
+
+            <div class="login-security-note">
+                <span class="login-note-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24"><path d="m12 3 8 3v6c0 5-3.2 8.2-8 10-4.8-1.8-8-5-8-10V6l8-3Z" /><path d="m9 12 2 2 4-5" /></svg>
+                </span>
+                <span><strong>Your activity is protected with enterprise-grade security</strong>All data is encrypted and access is strictly controlled.</span>
             </div>
         </section>
+
         <section class="login-card">
-            <div class="login-card-accent">Secure workspace</div>
-            <div class="login-card-header">
-                <div class="login-card-icon">ID</div>
-                <div>
-                    <h2>Secure Sign In</h2>
-                    <p>Use your assigned User ID and password.</p>
-                </div>
-            </div>
-            <% if (error) { %>
-                <div class="alert-banner">
-                    <%= error %>
-                </div>
-                <% } %>
-                    <form method="post" action="/auth/login" class="login-form">
-                        <label>
-                            <span>User ID</span>
-                            <input type="text" name="userId" autocomplete="username" required>
-                        </label>
-                        <label>
-                            <span>Password</span>
-                            <input type="password" name="password" autocomplete="current-password" required>
-                        </label>
-                        <button type="submit" class="primary-btn">Sign In</button>
-                    </form>
-                    <div class="login-card-footer">
-                        <span>Protected access</span>
-                        <span>Session timeout enforced</span>
+            <div class="login-card-content">
+                <div class="login-card-header">
+                    <div class="login-card-icon" aria-hidden="true">
+                        <svg viewBox="0 0 32 36"><path d="M16 2 29 7v10c0 8.5-5.4 14.4-13 18C8.4 31.4 3 25.5 3 17V7l13-5Z" /><rect x="10" y="15" width="12" height="10" rx="2" /><path d="M12.5 15v-2.5a3.5 3.5 0 0 1 7 0V15M16 19v3" /></svg>
                     </div>
+                    <h2>Welcome Back</h2>
+                    <p>Sign in to your secure workspace</p>
+                </div>
+
+                <% if (error) { %>
+                    <div class="alert-banner"><%= error %></div>
+                <% } %>
+
+                <form method="post" action="/auth/login" class="login-form">
+                    <label>
+                        <span>User ID</span>
+                        <span class="login-input-wrap">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-5 3-8 8-8s8 3 8 8" /></svg>
+                            <input type="text" name="userId" autocomplete="username" placeholder="Enter your User ID" required autofocus>
+                        </span>
+                    </label>
+                    <label>
+                        <span>Password</span>
+                        <span class="login-input-wrap">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg>
+                            <input id="loginPassword" type="password" name="password" autocomplete="current-password" placeholder="Enter your password" required>
+                            <button class="password-toggle" type="button" aria-label="Show password" aria-pressed="false">
+                                <svg class="eye-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" /><circle cx="12" cy="12" r="2.5" /></svg>
+                                <svg class="eye-closed" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18M10.6 6.1A11.5 11.5 0 0 1 12 6c6.5 0 10 6 10 6a17 17 0 0 1-2.2 2.9M6.2 6.2C3.5 8 2 12 2 12s3.5 6 10 6a10.8 10.8 0 0 0 4.1-.8" /></svg>
+                            </button>
+                        </span>
+                    </label>
+                    <div class="login-form-options">
+                        <label class="remember-option">
+                            <input type="checkbox" name="remember">
+                            <span>Remember me</span>
+                        </label>
+                        <span class="forgot-password">Forgot password?</span>
+                    </div>
+                    <button type="submit" class="login-submit">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg>
+                        Sign In
+                    </button>
+                </form>
+            </div>
+
+            <div class="login-card-footer">
+                <span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 3v6c0 5-3.2 8.2-8 10-4.8-1.8-8-5-8-10V6l8-3Z" /><path d="m9 12 2 2 4-5" /></svg>Protected access</span>
+                <span><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8" /><path d="M12 9v5l3 2M9 2h6" /></svg>Session timeout enforced</span>
+            </div>
         </section>
     </main>
+
+    <script>
+        const passwordInput = document.querySelector('#loginPassword');
+        const passwordToggle = document.querySelector('.password-toggle');
+        passwordToggle.addEventListener('click', () => {
+            const showPassword = passwordInput.type === 'password';
+            passwordInput.type = showPassword ? 'text' : 'password';
+            passwordToggle.setAttribute('aria-pressed', String(showPassword));
+            passwordToggle.setAttribute('aria-label', showPassword ? 'Hide password' : 'Show password');
+        });
+    </script>
 </body>
 
 </html>

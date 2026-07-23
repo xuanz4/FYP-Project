@@ -74,7 +74,7 @@ function testSqlDateFormattingDropsMilliseconds() {
 
 function testTransactionSummary() {
   const summary = buildTransactionSummary({
-    transaction_id: 'TXN-001',
+    transaction_id: 'UNIT-REFERENCE-A',
     created_at: '2026-07-21T08:15:00Z',
     amount: 1250,
     currency: 'SGD',
@@ -82,7 +82,7 @@ function testTransactionSummary() {
     merchant_name: 'Demo Merchant',
     counterparty_country: 'Singapore',
   });
-  assert.match(summary, /Transaction ID: TXN-001/);
+  assert.match(summary, /Transaction ID: UNIT-REFERENCE-A/);
   assert.match(summary, /Amount: SGD 1250\.00/);
   assert.match(summary, /Counterparty: Demo Merchant/);
 }

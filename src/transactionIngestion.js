@@ -32,8 +32,9 @@ async function ensureMerchant(database, merchant) {
   );
 }
 
-// raw: { id, merchantId, storeId, amount, method, scheme, issuer, transactionType, entryMode,
-//        status, statusLabel, statusTone, net, fee, txnTime, note, cardRef }
+// raw: { id, merchantId, storeId, amount, method, scheme, issuer, issuerBank, cardBin,
+//        cardLast4, cardRef, cvvValidationResult, expiryValidationResult, transactionCode,
+//        transactionType, entryMode, status, statusLabel, statusTone, net, fee, txnTime, note }
 // cardRef is an optional tokenised/hashed card reference from the partner feed (never a raw
 // PAN) - present only once the partner adds it; absent transactions just don't get matched
 // against other cards.
@@ -71,13 +72,18 @@ async function ingestTransaction(database, raw, merchant, { broadcast } = {}) {
   await database.execute(
     `INSERT INTO transactions (
       transaction_id, unique_transaction_reference, merchant_id, store_id, amount, method, scheme, issuer_country,
+      issuer_bank, card_bin, card_last4, cvv_validation_result, expiry_validation_result, transaction_code,
       transaction_type, entry_mode, payment_status, payment_status_label, payment_status_tone,
       net, fee, txn_time, source_note, risk_score, risk_level,
       mcc_risk_contribution, profile_risk_contribution, transaction_detection_contribution,
       status, action_status, created_at, card_ref
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'None', ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'None', ?, ?)`,
     [
       raw.id, uniqueTransactionReference, raw.merchantId, raw.storeId || null, raw.amount, raw.method || null, raw.scheme || null, raw.issuer || null,
+      raw.issuerBank || null,
+      /^\d{6,8}$/.test(String(raw.cardBin || '')) ? String(raw.cardBin) : null,
+      /^\d{4}$/.test(String(raw.cardLast4 || '')) ? String(raw.cardLast4) : null,
+      raw.cvvValidationResult || null, raw.expiryValidationResult || null, raw.transactionCode || null,
       raw.transactionType || null, raw.entryMode || null, raw.status || null, raw.statusLabel || null, raw.statusTone || null,
       raw.net ?? null, raw.fee ?? null, txnTime, raw.note || null,
       evaluation.riskScore, evaluation.riskLevel,

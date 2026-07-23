@@ -3,7 +3,7 @@
 <%
   const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG') : 'Not assigned';
   const isOverdue = (item) => item.due_at && new Date(item.due_at).getTime() < Date.now() && !['Resolved','Dismissed as False Positive','STR Filed'].includes(item.case_status);
-  const statusLabel = (value) => ({ Open: 'New', 'Pending RFI': 'Waiting for Information', 'Pending Senior Review': 'Escalated' }[value] || value || 'New');
+  const statusLabel = (value) => ({ Open: 'New', 'Pending RFI': 'Waiting for Information', 'Pending Senior Review': 'Escalated to Senior Analyst', Escalated: 'Escalated to STRO' }[value] || value || 'New');
   const params = new URLSearchParams(filters);
   const pageLink = (page) => { const next = new URLSearchParams(params); next.set('page', page); return `/analyst/working-queue?${next.toString()}`; };
 %>

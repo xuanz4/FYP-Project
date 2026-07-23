@@ -50,7 +50,7 @@ function testParseEmailMessageExtractsPlainText() {
     'Date: Wed, 22 Jul 2026 10:00:00 +0800',
     'Content-Type: text/plain; charset=utf-8',
     '',
-    'Here is the requested invoice information for TXN-001.',
+    'Here is the requested invoice information for UNIT-REFERENCE-A.',
   ].join('\r\n'));
 
   assert.strictEqual(message.from, 'Merchant Contact <merchant@example.test>');

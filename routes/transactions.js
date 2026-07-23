@@ -1,5 +1,5 @@
 const express = require('express');
-const { requireAuth } = require('../src/middleware/auth');
+const { requireAuth, requireRole } = require('../src/middleware/auth');
 const { handleDatabaseRfiRequest } = require('../src/lib/rfiWorkflow');
 const { handleDatabaseResolveRequest } = require('../src/lib/resolveWorkflow');
 const { uploadCddDocument } = require('../src/middleware/upload');
@@ -9,7 +9,7 @@ const documentsController = require('../controllers/documentsController');
 const router = express.Router();
 
 router.get('/transactions/:id', requireAuth, transactionsController.transactionDetailPage);
-router.get('/documents/:id/download', requireAuth, documentsController.downloadDocument);
+router.get('/transactions/:transactionId/documents/:id/download', requireAuth, documentsController.downloadDocument);
 
 router.patch('/api/cases/:caseId/assign-to-me', requireAuth, transactionsController.assignToMe);
 router.post('/api/transactions/:id/refer-to-stro', requireAuth, transactionsController.referToStro);
@@ -23,7 +23,12 @@ router.post('/api/transactions', transactionsController.ingestTransactionEndpoin
 router.get('/api/transactions/:id/rfi/latest-response', requireAuth, transactionsController.latestRfiResponseEndpoint);
 router.post('/api/transactions/:id/rfi', (req, res) => handleDatabaseRfiRequest(req, res));
 router.post('/api/transactions/:id/edd-checklist', requireAuth, transactionsController.updateCaseEddChecklist);
-router.post('/api/transactions/:id/cdd-documents', requireAuth, uploadCddDocument, transactionsController.uploadCaseDocument);
+router.post(
+  '/api/transactions/:id/cdd-documents',
+  requireRole('Analyst', 'Senior Analyst'),
+  uploadCddDocument,
+  transactionsController.uploadCaseDocument,
+);
 router.post('/api/transactions/:id/rfi-evidence', requireAuth, transactionsController.logRfiEvidence);
 router.patch('/api/transactions/:id/resolve', (req, res) => handleDatabaseResolveRequest(req, res));
 

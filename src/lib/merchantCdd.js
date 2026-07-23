@@ -30,7 +30,31 @@ function computeEddComplete(checklist) {
   );
 }
 
-async function loadMerchantCddContext(db, merchantId) {
+function requiresEdd(_merchantRiskTier, transactionRiskLevel) {
+  // Transaction-case EDD is triggered only by the transaction's assessed risk. The stored
+  // merchant tier remains profile context and must not force a Medium/Low case into EDD.
+  return ['High', 'Critical'].includes(transactionRiskLevel);
+}
+
+function computeCddComplete(profile) {
+  if (!profile || profile.kyc_status !== 'Verified') return false;
+  const countries = parseExpectedCountries(profile.expected_countries);
+  return Boolean(
+    profile.verification_date
+    && profile.next_review_date
+    && profile.expected_monthly_volume !== null
+    && profile.expected_monthly_volume !== undefined
+    && profile.expected_avg_ticket !== null
+    && profile.expected_avg_ticket !== undefined
+    && countries.length
+    && profile.expected_operating_open_hour !== null
+    && profile.expected_operating_open_hour !== undefined
+    && profile.expected_operating_close_hour !== null
+    && profile.expected_operating_close_hour !== undefined,
+  );
+}
+
+async function loadMerchantCddContext(db, merchantId, { transactionRiskLevel = null } = {}) {
   const client = db || database;
   // isEnabled() guards the singleton-database fallback (an unconfigured/disconnected pool);
   // callers that inject their own client (transactionIngestion.js's real database param, or a
@@ -46,7 +70,8 @@ async function loadMerchantCddContext(db, merchantId) {
       expectedMonthlyVolume: null,
       expectedCountries: [],
       expectedOperatingHours: null,
-      eddRequired: false,
+      cddComplete: false,
+      eddRequired: requiresEdd(null, transactionRiskLevel),
       eddComplete: false,
       checklist: null,
     };
@@ -74,7 +99,7 @@ async function loadMerchantCddContext(db, merchantId) {
   const merchant = merchantRow[0];
   const profile = profileRows[0] || null;
   const checklist = checklistRows[0] || null;
-  const eddRequired = merchant?.risk_tier === 'High';
+  const eddRequired = requiresEdd(merchant?.risk_tier, transactionRiskLevel);
   const openHour = profile?.expected_operating_open_hour;
   const closeHour = profile?.expected_operating_close_hour;
 
@@ -90,6 +115,7 @@ async function loadMerchantCddContext(db, merchantId) {
     expectedCountries: parseExpectedCountries(profile?.expected_countries),
     expectedOperatingHours: (openHour !== undefined && openHour !== null && closeHour !== undefined && closeHour !== null)
       ? { openHour: Number(openHour), closeHour: Number(closeHour) } : null,
+    cddComplete: computeCddComplete(profile),
     eddRequired,
     eddComplete: computeEddComplete(checklist),
     checklist,
@@ -99,6 +125,8 @@ async function loadMerchantCddContext(db, merchantId) {
 module.exports = {
   loadMerchantCddContext,
   computeEddComplete,
+  computeCddComplete,
   isReviewOverdue,
   parseExpectedCountries,
+  requiresEdd,
 };

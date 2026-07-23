@@ -11,6 +11,7 @@ require('dotenv').config();
 const path = require('path');
 const XLSX = require('xlsx');
 const fs = require('fs');
+const crypto = require('crypto');
 const database = require('../src/database');
 
 const WORKBOOK_PATH = process.env.RESET_RELOAD_XLSX_PATH
@@ -22,12 +23,31 @@ function toIsoString(value) {
   return new Date(value).toISOString();
 }
 
+function syntheticCardMetadata(row) {
+  const sourceCardRef = row.card_ref || `CARD-TEST-${row.id}`;
+  const cardHash = crypto.createHash('sha256').update(`FYP-SYNTHETIC-TEST:${sourceCardRef}`).digest();
+  const transactionHash = crypto.createHash('sha256').update(`FYP-SYNTHETIC-TEST:${row.id}`).digest('hex');
+  const cvvBucket = cardHash[8] % 20;
+  const expiryBucket = cardHash[9] % 20;
+  return {
+    cardRef: sourceCardRef,
+    cardLast4: row.card_last4 || String(cardHash.readUInt32BE(0) % 10000).padStart(4, '0'),
+    cardBin: row.card_bin || String(900000 + (cardHash.readUInt32BE(4) % 100000)),
+    issuerBank: row.issuer_bank || `Synthetic Test Bank ${String((cardHash[10] % 20) + 1).padStart(2, '0')}`,
+    cvvValidationResult: row.cvv_validation_result || (cvvBucket < 17 ? 'Passed' : cvvBucket < 19 ? 'Failed' : 'Unavailable'),
+    expiryValidationResult: row.expiry_validation_result || (expiryBucket < 18 ? 'Passed' : expiryBucket === 18 ? 'Failed' : 'Unavailable'),
+    transactionCode: row.transaction_code || `TEST-AUTH-${transactionHash.slice(0, 12).toUpperCase()}`,
+  };
+}
+
 function convertWorkbookToPartnerJson(workbookPath) {
   const workbook = XLSX.readFile(workbookPath, { cellDates: true });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(sheet, { defval: null });
 
-  const transactions = rows.map((row) => ({
+  const transactions = rows.map((row) => {
+    const card = syntheticCardMetadata(row);
+    return {
     id: row.id,
     merchantId: row.merchant_id,
     merchantName: row.merchant_name,
@@ -38,6 +58,13 @@ function convertWorkbookToPartnerJson(workbookPath) {
     method: row.method,
     scheme: row.scheme,
     issuer: row.issuer,
+    issuerBank: card.issuerBank,
+    cardBin: card.cardBin,
+    cardLast4: card.cardLast4,
+    cardRef: card.cardRef,
+    cvvValidationResult: card.cvvValidationResult,
+    expiryValidationResult: card.expiryValidationResult,
+    transactionCode: card.transactionCode,
     transactionType: row.transaction_type,
     entryMode: row.entry_mode,
     status: row.status,
@@ -47,7 +74,8 @@ function convertWorkbookToPartnerJson(workbookPath) {
     fee: row.fee === null ? null : Number(row.fee),
     txnTime: toIsoString(row.txn_time),
     note: row.note,
-  }));
+    };
+  });
 
   if (!transactions.length) {
     throw new Error(`No rows found in workbook: ${workbookPath}`);

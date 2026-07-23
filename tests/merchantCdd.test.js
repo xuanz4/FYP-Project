@@ -1,6 +1,12 @@
 const assert = require('assert');
 const { suite, runTest, finish } = require('./runAll');
-const { loadMerchantCddContext, computeEddComplete, isReviewOverdue, parseExpectedCountries } = require('../src/lib/merchantCdd');
+const {
+  loadMerchantCddContext,
+  computeEddComplete,
+  isReviewOverdue,
+  parseExpectedCountries,
+  requiresEdd,
+} = require('../src/lib/merchantCdd');
 
 function fakeDatabase({ merchant = null, profile = null, checklist = null } = {}) {
   return {
@@ -49,7 +55,7 @@ async function testParsesExpectedActivityAndFlagsOverdueReview() {
   assert.strictEqual(context.expectedMonthlyVolume, 10000);
   assert.deepStrictEqual(context.expectedCountries, ['SG', 'MY', 'ID']);
   assert.deepStrictEqual(context.expectedOperatingHours, { openHour: 8, closeHour: 20 });
-  assert.strictEqual(context.eddRequired, true);
+  assert.strictEqual(context.eddRequired, false);
   assert.strictEqual(context.eddComplete, false);
 }
 
@@ -75,6 +81,20 @@ function testParseExpectedCountries() {
   assert.deepStrictEqual(parseExpectedCountries('sg,  my,ID'), ['SG', 'MY', 'ID']);
 }
 
+function testHighAndCriticalTransactionsRequireEdd() {
+  assert.strictEqual(requiresEdd('Standard', 'High'), true);
+  assert.strictEqual(requiresEdd('Standard', 'Critical'), true);
+  assert.strictEqual(requiresEdd('High', 'Medium'), false);
+  assert.strictEqual(requiresEdd('Standard', 'Medium'), false);
+  assert.strictEqual(requiresEdd('Standard', 'Low'), false);
+}
+
+async function testStandardMerchantHighTransactionRequiresEdd() {
+  const database = fakeDatabase({ merchant: { risk_tier: 'Standard' } });
+  const context = await loadMerchantCddContext(database, 'M002', { transactionRiskLevel: 'High' });
+  assert.strictEqual(context.eddRequired, true);
+}
+
 async function main() {
   suite('Merchant CDD Context');
   await runTest('returns safe defaults when no merchant id is given', testReturnsDefaultsWhenNoMerchantId);
@@ -82,6 +102,8 @@ async function main() {
   await runTest('EDD completion requires all four items including senior sign-off', testComputeEddCompleteRequiresAllFourIncludingSignoff);
   await runTest('flags a past next-review-date as overdue', testIsReviewOverdue);
   await runTest('normalizes comma-separated expected countries', testParseExpectedCountries);
+  await runTest('requires EDD for High and Critical transaction cases', testHighAndCriticalTransactionsRequireEdd);
+  await runTest('requires EDD for a High transaction from a Standard merchant', testStandardMerchantHighTransactionRequiresEdd);
   finish();
 }
 

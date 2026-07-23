@@ -207,6 +207,43 @@ const ensureRiskContributionColumns = memoizeAsync(async function ensureRiskCont
     await database.execute('ALTER TABLE transactions ADD COLUMN unique_transaction_reference VARCHAR(50) NULL AFTER transaction_id');
   }
 
+  // Older UNIWEB test rows have a risk_score/risk_level but no persisted component breakdown.
+  // Reconstruct a bounded breakdown without changing the original score: merchant MCC first,
+  // matched-rule weights second, and any remaining historical points as Profile contribution.
+  // New transactions already persist all three components and are not touched.
+  await database.execute(
+    `UPDATE transactions t
+     LEFT JOIN merchants m ON m.merchant_id = t.merchant_id
+     LEFT JOIN (
+       SELECT tmr.transaction_id, SUM(COALESCE(cr.weight, 0)) AS rule_points
+       FROM transaction_matched_rules tmr
+       LEFT JOIN compliance_rules cr ON cr.rule_id = tmr.rule_id
+       GROUP BY tmr.transaction_id
+     ) matched ON matched.transaction_id = t.transaction_id
+     SET
+       t.mcc_risk_contribution =
+         LEAST(t.risk_score, GREATEST(0, COALESCE(m.mcc_risk_score, 0))),
+       t.transaction_detection_contribution =
+         LEAST(
+           GREATEST(t.risk_score - LEAST(t.risk_score, GREATEST(0, COALESCE(m.mcc_risk_score, 0))), 0),
+           GREATEST(0, COALESCE(matched.rule_points, 0))
+         ),
+       t.profile_risk_contribution =
+         GREATEST(
+           t.risk_score
+             - LEAST(t.risk_score, GREATEST(0, COALESCE(m.mcc_risk_score, 0)))
+             - LEAST(
+               GREATEST(t.risk_score - LEAST(t.risk_score, GREATEST(0, COALESCE(m.mcc_risk_score, 0))), 0),
+               GREATEST(0, COALESCE(matched.rule_points, 0))
+             ),
+           0
+         )
+     WHERE t.risk_score > 0
+       AND COALESCE(t.mcc_risk_contribution, 0) = 0
+       AND COALESCE(t.profile_risk_contribution, 0) = 0
+       AND COALESCE(t.transaction_detection_contribution, 0) = 0`,
+  );
+
   const [indexes] = await database.query(
     `SELECT INDEX_NAME
      FROM INFORMATION_SCHEMA.STATISTICS
@@ -389,7 +426,7 @@ const ensureMerchantCddSchema = memoizeAsync(async function ensureMerchantCddSch
   );
 
   // Supporting evidence files for the CDD baseline / EDD checklist / screening records - stored
-  // on local disk under uploads/cdd/<merchantId>/ (see src/middleware/upload.js), never under
+  // on local disk under uploads/cdd/ (see src/middleware/upload.js), never under
   // /public, so a file is only reachable through the authenticated download route. document_type
   // mirrors the EDD checklist's field grouping so a document can be tied to the checklist item
   // it supports; 'Screening' and 'Other' cover screening-record backup and anything else.
@@ -397,7 +434,9 @@ const ensureMerchantCddSchema = memoizeAsync(async function ensureMerchantCddSch
     `CREATE TABLE IF NOT EXISTS merchant_cdd_documents (
       document_id VARCHAR(40) PRIMARY KEY,
       merchant_id VARCHAR(20) NOT NULL,
-      document_type ENUM('Source of Funds', 'Site Visit', 'Enhanced Verification', 'Screening', 'Other') NOT NULL,
+      transaction_id VARCHAR(40) NULL,
+      case_id VARCHAR(40) NULL,
+      document_type ENUM('Business Registration', 'Screening', 'Source of Funds', 'Site Visit', 'Enhanced Verification', 'Other') NOT NULL,
       original_filename VARCHAR(255) NOT NULL,
       stored_filename VARCHAR(255) NOT NULL,
       mime_type VARCHAR(100) NOT NULL,
@@ -406,9 +445,41 @@ const ensureMerchantCddSchema = memoizeAsync(async function ensureMerchantCddSch
       uploaded_by VARCHAR(20) NULL,
       uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_merchant_cdd_documents_merchant (merchant_id),
-      FOREIGN KEY (merchant_id) REFERENCES merchants(merchant_id) ON DELETE CASCADE
+      INDEX idx_merchant_cdd_documents_transaction (transaction_id),
+      INDEX idx_merchant_cdd_documents_case (case_id),
+      FOREIGN KEY (merchant_id) REFERENCES merchants(merchant_id) ON DELETE CASCADE,
+      FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE,
+      FOREIGN KEY (case_id) REFERENCES cases(case_id) ON DELETE CASCADE
     )`,
   );
+
+  const dbName = process.env.DB_NAME;
+  const [documentColumns] = await database.query(
+    `SELECT COLUMN_NAME
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'merchant_cdd_documents'
+       AND COLUMN_NAME IN ('transaction_id', 'case_id')`,
+    [dbName],
+  );
+  const hasDocumentColumn = (column) => documentColumns.some((row) => row.COLUMN_NAME === column);
+  if (!hasDocumentColumn('transaction_id')) {
+    await database.execute(
+      `ALTER TABLE merchant_cdd_documents
+       ADD COLUMN transaction_id VARCHAR(40) NULL AFTER merchant_id,
+       ADD INDEX idx_merchant_cdd_documents_transaction (transaction_id),
+       ADD CONSTRAINT fk_merchant_cdd_documents_transaction
+         FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE`,
+    );
+  }
+  if (!hasDocumentColumn('case_id')) {
+    await database.execute(
+      `ALTER TABLE merchant_cdd_documents
+       ADD COLUMN case_id VARCHAR(40) NULL AFTER transaction_id,
+       ADD INDEX idx_merchant_cdd_documents_case (case_id),
+       ADD CONSTRAINT fk_merchant_cdd_documents_case
+         FOREIGN KEY (case_id) REFERENCES cases(case_id) ON DELETE CASCADE`,
+    );
+  }
 
   // Split by who may set each field - see merchantCdd.js's eddComplete: the first three plus
   // senior_signoff_completed are all required, and senior_signoff_completed is only ever
@@ -436,6 +507,20 @@ const ensureMerchantCddSchema = memoizeAsync(async function ensureMerchantCddSch
       FOREIGN KEY (merchant_id) REFERENCES merchants(merchant_id) ON DELETE CASCADE
     )`,
   );
+  // Keep historical rows consistent with the sign-off rule introduced in the case workspace.
+  // A sign-off cannot remain valid when any prerequisite check is incomplete.
+  await database.execute(
+    `UPDATE merchant_edd_checklist
+     SET senior_signoff_completed = 0,
+         senior_signoff_notes = 'Automatically revoked because an EDD prerequisite is incomplete.',
+         senior_signoff_at = NOW()
+     WHERE senior_signoff_completed = 1
+       AND (
+         source_of_funds_verified = 0
+         OR site_visit_completed = 0
+         OR enhanced_verification_completed = 0
+       )`,
+  );
 
   // mailbox_reference anchors an 'RFI Reply Reviewed' entry to a real, independently
   // re-checkable email (Message-ID/date/from, or a body hash) found live in the mailbox at
@@ -451,6 +536,31 @@ const ensureMerchantCddSchema = memoizeAsync(async function ensureMerchantCddSch
       recorded_by VARCHAR(20) NULL,
       recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_case_rfi_evidence_case (case_id),
+      FOREIGN KEY (case_id) REFERENCES cases(case_id) ON DELETE CASCADE
+    )`,
+  );
+  await database.execute(
+    `ALTER TABLE merchant_cdd_documents
+     MODIFY COLUMN document_type
+       ENUM('Business Registration', 'Screening', 'Source of Funds', 'Site Visit', 'Enhanced Verification', 'Other') NOT NULL`,
+  );
+
+  // Records each mailbox reply once so repeated "Load Response" checks cannot create duplicate
+  // receipt audit entries. The fingerprint uses Message-ID when available and a content hash
+  // otherwise; the audit log separately records the later human review of that reply.
+  await database.execute(
+    `CREATE TABLE IF NOT EXISTS rfi_email_receipts (
+      receipt_id VARCHAR(40) PRIMARY KEY,
+      transaction_id VARCHAR(40) NOT NULL,
+      case_id VARCHAR(40) NOT NULL,
+      message_fingerprint CHAR(64) NOT NULL,
+      mailbox_reference VARCHAR(255) NULL,
+      sender VARCHAR(255) NULL,
+      subject VARCHAR(255) NULL,
+      email_date VARCHAR(255) NULL,
+      detected_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_rfi_email_receipt (transaction_id, message_fingerprint),
+      INDEX idx_rfi_email_receipt_case (case_id),
       FOREIGN KEY (case_id) REFERENCES cases(case_id) ON DELETE CASCADE
     )`,
   );

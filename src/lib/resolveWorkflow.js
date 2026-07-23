@@ -20,33 +20,21 @@ function calculateFinalScoreFromContributions(mccContribution, profileContributi
   return Math.min(100, Number(mccContribution || 0) + Number(profileContribution || 0) + Number(detectionContribution || 0));
 }
 
-function validateContributionLimits({
-  actualMccContribution, actualProfileContribution, actualDetectionContribution,
-  manualMccContribution, manualProfileContribution, manualDetectionContribution,
-}) {
-  const limits = [
-    ['MCC', actualMccContribution ?? 0, manualMccContribution],
-    ['Profile', actualProfileContribution ?? 0, manualProfileContribution],
-    ['Detection', actualDetectionContribution ?? 0, manualDetectionContribution],
-  ];
-  const exceeded = limits.filter(([, actual, manual]) => Number(manual) > Number(actual));
-  if (!exceeded.length) return null;
-  return exceeded.map(([label, actual, manual]) => `${label}: maximum ${actual}, entered ${manual}`).join('; ');
-}
-
 // EDD completion requires senior_signoff_completed specifically (see merchantCdd.js's
 // computeEddComplete) - an Analyst can record the two Analyst-settable checklist items but
 // can never grant sign-off themselves, so this gate can't be satisfied by one role alone.
 function cddGateRequirement({ role, cddContext }) {
-  if (role === 'Senior Analyst') return { allowed: true };
   const reasons = [];
-  if (cddContext.eddRequired && !cddContext.eddComplete) reasons.push('this merchant\'s EDD checklist is incomplete (Senior Analyst sign-off outstanding)');
-  if (cddContext.reviewOverdue) reasons.push('this merchant\'s CDD review date has passed');
+  if (!cddContext.cddComplete) reasons.push('CDD is incomplete');
+  if (cddContext.reviewOverdue) reasons.push('the CDD review date has passed');
+  if (cddContext.eddRequired) {
+    if (!cddContext.eddComplete) reasons.push('this merchant\'s EDD checklist is incomplete (Senior Analyst sign-off outstanding)');
+  }
   if (!reasons.length) return { allowed: true };
   return {
     allowed: false,
     status: 403,
-    message: `Resolution requires Senior Analyst approval: ${reasons.join('; ')}.`,
+    message: `Resolution is blocked: ${reasons.join('; ')}.`,
   };
 }
 
@@ -152,7 +140,9 @@ async function handleDatabaseResolveRequest(req, res) {
     return res.status(409).json({ success: false, message: 'Assessment already resolved' });
   }
 
-  const cddContext = await loadMerchantCddContext(database, row.merchant_id);
+  const cddContext = await loadMerchantCddContext(database, row.merchant_id, {
+    transactionRiskLevel: row.risk_level,
+  });
   const cddGate = cddGateRequirement({ role: req.session.user.role, cddContext });
   if (!cddGate.allowed) {
     return res.status(cddGate.status).json({ success: false, message: cddGate.message });
@@ -189,20 +179,6 @@ async function handleDatabaseResolveRequest(req, res) {
     return res.status(400).json({
       success: false,
       message: 'Manual MCC, Profile and Detection contributions are all required whole numbers from 0 to 100.',
-    });
-  }
-  const contributionLimitError = validateContributionLimits({
-    actualMccContribution: row.mcc_risk_contribution,
-    actualProfileContribution: row.profile_risk_contribution,
-    actualDetectionContribution: row.transaction_detection_contribution,
-    manualMccContribution,
-    manualProfileContribution,
-    manualDetectionContribution,
-  });
-  if (contributionLimitError) {
-    return res.status(400).json({
-      success: false,
-      message: `Manual contribution exceeds the scoring model limit. ${contributionLimitError}`,
     });
   }
   const manualFinalScore = calculateFinalScoreFromContributions(
@@ -329,7 +305,6 @@ module.exports = {
   handleDatabaseResolveRequest,
   parseRequiredWholeNumber,
   calculateFinalScoreFromContributions,
-  validateContributionLimits,
   reviewRequirementForScoreChange,
   buildReconciliationResult,
   cddGateRequirement,

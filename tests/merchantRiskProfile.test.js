@@ -2,6 +2,7 @@ const assert = require('assert');
 const { suite, runTest, finish } = require('./runAll');
 const {
   computeProfileRiskScore,
+  buildHistoricalProfileRiskUpdates,
   generateUniqueTransactionReference,
   upsertMerchantRiskProfile,
   MIN_TRANSACTIONS_FOR_SCORING,
@@ -31,6 +32,26 @@ function testProfileRiskScoreHandlesNoTransactions() {
   assert.strictEqual(computeProfileRiskScore({
     transactionCount: 0, flaggedTransactionRate: 0, escalationCount: 0, confirmedSuspiciousCaseCount: 0, ruleTriggerCount: 5,
   }), 0);
+}
+
+function testHistoricalProfileRiskUsesEarlierHistoryOnly() {
+  const rows = Array.from({ length: 7 }, (_, index) => ({
+    transaction_id: `TX-${index + 1}`,
+    merchant_id: 'M001',
+    mcc_risk_contribution: 5,
+    transaction_detection_contribution: index < 5 ? 30 : 0,
+    rule_trigger_count: index < 5 ? 1 : 0,
+    escalated: 0,
+    str_filed: 0,
+  }));
+  const updates = buildHistoricalProfileRiskUpdates(rows);
+
+  assert.deepStrictEqual(
+    updates.slice(0, MIN_TRANSACTIONS_FOR_SCORING).map((row) => row.profileRiskContribution),
+    [0, 0, 0, 0, 0],
+  );
+  assert.ok(updates[5].profileRiskContribution > 0);
+  assert.ok(updates.every((row) => row.riskScore <= 100));
 }
 
 function testProfileRiskScoreAddsMixedSignals() {
@@ -133,6 +154,7 @@ async function main() {
   suite('Merchant Risk Profile');
   await runTest('computes profile risk score bands capped at 100', testProfileRiskScoreBands);
   await runTest('computes zero profile score when there are no transactions', testProfileRiskScoreHandlesNoTransactions);
+  await runTest('rebuilds profile contributions from earlier merchant history only', testHistoricalProfileRiskUsesEarlierHistoryOnly);
   await runTest('adds mixed merchant profile risk signals', testProfileRiskScoreAddsMixedSignals);
   await runTest('generates sequential, year-scoped unique transaction references', testUniqueTransactionReferenceGeneration);
   await runTest('ignores malformed transaction reference sequences', testUniqueTransactionReferenceIgnoresMalformedSequence);

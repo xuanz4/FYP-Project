@@ -36,7 +36,7 @@ function testTransactionDetailWorkflowControls() {
   const view = readView('views/transaction-detail.ejs');
   assert.match(view, /id="assignToMeButton"/);
   assert.match(view, /id="rfiEmailModal"/);
-  assert.match(view, /previewButton\?\.addEventListener\('click'/);
+  assert.doesNotMatch(view, /id="rfiPreviewButton"|previewButton\?\.addEventListener/);
   assert.match(view, /form\?\.addEventListener\('submit'/);
   assert.match(view, /fetch\(`\/api\/transactions\/\$\{encodeURIComponent\(openButton\?\.dataset\.transactionId \|\| ''\)\}\/rfi`/);
   assert.match(view, /fetch\(`\/api\/transactions\/\$\{encodeURIComponent\(resolveOpenButton\?\.dataset\.transactionId \|\| '<%= transactionId %>'\)\}\/resolve`/);

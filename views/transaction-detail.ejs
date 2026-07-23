@@ -34,7 +34,8 @@
     const assessmentStatusMap = {
         'Open': 'New',
         'Pending RFI': 'Waiting for Information',
-        'Pending Senior Review': 'Escalated',
+        'Pending Senior Review': 'Escalated to Senior Analyst',
+        Escalated: 'Escalated to STRO',
         'Dismissed as False Positive': 'Resolved',
         'STR Filed': 'Resolved',
         'None': 'New'
@@ -102,7 +103,7 @@
     const canMarkStrNotRequired = canStroWorkStr;
     const canPrepareStr = canStroWorkStr;
     const screeningResult = transactionStatus === 'Flagged' ? 'Potential review required' : 'Cleared';
-    const recommendedAction = tx.recommendedAction || (initialLevel === 'Critical' ? 'Manual Review or Hold Settlement' : initialLevel === 'High' ? 'Request OTP' : initialLevel === 'Medium' ? 'Monitor' : 'Allow');
+    const recommendedAction = tx.recommendedAction || (initialLevel === 'Critical' ? 'Manual Review or Hold Settlement' : initialLevel === 'High' ? 'Additional verification required' : initialLevel === 'Medium' ? 'Monitor' : 'Allow');
     const backHref = role === 'Admin' ? '/admin' : role === 'STRO' ? '/stro' : role === 'Senior Analyst' ? '/senior-analyst' : '/analyst';
     const routedToSenior = caseInfo?.assigned_role === 'Senior Analyst'
         || caseInfo?.assignedRole === 'Senior Analyst'
@@ -127,7 +128,7 @@
     const cdd = (typeof cddContext !== 'undefined' && cddContext) ? cddContext : {
         kycStatus: 'Not Started', verificationDate: null, nextReviewDate: null, reviewOverdue: false,
         expectedAvgTicket: null, expectedMonthlyVolume: null, expectedCountries: [], expectedOperatingHours: null,
-        eddRequired: false, eddComplete: false, checklist: null
+        cddComplete: false, eddRequired: false, eddComplete: false, checklist: null
     };
     const eddChecklist = cdd.checklist || {};
     const screenings = Array.isArray(screeningRecords) ? screeningRecords : [];
@@ -136,13 +137,18 @@
     // separate Senior Analyst/Admin-only control, so an Analyst alone can never satisfy
     // resolveWorkflow.js's cddGateRequirement.
     const canEditEddAnalystFields = isAnalyst && cdd.eddRequired && !isResolved;
-    const canEditEddSignoff = (isSenior || isAdmin) && cdd.eddRequired;
-    // Same role split as the checklist itself (EDD_CHECKLIST_ROLE_FIELDS in
-    // transactionsController.js): an Analyst can only attach evidence for the two items they can
-    // complete themselves, Senior Analyst/Admin can attach any document type.
+    const canPerformSeniorEddReview = isSenior && cdd.eddRequired && !isResolved;
+    const eddPrerequisitesComplete = Boolean(
+        eddChecklist.source_of_funds_verified
+        && eddChecklist.site_visit_completed
+        && eddChecklist.enhanced_verification_completed
+    );
+    // Case-workspace upload duties are separated between Analysts (CDD) and Senior Analysts
+    // (EDD). Admin has read-only oversight on transaction cases.
     const cddDocumentsList = Array.isArray(cddDocuments) ? cddDocuments : [];
-    const documentUploadTypes = (isSenior || isAdmin) ? ['Source of Funds', 'Site Visit', 'Enhanced Verification', 'Screening', 'Other']
-        : (isAnalyst ? ['Source of Funds', 'Site Visit'] : []);
+    const documentUploadTypes = isSenior
+        ? ['Source of Funds', 'Site Visit', 'Enhanced Verification']
+        : (isAnalyst ? ['Business Registration', 'Screening'] : []);
     const canUploadCddDocument = documentUploadTypes.length > 0 && !isResolved;
 %>
 
@@ -311,7 +317,7 @@
                 <% } %>
             </article>
 
-            <article class="panel review-contribution-card" id="merchantDueDiligencePanel">
+            <article class="panel review-contribution-card merchant-cdd-card" id="merchantDueDiligencePanel">
                 <div class="panel-header">
                     <div>
                         <h2>Merchant Due Diligence</h2>
@@ -328,15 +334,24 @@
                     <div><dt>Expected Operating Hours</dt><dd><%= cdd.expectedOperatingHours ? `${cdd.expectedOperatingHours.openHour}:00 - ${cdd.expectedOperatingHours.closeHour}:00` : 'Not set' %></dd></div>
                 </dl>
                 <% if (cdd.eddRequired) { %>
-                    <h3>EDD Checklist <%= cdd.eddComplete ? '(Complete)' : '(Incomplete - Senior Analyst sign-off required before this case can be resolved)' %></h3>
-                    <ul class="admin-inline-list">
-                        <li><%= eddChecklist.source_of_funds_verified ? 'Done' : 'Outstanding' %> - Source of Funds Verified</li>
-                        <li><%= eddChecklist.site_visit_completed ? 'Done' : 'Outstanding' %> - Site Visit or Equivalent Check</li>
-                        <li><%= eddChecklist.enhanced_verification_completed ? 'Done' : 'Outstanding' %> - Enhanced Verification (Admin-recorded)</li>
-                        <li><%= eddChecklist.senior_signoff_completed ? 'Done' : 'Outstanding' %> - Senior Sign-off</li>
+                    <div class="cdd-section-heading">
+                        <div>
+                            <h3>EDD Checklist</h3>
+                            <% if (!cdd.eddComplete) { %>
+                                <p>Senior Analyst sign-off is required before this case can be resolved.</p>
+                            <% } %>
+                        </div>
+                        <span class="cdd-status <%= cdd.eddComplete ? 'is-complete' : 'is-incomplete' %>"><%= cdd.eddComplete ? 'Complete' : 'Incomplete' %></span>
+                    </div>
+                    <ul class="admin-inline-list cdd-checklist">
+                        <li class="<%= eddChecklist.source_of_funds_verified ? 'is-complete' : 'is-outstanding' %>"><span class="cdd-check-icon" aria-hidden="true"><%= eddChecklist.source_of_funds_verified ? '✓' : '!' %></span><span><strong>Source of Funds Verified</strong><small><%= eddChecklist.source_of_funds_verified ? 'Completed' : 'Outstanding' %></small></span></li>
+                        <li class="<%= eddChecklist.site_visit_completed ? 'is-complete' : 'is-outstanding' %>"><span class="cdd-check-icon" aria-hidden="true"><%= eddChecklist.site_visit_completed ? '✓' : '!' %></span><span><strong>Site Visit or Equivalent Check</strong><small><%= eddChecklist.site_visit_completed ? 'Completed' : 'Outstanding' %></small></span></li>
+                        <li class="<%= eddChecklist.enhanced_verification_completed ? 'is-complete' : 'is-outstanding' %>"><span class="cdd-check-icon" aria-hidden="true"><%= eddChecklist.enhanced_verification_completed ? '✓' : '!' %></span><span><strong>Enhanced Verification</strong><small><%= eddChecklist.enhanced_verification_completed ? 'Completed by Senior Analyst' : 'Outstanding · Senior Analyst review required' %></small></span></li>
+                        <li class="<%= eddChecklist.senior_signoff_completed ? 'is-complete' : 'is-outstanding' %>"><span class="cdd-check-icon" aria-hidden="true"><%= eddChecklist.senior_signoff_completed ? '✓' : '!' %></span><span><strong>Senior Sign-off</strong><small><%= eddChecklist.senior_signoff_completed ? 'Completed' : 'Outstanding' %></small></span></li>
                     </ul>
                     <% if (canEditEddAnalystFields) { %>
-                        <form id="eddAnalystForm" class="edd-inline-form">
+                        <form id="eddAnalystForm" class="edd-inline-form cdd-action-form">
+                            <div class="cdd-form-heading"><strong>Update checklist</strong><span>Record the outcome of a completed check.</span></div>
                             <label><span>Checklist Item</span><select id="eddFieldKey">
                                 <option value="sourceOfFunds">Source of Funds Verified</option>
                                 <option value="siteVisit">Site Visit or Equivalent Check</option>
@@ -347,37 +362,56 @@
                             <p id="eddAnalystFeedback" class="form-feedback"></p>
                         </form>
                     <% } %>
-                    <% if (canEditEddSignoff) { %>
-                        <form id="eddSignoffForm" class="edd-inline-form">
+                    <% if (canPerformSeniorEddReview) { %>
+                        <form id="eddEnhancedVerificationForm" class="edd-inline-form cdd-action-form">
+                            <div class="cdd-form-heading"><strong>Enhanced verification review</strong><span>Review the uploaded EDD evidence and record what was verified.</span></div>
+                            <label><span>Verification Notes (required)</span><input id="eddEnhancedVerificationNotes" placeholder="Evidence reviewed and verification performed"></label>
+                            <label class="checkbox-field"><input type="checkbox" id="eddEnhancedVerificationCompleted" <%= eddChecklist.enhanced_verification_completed ? 'checked' : '' %>><span>Enhanced Verification Complete</span></label>
+                            <button type="submit" class="secondary-btn">Save Enhanced Verification</button>
+                            <p id="eddEnhancedVerificationFeedback" class="form-feedback"></p>
+                        </form>
+                        <form id="eddSignoffForm" class="edd-inline-form cdd-action-form">
+                            <div class="cdd-form-heading"><strong>Senior review</strong><span>Confirm that enhanced due diligence is complete.</span></div>
                             <label><span>Sign-off Notes (required to provide sign-off)</span><input id="eddSignoffNotes" placeholder="Basis for sign-off"></label>
-                            <label class="checkbox-field"><input type="checkbox" id="eddSignoffCompleted" <%= eddChecklist.senior_signoff_completed ? 'checked' : '' %>><span>Provide Sign-off</span></label>
-                            <button type="submit" class="secondary-btn">Save Sign-off</button>
+                            <label class="checkbox-field"><input type="checkbox" id="eddSignoffCompleted" <%= eddChecklist.senior_signoff_completed ? 'checked' : '' %> <%= eddPrerequisitesComplete ? '' : 'disabled' %>><span>Provide Sign-off</span></label>
+                            <% if (!eddPrerequisitesComplete) { %>
+                                <p class="form-feedback">Complete Source of Funds, Site Visit, and Enhanced Verification before signing off.</p>
+                            <% } %>
+                            <button type="submit" class="secondary-btn" <%= eddPrerequisitesComplete ? '' : 'disabled' %>>Save Sign-off</button>
                             <p id="eddSignoffFeedback" class="form-feedback"></p>
                         </form>
                     <% } %>
                 <% } %>
-                <h3>Screening Records</h3>
-                <ul class="admin-inline-list">
+                <div class="cdd-section-heading cdd-simple-heading">
+                    <div><h3>Screening Records</h3><p>Merchant verification and screening history.</p></div>
+                    <span class="cdd-count"><%= screenings.length %></span>
+                </div>
+                <ul class="admin-inline-list cdd-record-list">
                     <% if (screenings.length) { screenings.forEach((record) => { %>
                         <li><strong><%= record.screening_type %></strong>: <%= record.result %><% if (record.screened_against) { %> vs <%= record.screened_against %><% } %></li>
                     <% }) } else { %>
                         <li class="empty-inline">No screening records on file.</li>
                     <% } %>
                 </ul>
-                <h3>Supporting Documents</h3>
-                <ul class="admin-inline-list">
+                <div class="cdd-section-heading cdd-simple-heading">
+                    <div><h3>Supporting Documents</h3><p>Evidence attached only to this transaction case.</p></div>
+                    <span class="cdd-count"><%= cddDocumentsList.length %></span>
+                </div>
+                <ul class="admin-inline-list cdd-record-list">
                     <% if (cddDocumentsList.length) { cddDocumentsList.forEach((doc) => { %>
-                        <li><strong><%= doc.document_type %></strong>: <a href="/documents/<%= doc.document_id %>/download" target="_blank" rel="noopener"><%= doc.original_filename %></a> (<%= Math.round(doc.file_size / 1024) %> KB)<% if (doc.notes) { %> - <%= doc.notes %><% } %></li>
+                        <li><strong><%= doc.document_type %></strong>: <a href="/transactions/<%= transactionId %>/documents/<%= doc.document_id %>/download" target="_blank" rel="noopener"><%= doc.original_filename %></a> (<%= Math.round(doc.file_size / 1024) %> KB)<% if (doc.notes) { %> - <%= doc.notes %><% } %></li>
                     <% }) } else { %>
                         <li class="empty-inline">No documents on file.</li>
                     <% } %>
                 </ul>
                 <% if (canUploadCddDocument) { %>
-                    <form id="cddDocumentForm" class="edd-inline-form" method="post" action="/api/transactions/<%= transactionId %>/cdd-documents" enctype="multipart/form-data">
+                    <form id="cddDocumentForm" class="edd-inline-form cdd-action-form cdd-upload-form" method="post" action="/api/transactions/<%= transactionId %>/cdd-documents" enctype="multipart/form-data" data-cdd-upload-form>
+                        <div class="cdd-form-heading"><strong>Upload supporting document</strong><span>PDF, JPG or PNG · Maximum file size 5MB</span></div>
                         <label><span>Document Type</span><select name="documentType"><% documentUploadTypes.forEach((t) => { %><option value="<%= t %>"><%= t %></option><% }) %></select></label>
-                        <label><span>File (PDF/JPG/PNG, max 5MB)</span><input name="document" type="file" accept=".pdf,.jpg,.jpeg,.png" required></label>
+                        <label><span>File</span><input name="document" type="file" accept=".pdf,.jpg,.jpeg,.png" required></label>
                         <label><span>Notes</span><input name="documentNotes" placeholder="What this document shows"></label>
                         <button type="submit" class="secondary-btn">Upload Document</button>
+                        <p class="form-feedback upload-feedback" data-upload-feedback role="status" aria-live="polite"></p>
                     </form>
                 <% } %>
             </article>
@@ -413,6 +447,13 @@
                             <div><dt>Counterparty country</dt><dd><%= tx.counterpartyCountry || tx.counterparty_country || 'Singapore' %></dd></div>
                             <div><dt>Store ID</dt><dd><%= tx.store_id || 'Not assigned' %></dd></div>
                             <div><dt>Payment reference</dt><dd><%= tx.paymentReference || tx.transaction_code || tx.transaction_id || 'Not assigned' %></dd></div>
+                            <div><dt>Card</dt><dd><%= tx.card_last4 ? `•••• ${tx.card_last4}` : 'Not provided' %></dd></div>
+                            <div><dt>Card scheme</dt><dd><%= tx.scheme ? String(tx.scheme).toUpperCase() : 'Not provided' %></dd></div>
+                            <div><dt>BIN / IIN</dt><dd><%= tx.card_bin || 'Not provided' %></dd></div>
+                            <div><dt>Issuer bank</dt><dd><%= tx.issuer_bank || 'Not provided' %></dd></div>
+                            <div><dt>Issuer country</dt><dd><%= tx.issuer_country || 'Not provided' %></dd></div>
+                            <div><dt>CVV check</dt><dd><%= tx.cvv_validation_result || 'Not provided' %></dd></div>
+                            <div><dt>Expiry check</dt><dd><%= tx.expiry_validation_result || 'Not provided' %></dd></div>
                             <div><dt>Date and time</dt><dd><%= tx.created_at || tx.createdAt ? new Date(tx.created_at || tx.createdAt).toLocaleString('en-SG') : 'Not assigned' %></dd></div>
                         </dl>
                         <% if (isSenior || isStro) { %>
@@ -508,7 +549,7 @@
                             </div>
                         </article>
                     <% } %>
-                    <% if (caseInfo && ['Pending RFI', 'Waiting for Information'].includes(rawCaseStatus)) { %>
+                    <% if (caseInfo && !isAdmin && ['Pending RFI', 'Waiting for Information'].includes(rawCaseStatus)) { %>
                         <article class="review-info-card rfi-response-panel overview-rfi-response-card">
                             <div class="rfi-response-card-header">
                                 <div>
@@ -681,11 +722,9 @@
                                 <button type="button" class="secondary-btn" data-rfi-template="Please provide any business documents (e.g. invoice, contract, or shipping document) related to this transaction for our records.">Business supporting documents</button>
                             </div>
                         </div>
-                        <div id="rfiEmailPreview" class="email-preview is-hidden"></div>
                         <p id="rfiEmailFeedback" class="muted"></p>
                         <div class="modal-actions">
                             <button type="button" class="secondary-btn" data-close-rfi-modal>Cancel</button>
-                            <button id="rfiPreviewButton" type="button" class="secondary-btn">Preview Email</button>
                             <button id="rfiSendButton" type="submit" class="action-submit">Send RFI</button>
                         </div>
                     </form>
@@ -964,7 +1003,8 @@
     <% } %>
 </main>
 
-<script>
+    <script src="/cdd-upload.js"></script>
+    <script>
     (() => {
         const rfiRecipientHiddenForRole = <%- JSON.stringify(rfiRecipientHiddenForRole) %>;
         const loadRfiResponseButton = document.querySelector('#loadRfiResponseButton');
@@ -1203,9 +1243,7 @@
         const infoField = document.querySelector('#rfiInformationRequested');
         const subjectField = document.querySelector('#rfiSubject');
         const feedback = document.querySelector('#rfiEmailFeedback');
-        const preview = document.querySelector('#rfiEmailPreview');
         const sendButton = document.querySelector('#rfiSendButton');
-        const previewButton = document.querySelector('#rfiPreviewButton');
         const successPanel = document.querySelector('#rfiSuccessPanel');
         const successPreview = document.querySelector('#rfiSuccessPreview');
         const closeSuccessPanel = document.querySelector('#closeRfiSuccessPanel');
@@ -1619,12 +1657,12 @@
             'Regards,',
             'UNIWEB Transaction Monitoring Team',
         ].join('\n');
-        const renderGeneratedPreview = ({ container = preview, subject = subjectField?.value.trim() || '', recipient = openButton?.dataset.recipientEmail || '' } = {}) => {
+        const renderSentEmail = ({ container = successPreview, subject = subjectField?.value.trim() || '', recipient = openButton?.dataset.recipientEmail || '' } = {}) => {
             if (!container) return;
             const recipientDisplay = recipient || (rfiRecipientHiddenForRole ? '(resolved automatically when sent)' : '');
             container.classList.remove('is-hidden');
             container.innerHTML = `
-                <strong>Local email preview — no email has been sent.</strong>
+                <strong>Email sent.</strong>
                 <div><strong>Recipient:</strong> ${escapeHtml(recipientDisplay)}</div>
                 <div><strong>Subject:</strong> ${escapeHtml(subject)}</div>
                 <pre>${escapeHtml(buildBody())}</pre>
@@ -1636,10 +1674,6 @@
             modal.setAttribute('aria-hidden', 'false');
             document.body.classList.add('modal-open');
             if (feedback) feedback.textContent = '';
-            if (preview) {
-                preview.classList.add('is-hidden');
-                preview.innerHTML = '';
-            }
             setTimeout(() => infoField?.focus(), 0);
         };
         const closeModal = () => {
@@ -1648,10 +1682,6 @@
             modal.setAttribute('aria-hidden', 'true');
             document.body.classList.remove('modal-open');
             if (feedback) feedback.textContent = '';
-            if (preview) {
-                preview.classList.add('is-hidden');
-                preview.innerHTML = '';
-            }
         };
         openButton?.addEventListener('click', (event) => {
             event.preventDefault();
@@ -1671,16 +1701,6 @@
                 if (feedback) feedback.textContent = '';
                 infoField.focus();
             });
-        });
-        previewButton?.addEventListener('click', (event) => {
-            event.preventDefault();
-            const message = validate();
-            if (message) {
-                if (feedback) feedback.textContent = message;
-                return;
-            }
-            if (feedback) feedback.textContent = '';
-            renderGeneratedPreview();
         });
         form?.addEventListener('submit', async (event) => {
             event.preventDefault();
@@ -1721,7 +1741,7 @@
                 if (successPanel) {
                     const messageText = successPanel.querySelector('#rfiSuccessMessage');
                     if (messageText) messageText.textContent = result.message || 'The SMTP provider accepted the email for delivery.';
-                    renderGeneratedPreview({
+                    renderSentEmail({
                         container: successPreview,
                         subject: subjectField?.value.trim() || '',
                         recipient: result.recipient || openButton?.dataset.recipientEmail || '',
@@ -1794,6 +1814,25 @@
             } catch (error) {
                 if (feedback) feedback.textContent = error.message;
                 if (submitButton) { submitButton.disabled = false; submitButton.textContent = 'Save Checklist Item'; }
+            }
+        });
+
+        const eddEnhancedVerificationForm = document.querySelector('#eddEnhancedVerificationForm');
+        eddEnhancedVerificationForm?.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const feedback = document.querySelector('#eddEnhancedVerificationFeedback');
+            const submitButton = eddEnhancedVerificationForm.querySelector('button[type="submit"]');
+            const completed = document.querySelector('#eddEnhancedVerificationCompleted')?.checked || false;
+            const notes = document.querySelector('#eddEnhancedVerificationNotes')?.value.trim() || '';
+            if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Saving...'; }
+            if (feedback) feedback.textContent = '';
+            try {
+                await postJson(`/api/transactions/${encodeURIComponent(transactionId)}/edd-checklist`, { fieldKey: 'enhancedVerification', completed, notes });
+                if (feedback) feedback.textContent = 'Saved. Refreshing...';
+                setTimeout(() => window.location.reload(), 600);
+            } catch (error) {
+                if (feedback) feedback.textContent = error.message;
+                if (submitButton) { submitButton.disabled = false; submitButton.textContent = 'Save Enhanced Verification'; }
             }
         });
 

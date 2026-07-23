@@ -4,7 +4,6 @@ const { paginationMeta, appendWhere } = require('../src/lib/query');
 const { logAdminAudit } = require('../src/lib/auditLog');
 const { ensureMerchantContactsTable, ensureMerchantCddSchema } = require('../src/lib/schema');
 const { setEddChecklistField } = require('../src/lib/eddChecklist');
-const { saveCddDocument } = require('../src/lib/cddDocuments');
 const { id } = require('../src/lib/ids');
 
 function adminFiltersFromQuery(query) {
@@ -77,7 +76,7 @@ async function loadAdminMerchants(req) {
     [...values, pagination.limit, pagination.offset],
   );
   const merchantIds = rows.map((row) => row.merchant_id);
-  const [beneficialOwners, screeningRecords, documents] = merchantIds.length ? await Promise.all([
+  const [beneficialOwners, screeningRecords] = merchantIds.length ? await Promise.all([
     database.query(
       `SELECT owner_id, merchant_id, full_name, owner_role, ownership_percentage, nationality, id_reference, date_of_birth
        FROM merchant_beneficial_owners WHERE merchant_id IN (?) ORDER BY added_at DESC`,
@@ -88,12 +87,7 @@ async function loadAdminMerchants(req) {
        FROM merchant_screening_records WHERE merchant_id IN (?) ORDER BY screened_at DESC`,
       [merchantIds],
     ).then(([r]) => r),
-    database.query(
-      `SELECT document_id, merchant_id, document_type, original_filename, mime_type, file_size, notes, uploaded_by, uploaded_at
-       FROM merchant_cdd_documents WHERE merchant_id IN (?) ORDER BY uploaded_at DESC`,
-      [merchantIds],
-    ).then(([r]) => r),
-  ]) : [[], [], []];
+  ]) : [[], []];
   const beneficialOwnersByMerchant = {};
   beneficialOwners.forEach((owner) => {
     (beneficialOwnersByMerchant[owner.merchant_id] ||= []).push(owner);
@@ -102,14 +96,10 @@ async function loadAdminMerchants(req) {
   screeningRecords.forEach((record) => {
     (screeningRecordsByMerchant[record.merchant_id] ||= []).push(record);
   });
-  const documentsByMerchant = {};
-  documents.forEach((document) => {
-    (documentsByMerchant[document.merchant_id] ||= []).push(document);
-  });
   const [industries] = await database.query('SELECT DISTINCT industry FROM merchants ORDER BY industry ASC');
   const [mccs] = await database.query('SELECT DISTINCT mcc_code FROM merchants ORDER BY mcc_code ASC');
   return {
-    rows, industries, mccs, filters, pagination, beneficialOwnersByMerchant, screeningRecordsByMerchant, documentsByMerchant,
+    rows, industries, mccs, filters, pagination, beneficialOwnersByMerchant, screeningRecordsByMerchant,
   };
 }
 
@@ -212,13 +202,12 @@ async function upsertMerchantCddFields(req, merchantId) {
   });
 }
 
-// Admin sets any checklist field including senior_signoff_completed here. The case-workspace
-// endpoints (transactionsController.js) reuse the same setEddChecklistField helper but each
-// only ever pass the fieldKey(s) their role is allowed to touch - see eddChecklist.js.
+// Admin maintains the baseline checks. Enhanced verification and final sign-off are completed
+// by a Senior Analyst from the case workspace.
 async function updateEddChecklist(req, res) {
   await ensureMerchantCddSchema();
   const merchantId = req.params.id;
-  const fieldKeys = ['sourceOfFunds', 'siteVisit', 'enhancedVerification', 'seniorSignoff'];
+  const fieldKeys = ['sourceOfFunds', 'siteVisit'];
   for (const fieldKey of fieldKeys) {
     const completed = req.body[`${fieldKey}Completed`] === '1' || req.body[`${fieldKey}Completed`] === 'true';
     const notes = String(req.body[`${fieldKey}Notes`] || '').trim() || null;
@@ -303,38 +292,6 @@ async function addScreeningRecord(req, res) {
     entityType: 'MerchantScreeningRecord',
     entityId: screeningId,
     notes: `${screeningType} screening for merchant ${merchantId}: ${result} (manual attestation, no live API match)`,
-  });
-  return res.redirect('/admin/merchants');
-}
-
-// Admin may attach a document under any document_type. multer (see routes/admin.js) has
-// already written the file to disk and validated its mime type/size before this runs; here we
-// just record the metadata row so it shows up in the merchant's Documents list.
-async function uploadMerchantDocument(req, res) {
-  const merchantId = req.params.id;
-  if (!req.file) return res.redirect('/admin/merchants');
-
-  await ensureMerchantCddSchema();
-  const documentType = ['Source of Funds', 'Site Visit', 'Enhanced Verification', 'Screening', 'Other'].includes(req.body.documentType)
-    ? req.body.documentType : 'Other';
-  const notes = String(req.body.documentNotes || '').trim() || null;
-
-  const documentId = await saveCddDocument(database, {
-    merchantId,
-    documentType,
-    originalFilename: req.file.originalname,
-    storedFilename: req.file.filename,
-    mimeType: req.file.mimetype,
-    fileSize: req.file.size,
-    notes,
-    uploadedBy: req.session.user.id,
-  });
-  await logAdminAudit({
-    action: 'Merchant CDD Document Uploaded',
-    userId: req.session.user.id,
-    entityType: 'MerchantCddDocument',
-    entityId: documentId,
-    notes: `${documentType} document "${req.file.originalname}" uploaded for merchant ${merchantId}`,
   });
   return res.redirect('/admin/merchants');
 }
@@ -728,7 +685,6 @@ module.exports = {
   addBeneficialOwner,
   deleteBeneficialOwner,
   addScreeningRecord,
-  uploadMerchantDocument,
   createRule,
   updateRule,
   deleteRule,

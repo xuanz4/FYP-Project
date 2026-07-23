@@ -48,6 +48,7 @@ const seniorAuditDefaultActions = [
   'Case Escalated to Senior Analyst',
   'Case Assigned',
   'Request for Information Sent',
+  'RFI Email Reply Received',
   'Case Referred to STRO',
   'STR Recommended',
   'Final Risk Assigned',
@@ -62,6 +63,7 @@ const stroAuditDefaultActions = [
   'STR Filed',
   'STR Marked Not Required',
   'Additional Information Requested by STRO',
+  'RFI Email Reply Received',
 ];
 
 const STALE_CASE_MINUTES = 15;

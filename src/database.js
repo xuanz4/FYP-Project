@@ -99,8 +99,9 @@ async function initDatabase() {
 
 // Partner-provided transaction feed is shaped like a PSP/acquirer transaction log
 // (merchant + card scheme/issuer + entry mode), not a card-issuer/cardholder record, so it
-// carries no PAN/CVV. The old card_number/card_expiry/bin_range/cvv/bank_issuer columns were
-// only ever filled with randomly-generated placeholder values and are dropped here. Idempotent
+// carries no PAN/CVV. The old card_number/card_expiry/cvv columns were only ever filled with
+// randomly-generated placeholder values and are dropped here. Safe monitoring metadata is
+// retained separately. Idempotent
 // and safe to call on every startup, following the same pattern as app.js's ensureXxxColumns().
 async function ensurePartnerSchema() {
   const dbName = process.env.DB_NAME;
@@ -119,7 +120,13 @@ async function ensurePartnerSchema() {
     ['method', 'ALTER TABLE transactions ADD COLUMN method VARCHAR(20) NULL AFTER amount'],
     ['scheme', 'ALTER TABLE transactions ADD COLUMN scheme VARCHAR(20) NULL AFTER method'],
     ['issuer_country', 'ALTER TABLE transactions ADD COLUMN issuer_country VARCHAR(5) NULL AFTER scheme'],
-    ['transaction_type', 'ALTER TABLE transactions ADD COLUMN transaction_type VARCHAR(20) NULL AFTER issuer_country'],
+    ['issuer_bank', 'ALTER TABLE transactions ADD COLUMN issuer_bank VARCHAR(100) NULL AFTER issuer_country'],
+    ['card_bin', 'ALTER TABLE transactions ADD COLUMN card_bin VARCHAR(8) NULL AFTER issuer_bank'],
+    ['card_last4', 'ALTER TABLE transactions ADD COLUMN card_last4 CHAR(4) NULL AFTER card_bin'],
+    ['cvv_validation_result', 'ALTER TABLE transactions ADD COLUMN cvv_validation_result VARCHAR(20) NULL AFTER card_last4'],
+    ['expiry_validation_result', 'ALTER TABLE transactions ADD COLUMN expiry_validation_result VARCHAR(20) NULL AFTER cvv_validation_result'],
+    ['transaction_code', 'ALTER TABLE transactions ADD COLUMN transaction_code VARCHAR(40) NULL AFTER expiry_validation_result'],
+    ['transaction_type', 'ALTER TABLE transactions ADD COLUMN transaction_type VARCHAR(20) NULL AFTER transaction_code'],
     ['entry_mode', 'ALTER TABLE transactions ADD COLUMN entry_mode VARCHAR(20) NULL AFTER transaction_type'],
     ['payment_status', 'ALTER TABLE transactions ADD COLUMN payment_status VARCHAR(20) NULL AFTER entry_mode'],
     ['payment_status_label', 'ALTER TABLE transactions ADD COLUMN payment_status_label VARCHAR(30) NULL AFTER payment_status'],
@@ -131,10 +138,27 @@ async function ensurePartnerSchema() {
     // Tokenised/hashed card reference from the partner feed - never a raw PAN. Lets the risk
     // engine detect repeated use of the same card (card_spend_24h, low_value_burst rule types)
     // without this system ever handling or storing an actual card number.
-    ['card_ref', 'ALTER TABLE transactions ADD COLUMN card_ref VARCHAR(64) NULL'],
+    ['card_ref', 'ALTER TABLE transactions ADD COLUMN card_ref VARCHAR(64) NULL AFTER card_last4'],
   ];
   for (const [column, sql] of newTransactionColumns) {
     if (!hasTxnColumn(column)) await execute(sql);
+  }
+
+  // Preserve non-secret legacy metadata during upgrade, then remove the obsolete columns.
+  // Full PAN, raw expiry and CVV values are deliberately never copied.
+  if (hasTxnColumn('bin_range')) {
+    await execute(
+      `UPDATE transactions
+       SET card_bin = bin_range
+       WHERE card_bin IS NULL AND bin_range REGEXP '^[0-9]{6,8}$'`,
+    );
+  }
+  if (hasTxnColumn('bank_issuer')) {
+    await execute(
+      `UPDATE transactions
+       SET issuer_bank = bank_issuer
+       WHERE issuer_bank IS NULL AND bank_issuer IS NOT NULL AND TRIM(bank_issuer) <> ''`,
+    );
   }
 
   const legacyCardColumns = ['card_number', 'card_expiry', 'bin_range', 'cvv', 'bank_issuer'];

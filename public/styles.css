@@ -1717,6 +1717,615 @@ button,
   gap: 16px;
 }
 
+/* Login workspace */
+.login-page {
+  --login-green: #009b68;
+  --login-deep: #032b2d;
+  min-height: 100vh;
+  margin: 0;
+  padding: 10px;
+  background: #f2f6f6;
+  color: #142033;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.login-page *,
+.login-page *::before,
+.login-page *::after {
+  box-sizing: border-box;
+}
+
+.login-page svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.login-shell {
+  width: min(1440px, 100%);
+  min-height: calc(100vh - 20px);
+  margin: 0 auto;
+  padding: 44px 54px 38px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(440px, 0.95fr);
+  align-items: stretch;
+  gap: 62px;
+  overflow: hidden;
+  position: relative;
+  z-index: 0;
+  border: 1px solid rgba(15, 72, 69, 0.16);
+  border-radius: 30px;
+  background:
+    radial-gradient(circle at 42% 44%, rgba(0, 168, 111, 0.12), transparent 31%),
+    linear-gradient(125deg, #022628 0%, #032f2f 52%, #022426 100%);
+  box-shadow: 0 10px 30px rgba(2, 38, 40, 0.14);
+}
+
+.login-shell::before {
+  content: "";
+  position: absolute;
+  width: 720px;
+  height: 720px;
+  left: 280px;
+  top: 60px;
+  z-index: -1;
+  border: 1px solid rgba(26, 188, 129, 0.045);
+  border-radius: 50%;
+  box-shadow: 0 0 0 95px rgba(26, 188, 129, 0.025), 0 0 0 190px rgba(26, 188, 129, 0.018);
+}
+
+.login-hero {
+  width: 100%;
+  max-width: 650px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  color: #fff;
+}
+
+.login-brand-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.login-brand-row strong {
+  color: #fff;
+  font-size: 1.05rem;
+  line-height: 1.45;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
+
+.login-brand-shield {
+  width: 64px;
+  color: #69e7b7;
+}
+
+.login-brand-shield svg {
+  display: block;
+  width: 100%;
+  stroke-width: 3;
+}
+
+.login-brand-shield text {
+  fill: #fff;
+  stroke: none;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.login-hero-copy {
+  margin-top: 34px;
+}
+
+.login-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 15px;
+  border: 1px solid rgba(39, 211, 146, 0.08);
+  border-radius: 11px;
+  background: rgba(0, 139, 92, 0.23);
+  color: #b6ebd5;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
+
+.login-status-pill svg {
+  width: 17px;
+}
+
+.login-hero h1 {
+  margin: 28px 0 16px;
+  color: #fff;
+  font-size: clamp(3.5rem, 5vw, 5.45rem);
+  line-height: 0.98;
+  letter-spacing: -0.035em;
+}
+
+.login-hero p {
+  max-width: 540px;
+  margin: 0;
+  color: #d5e1e2;
+  font-size: 1.02rem;
+  line-height: 1.65;
+}
+
+.login-security-scene {
+  min-height: 245px;
+  flex: 1;
+  position: relative;
+  margin: 10px 0 0;
+}
+
+.login-main-shield {
+  width: 150px;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 2;
+  transform: translate(-50%, -47%);
+  filter: drop-shadow(0 16px 22px rgba(0, 222, 143, 0.3));
+}
+
+.login-main-shield svg {
+  display: block;
+  width: 100%;
+}
+
+.login-main-shield .shield-glow {
+  fill: rgba(20, 217, 142, 0.25);
+  stroke: #77f4c0;
+  stroke-width: 4;
+}
+
+.login-main-shield .shield-face {
+  fill: url("#shieldFill");
+  stroke: rgba(192, 255, 226, 0.42);
+  stroke-width: 2;
+}
+
+.login-main-shield .shield-check {
+  stroke: #dcfff0;
+  stroke-width: 11;
+}
+
+.login-orbit {
+  position: absolute;
+  left: 50%;
+  top: 52%;
+  border: 1px solid rgba(33, 238, 156, 0.28);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 26px rgba(0, 214, 136, 0.08);
+}
+
+.orbit-one {
+  width: 430px;
+  height: 125px;
+}
+
+.orbit-two {
+  width: 290px;
+  height: 205px;
+}
+
+.login-scene-tile {
+  width: 67px;
+  height: 78px;
+  display: grid;
+  place-items: center;
+  position: absolute;
+  z-index: 3;
+  border: 1px solid rgba(135, 255, 209, 0.2);
+  border-radius: 12px;
+  background: linear-gradient(145deg, rgba(27, 111, 88, 0.88), rgba(6, 57, 55, 0.92));
+  box-shadow: inset 0 0 24px rgba(93, 248, 184, 0.12), 0 12px 26px rgba(0, 0, 0, 0.23);
+  color: #bcfbe0;
+}
+
+.login-scene-tile svg {
+  width: 35px;
+  stroke-width: 2.3;
+}
+
+.tile-chart { left: 18%; top: 23%; transform: rotate(-7deg); }
+.tile-bell { right: 18%; top: 12%; transform: rotate(4deg); }
+.tile-user { left: 17%; bottom: 4%; transform: rotate(3deg); }
+.tile-file { right: 17%; bottom: 3%; transform: rotate(-5deg); }
+
+.login-security-note {
+  min-height: 78px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 15px 18px;
+  border: 1px solid rgba(113, 206, 178, 0.18);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.025);
+  color: #b9cccc;
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+.login-security-note strong {
+  display: block;
+  color: #fff;
+  font-size: 0.82rem;
+}
+
+.login-note-icon {
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(0, 174, 111, 0.19);
+  color: #79ebbd;
+}
+
+.login-note-icon svg {
+  width: 25px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 570px;
+  min-height: 690px;
+  align-self: center;
+  justify-self: end;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid #dce2e7;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 55px rgba(0, 15, 20, 0.25);
+}
+
+.login-card-content {
+  flex: 1;
+  padding: 62px 42px 34px;
+}
+
+.login-card-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  text-align: center;
+}
+
+.login-card-icon {
+  width: 82px;
+  height: 82px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 18px;
+  border-radius: 50%;
+  background: #e7f6f0;
+  color: #009b68;
+}
+
+.login-card-icon svg {
+  width: 45px;
+  stroke-width: 2.1;
+}
+
+.login-card h2 {
+  margin: 0;
+  color: #111827;
+  font-size: 1.85rem;
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+}
+
+.login-card p {
+  margin: 8px 0 0;
+  color: #667085;
+  font-size: 0.96rem;
+}
+
+.login-form {
+  display: grid;
+  gap: 22px;
+  margin-top: 40px;
+}
+
+.login-form > label {
+  display: grid;
+  gap: 9px;
+}
+
+.login-form > label > span:first-child {
+  color: #445068;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
+
+.login-input-wrap {
+  min-height: 57px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 15px;
+  border: 1px solid #dce1e7;
+  border-radius: 10px;
+  color: #677489;
+  background: #fff;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.login-input-wrap:focus-within {
+  border-color: var(--login-green);
+  box-shadow: 0 0 0 3px rgba(0, 155, 104, 0.12);
+}
+
+.login-input-wrap > svg {
+  width: 22px;
+  flex: 0 0 auto;
+}
+
+.login-form .login-input-wrap input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  color: #172033;
+  background: transparent;
+  font: inherit;
+}
+
+.login-form .login-input-wrap input:focus,
+.login-form .login-input-wrap input:hover {
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+}
+
+.login-form input::placeholder {
+  color: #8994a6;
+}
+
+.password-toggle {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #667085;
+  cursor: pointer;
+}
+
+.password-toggle svg {
+  width: 21px;
+  grid-area: 1 / 1;
+}
+
+.password-toggle .eye-closed,
+.password-toggle[aria-pressed="true"] .eye-open {
+  display: none;
+}
+
+.password-toggle[aria-pressed="true"] .eye-closed {
+  display: block;
+}
+
+.login-form-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: -1px;
+}
+
+.login-form .remember-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #617083;
+  cursor: pointer;
+}
+
+.login-form .remember-option input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--login-green);
+}
+
+.login-form .remember-option span {
+  color: #617083;
+  font-size: 0.82rem;
+  font-weight: 500;
+  text-transform: none;
+}
+
+.forgot-password {
+  color: #00895c;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.login-submit {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 11px;
+  margin-top: 2px;
+  border: 0;
+  border-radius: 9px;
+  background: linear-gradient(100deg, #022e30, #005a3e);
+  box-shadow: 0 8px 18px rgba(0, 67, 50, 0.16);
+  color: #fff;
+  font-size: 0.92rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.login-submit:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 11px 24px rgba(0, 67, 50, 0.22);
+}
+
+.login-submit:focus-visible,
+.password-toggle:focus-visible {
+  outline: 3px solid rgba(0, 155, 104, 0.28);
+  outline-offset: 2px;
+}
+
+.login-submit svg {
+  width: 20px;
+}
+
+.login-card .alert-banner {
+  margin-top: 24px;
+}
+
+.login-card-footer {
+  min-height: 78px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 0;
+  padding: 20px 42px;
+  border-top: 1px solid #e8ecef;
+  background: #f7f9fa;
+  color: #6c7788;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.login-card-footer span {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.login-card-footer svg {
+  width: 19px;
+  color: #708397;
+}
+
+@media (max-width: 1080px) {
+  .login-shell {
+    min-height: calc(100vh - 20px);
+    grid-template-columns: 1fr;
+    gap: 36px;
+    padding: 38px;
+  }
+
+  .login-hero {
+    max-width: none;
+  }
+
+  .login-hero-copy {
+    text-align: center;
+  }
+
+  .login-hero p {
+    margin-inline: auto;
+  }
+
+  .login-security-scene {
+    min-height: 260px;
+  }
+
+  .login-security-note {
+    max-width: 650px;
+    margin-inline: auto;
+  }
+
+  .login-card {
+    max-width: 650px;
+    min-height: 650px;
+    justify-self: center;
+  }
+}
+
+@media (max-width: 620px) {
+  .login-page {
+    padding: 0;
+    background: var(--login-deep);
+  }
+
+  .login-shell {
+    min-height: 100vh;
+    padding: 28px 18px;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .login-brand-shield {
+    width: 52px;
+  }
+
+  .login-brand-row strong {
+    font-size: 0.9rem;
+  }
+
+  .login-hero-copy {
+    margin-top: 28px;
+  }
+
+  .login-hero h1 {
+    margin-top: 22px;
+    font-size: clamp(3rem, 16vw, 4.5rem);
+  }
+
+  .login-security-scene {
+    min-height: 220px;
+    transform: scale(0.86);
+    margin-inline: -30px;
+  }
+
+  .login-security-note {
+    padding: 13px;
+  }
+
+  .login-card {
+    min-height: 0;
+    border-radius: 14px;
+  }
+
+  .login-card-content {
+    padding: 38px 22px 30px;
+  }
+
+  .login-card-icon {
+    width: 70px;
+    height: 70px;
+  }
+
+  .login-form {
+    margin-top: 32px;
+  }
+
+  .login-card-footer {
+    padding: 18px 22px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+}
+
 .analyst-page-header {
   align-items: flex-start;
   display: flex;
@@ -3352,10 +3961,14 @@ button,
 }
 
 .app-shell.role-admin .management-dialog {
-  width: min(620px, calc(100vw - 32px));
-  max-height: min(84vh, 760px);
+  box-sizing: border-box;
+  width: min(760px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: min(90vh, 820px);
+  margin: auto;
   padding: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   border: 1px solid #dce8e6;
   border-radius: 16px;
   box-shadow: 0 24px 70px rgba(7, 26, 51, 0.24);
@@ -3367,18 +3980,29 @@ button,
 }
 
 .app-shell.role-admin .management-dialog > form {
+  box-sizing: border-box;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
-  max-height: min(84vh, 760px);
+  width: 100%;
+  max-height: none;
   padding: 22px;
-  overflow-y: auto;
+  overflow: visible;
   background: #fff;
 }
 
 .app-shell.role-admin .management-dialog h2,
-.app-shell.role-admin .management-dialog .modal-actions {
+.app-shell.role-admin .management-dialog .modal-actions,
+.app-shell.role-admin .management-dialog .detail-eyebrow,
+.app-shell.role-admin .management-dialog .form-feedback {
   grid-column: 1 / -1;
+}
+
+.app-shell.role-admin .management-dialog .detail-eyebrow {
+  min-width: 0;
+  margin: 10px 0 0;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .app-shell.role-admin .management-dialog h2 {
@@ -3400,6 +4024,7 @@ button,
 
 .app-shell.role-admin .management-dialog input,
 .app-shell.role-admin .management-dialog select {
+  box-sizing: border-box;
   width: 100%;
   min-height: 42px;
   border: 1px solid #d6e2e0;
@@ -3461,10 +4086,32 @@ button,
   color: var(--text-main);
 }
 
+.app-shell.role-admin .management-dialog .admin-inline-list li > :first-child,
+.app-shell.role-admin .management-dialog .admin-inline-list li a {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .app-shell.role-admin .management-dialog .admin-inline-list li.empty-inline {
   color: var(--text-muted);
   background: transparent;
   border-style: dashed;
+}
+
+.app-shell.role-admin .management-dialog .admin-inline-list li.screening-record-item {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: start;
+  justify-content: initial;
+}
+
+.app-shell.role-admin .management-dialog .screening-record-item strong {
+  white-space: nowrap;
+}
+
+.app-shell.role-admin .management-dialog .screening-record-item span {
+  min-width: 0;
+  overflow-wrap: break-word;
 }
 
 @media (max-width: 900px) {
@@ -3478,7 +4125,32 @@ button,
   }
 .app-shell.role-admin .analyst-page-header::before { display: none; }
 .app-shell.role-admin .summary-grid article { min-height: 100px; }
-.app-shell.role-admin .management-dialog > form { grid-template-columns: 1fr; }
+.app-shell.role-admin .management-dialog {
+    width: calc(100vw - 20px);
+    max-width: calc(100vw - 20px);
+  }
+.app-shell.role-admin .management-dialog > form {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 18px;
+  }
+.app-shell.role-admin .management-dialog h2 {
+    margin: -18px -18px 4px;
+    padding: 18px;
+  }
+.app-shell.role-admin .management-dialog .modal-actions {
+    margin: 5px -18px -18px;
+    padding: 14px 18px;
+  }
+.app-shell.role-admin .management-dialog .admin-inline-list li {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .app-shell.role-admin .management-dialog .admin-inline-list li.screening-record-item {
+    grid-template-columns: max-content minmax(0, 1fr);
+  }
+.app-shell.role-admin .management-dialog .admin-inline-list li .danger {
+    align-self: flex-end;
+  }
 }
 
 /* ==========================================================================
@@ -6320,4 +6992,498 @@ body.app-shell.transaction-review-shell .transaction-review-page .review-top-gri
 body.app-shell.transaction-review-shell .transaction-review-page .review-tab-panel.active:not([hidden]) {
   height: auto;
   overflow: visible;
+}
+
+/* Merchant due-diligence card */
+body.app-shell.transaction-review-shell .merchant-cdd-card {
+  padding-bottom: 16px;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card > :not(.panel-header) {
+  margin-left: 16px;
+  margin-right: 16px;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .panel-header {
+  min-height: 72px;
+  border-top: 3px solid var(--role-accent);
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .panel-header h2 {
+  font-size: 0.95rem;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .panel-header p {
+  max-width: 62ch;
+  font-size: 0.68rem;
+  line-height: 1.5;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card > .review-definition-grid {
+  margin-top: 14px;
+  margin-bottom: 18px;
+  padding: 13px 15px;
+  gap: 12px 22px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card > .review-definition-grid div {
+  padding: 0 0 9px;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card > .review-definition-grid dt {
+  margin-bottom: 4px;
+  font-size: 0.6rem;
+  letter-spacing: 0.035em;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card > .review-definition-grid dd {
+  color: var(--navy-950);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 20px;
+  margin-bottom: 10px;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-section-heading h3 {
+  margin: 0;
+  color: var(--navy-950);
+  font-size: 0.88rem;
+  line-height: 1.3;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-section-heading p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  line-height: 1.45;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-simple-heading {
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-status,
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-count {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 25px;
+  border: 1px solid;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 800;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-status {
+  padding: 4px 9px;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-status.is-incomplete {
+  border-color: #f2dda0;
+  background: var(--pending-light);
+  color: #975a08;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-status.is-complete {
+  border-color: #bde5cd;
+  background: var(--success-light);
+  color: #0d744f;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-count {
+  width: 25px;
+  border-color: #d6e1ef;
+  background: #f0f5fb;
+  color: #50627a;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-checklist {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-checklist li {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 11px;
+  border-radius: 9px;
+  background: #fff;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-checklist li.is-complete {
+  border-color: #bde5cd;
+  background: #f4fbf7;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-checklist li.is-outstanding {
+  border-color: #f2d99b;
+  background: #fffbf0;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-check-icon {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .is-complete .cdd-check-icon {
+  background: #d9f4e4;
+  color: #087c56;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .is-outstanding .cdd-check-icon {
+  background: #ffedbd;
+  color: #9a6200;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-checklist strong,
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-checklist small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-checklist strong {
+  color: var(--text-main);
+  font-size: 0.66rem;
+  line-height: 1.35;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-checklist small {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 0.56rem;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-action-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+  margin-bottom: 20px;
+  padding: 14px;
+  border-color: #d7e2ef;
+  background: #f8fafc;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-form-heading,
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-action-form .checkbox-field,
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-action-form button,
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-action-form .form-feedback {
+  grid-column: 1 / -1;
+}
+
+body.app-shell .upload-feedback {
+  display: none;
+  min-height: 0;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #f1bdc3;
+  border-radius: 8px;
+  background: var(--critical-light);
+  color: #a91f32;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+body.app-shell .upload-feedback:not(:empty) {
+  display: block;
+}
+
+body.app-shell .upload-feedback.is-success {
+  border-color: #bde5cd;
+  background: var(--success-light);
+  color: #0d744f;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-form-heading strong,
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-form-heading span {
+  display: block;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-form-heading strong {
+  color: var(--navy-950);
+  font-size: 0.76rem;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-form-heading span {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 0.62rem;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-action-form label > span {
+  display: block;
+  margin-bottom: 6px;
+  color: #4c5b70;
+  font-size: 0.62rem;
+  font-weight: 750;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-action-form input,
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-action-form select {
+  min-height: 42px;
+  font-size: 0.72rem;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-action-form .checkbox-field {
+  min-height: 34px;
+  margin: 0;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-action-form .checkbox-field input {
+  width: 17px;
+  height: 17px;
+  min-height: 0;
+  accent-color: var(--role-accent);
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-action-form .checkbox-field span {
+  margin: 0;
+  font-size: 0.7rem;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-action-form button {
+  min-height: 41px;
+  border-color: var(--role-accent);
+  background: var(--role-accent);
+  color: #fff;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-record-list {
+  margin-bottom: 18px;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-record-list li {
+  padding: 11px 12px;
+  background: #f8fafc;
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-record-list li.empty-inline {
+  padding: 18px 12px !important;
+  background: #fbfcfe;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card input[type="file"] {
+  padding: 5px;
+  background: #fff;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card input[type="file"]::file-selector-button {
+  min-height: 30px;
+  margin-right: 10px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: #e9f0fa;
+  color: #285b9e;
+  font: inherit;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+@media (max-width: 1180px) {
+  body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-checklist,
+  body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-action-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  body.app-shell.transaction-review-shell .merchant-cdd-card > :not(.panel-header) {
+    margin-left: 12px;
+    margin-right: 12px;
+  }
+
+  body.app-shell.transaction-review-shell .merchant-cdd-card > .review-definition-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-section-heading {
+    align-items: center;
+  }
+}
+
+/* Readable transaction-review typography */
+body.app-shell.transaction-review-shell .transaction-review-page .review-tab {
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .panel-header h2 {
+  font-size: 0.92rem;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .panel-header p {
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .review-info-card h3 {
+  font-size: 0.86rem;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .review-definition-grid dt {
+  font-size: 0.66rem;
+  line-height: 1.3;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .review-definition-grid dd {
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .assessment-block > span {
+  font-size: 0.66rem;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .assessment-block > strong {
+  font-size: 1.8rem;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .assessment-block > small {
+  font-size: 0.74rem;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .assessment-block dt {
+  font-size: 0.62rem;
+  line-height: 1.3;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .assessment-block dd {
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .activity-timeline {
+  gap: 9px;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .activity-timeline-item {
+  min-height: 82px;
+  grid-template-columns: minmax(118px, 145px) minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .activity-timeline-item time {
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .activity-timeline-item > div > strong {
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .activity-timeline-item p {
+  margin-top: 5px;
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .activity-timeline-item > div > span {
+  margin-top: 6px;
+  font-size: 0.64rem;
+  line-height: 1.35;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .matched-rules-grid {
+  gap: 10px;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .matched-rules-grid > article {
+  padding: 12px;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .matched-rules-grid strong {
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .matched-rules-grid p {
+  margin: 5px 0 9px;
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .matched-rules-grid dt {
+  font-size: 0.6rem;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .matched-rules-grid dd {
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .contribution-item > div > strong {
+  font-size: 0.76rem;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .contribution-item p {
+  font-size: 0.67rem;
+  line-height: 1.4;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .contribution-item dt {
+  font-size: 0.6rem;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .contribution-item dd {
+  font-size: 0.68rem;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .contribution-formula strong {
+  font-size: 0.7rem;
+}
+
+body.app-shell.transaction-review-shell .transaction-review-page .contribution-formula p {
+  font-size: 0.64rem;
+  line-height: 1.4;
+}
+
+@media (min-width: 981px) {
+  body.app-shell.transaction-review-shell .transaction-review-page .review-meta-strip span {
+    font-size: 0.66rem;
+  }
+
+  body.app-shell.transaction-review-shell .transaction-review-page .review-meta-strip strong {
+    font-size: 0.78rem;
+    line-height: 1.35;
+  }
+
+  body.app-shell.transaction-review-shell .transaction-review-page .review-meta-strip .status-pill {
+    font-size: 0.66rem;
+  }
+}
+
+@media (max-width: 720px) {
+  body.app-shell.transaction-review-shell .transaction-review-page .activity-timeline {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  body.app-shell.transaction-review-shell .transaction-review-page .activity-timeline-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

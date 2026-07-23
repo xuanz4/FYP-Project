@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const database = require('../src/database');
 const { id } = require('../src/lib/ids');
 const { broadcast } = require('../src/lib/socket');
@@ -169,7 +170,9 @@ async function transactionDetailPage(req, res) {
   // visible to the Analyst from the start (unlike merchant_mid/contact info above), so it
   // doesn't follow the escalation gate.
   const [cddContext, screeningRows, evidenceRows, documentRows] = await Promise.all([
-    loadMerchantCddContext(database, transaction.merchant_id),
+    loadMerchantCddContext(database, transaction.merchant_id, {
+      transactionRiskLevel: transaction.initial_risk_level || transaction.risk_level,
+    }),
     database.query(
       `SELECT screening_id, screening_type, result, screened_against, notes, screened_at
        FROM merchant_screening_records WHERE merchant_id = ? ORDER BY screened_at DESC LIMIT 5`,
@@ -180,7 +183,7 @@ async function transactionDetailPage(req, res) {
        FROM case_rfi_evidence WHERE case_id = ? ORDER BY recorded_at DESC`,
       [caseRecord.case_id],
     ).then(([r]) => r).catch(() => []) : Promise.resolve([]),
-    listCddDocuments(database, transaction.merchant_id).catch(() => []),
+    listCddDocuments(database, transaction.transaction_id).catch(() => []),
   ]);
 
   return res.render('transaction-detail', {
@@ -877,6 +880,12 @@ async function ingestTransactionEndpoint(req, res) {
       method: req.body.method || 'card',
       scheme: req.body.scheme || null,
       issuer: req.body.issuer || null,
+      issuerBank: req.body.issuerBank || null,
+      cardBin: req.body.cardBin || null,
+      cardLast4: req.body.cardLast4 || null,
+      cvvValidationResult: req.body.cvvValidationResult || null,
+      expiryValidationResult: req.body.expiryValidationResult || null,
+      transactionCode: req.body.transactionCode || null,
       transactionType: req.body.transactionType || 'sale',
       entryMode: req.body.entryMode || 'manual',
       status: req.body.status || 'captured',
@@ -905,9 +914,57 @@ async function latestRfiResponseEndpoint(req, res) {
   const transactionId = String(req.params.id || '').trim();
   try {
     const result = await fetchLatestRfiResponse({ transactionId });
+    let receiptLogged = false;
+
+    if (result.found && result.message) {
+      await ensureRiskAndContactSchema();
+      const [caseRows] = await database.query(
+        'SELECT case_id FROM cases WHERE transaction_id = ? ORDER BY created_at DESC LIMIT 1',
+        [transactionId],
+      );
+      const caseId = caseRows[0]?.case_id;
+
+      if (caseId) {
+        const messageAnchor = result.message.messageId
+          || [result.message.from, result.message.subject, result.message.date, result.message.text].join('\n');
+        const messageFingerprint = crypto.createHash('sha256').update(messageAnchor).digest('hex');
+        const mailboxReference = result.message.messageId
+          ? `Message-ID ${result.message.messageId}`
+          : `SHA-256 ${messageFingerprint}`;
+        const [insertResult] = await database.execute(
+          `INSERT IGNORE INTO rfi_email_receipts
+            (receipt_id, transaction_id, case_id, message_fingerprint, mailbox_reference, sender, subject, email_date, detected_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+          [
+            id('RFI-REPLY'), transactionId, caseId, messageFingerprint, mailboxReference,
+            String(result.message.from || '').slice(0, 255) || null,
+            String(result.message.subject || '').slice(0, 255) || null,
+            String(result.message.date || '').slice(0, 255) || null,
+          ],
+        );
+
+        if (insertResult.affectedRows === 1) {
+          const receiptDetails = [
+            `Reply received from ${result.message.from || 'unknown sender'}.`,
+            result.message.subject ? `Subject: ${result.message.subject}.` : '',
+            result.message.date ? `Email date: ${result.message.date}.` : '',
+            mailboxReference,
+          ].filter(Boolean).join(' ');
+          await database.execute(
+            `INSERT INTO audit_logs
+              (audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at)
+             VALUES (?, ?, 'Case', ?, 'RFI Email Reply Received', NULL, ?, NOW())`,
+            [id('AUD'), transactionId, caseId, receiptDetails],
+          );
+          receiptLogged = true;
+        }
+      }
+    }
+
     return res.status(200).json({
       success: true,
       transactionId,
+      receiptLogged,
       ...result,
     });
   } catch (error) {
@@ -930,7 +987,6 @@ async function latestRfiResponseEndpoint(req, res) {
 const EDD_CHECKLIST_ROLE_FIELDS = {
   Analyst: ['sourceOfFunds', 'siteVisit'],
   'Senior Analyst': ['sourceOfFunds', 'siteVisit', 'enhancedVerification', 'seniorSignoff'],
-  Admin: ['sourceOfFunds', 'siteVisit', 'enhancedVerification', 'seniorSignoff'],
 };
 
 async function updateCaseEddChecklist(req, res) {
@@ -953,9 +1009,37 @@ async function updateCaseEddChecklist(req, res) {
   const merchantId = transactionRows[0]?.merchant_id;
   if (!merchantId) return res.status(404).json({ success: false, message: 'Transaction not found' });
 
+  if (fieldKey === 'seniorSignoff' && completed) {
+    const [checklistRows] = await database.query(
+      `SELECT source_of_funds_verified, site_visit_completed, enhanced_verification_completed
+       FROM merchant_edd_checklist WHERE merchant_id = ? LIMIT 1`,
+      [merchantId],
+    );
+    const checklist = checklistRows[0];
+    if (
+      !checklist?.source_of_funds_verified
+      || !checklist?.site_visit_completed
+      || !checklist?.enhanced_verification_completed
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Complete Source of Funds, Site Visit, and Enhanced Verification before providing Senior Sign-off.',
+      });
+    }
+  }
+
   await setEddChecklistField(database, {
     merchantId, fieldKey, completed, notes: notes || null, userId: currentUser.id,
   });
+  if (['sourceOfFunds', 'siteVisit', 'enhancedVerification'].includes(fieldKey) && !completed) {
+    await setEddChecklistField(database, {
+      merchantId,
+      fieldKey: 'seniorSignoff',
+      completed: false,
+      notes: 'Automatically revoked because an EDD prerequisite was marked incomplete.',
+      userId: currentUser.id,
+    });
+  }
   await database.execute(
     `INSERT INTO audit_logs (audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
@@ -968,13 +1052,11 @@ async function updateCaseEddChecklist(req, res) {
   return res.status(200).json({ success: true, fieldKey, completed });
 }
 
-// Mirrors EDD_CHECKLIST_ROLE_FIELDS's split: an Analyst may only attach evidence for the two
-// checklist items they're allowed to complete themselves; Enhanced Verification/Screening/Other
-// stay Senior Analyst/Admin territory, same as the checklist fields they back.
+// Separate case-workspace upload duties: Analysts provide CDD evidence and Senior Analysts
+// provide EDD evidence. Admin transaction access is read-only.
 const DOCUMENT_TYPE_ROLE_MAP = {
-  Analyst: ['Source of Funds', 'Site Visit'],
-  'Senior Analyst': ['Source of Funds', 'Site Visit', 'Enhanced Verification', 'Screening', 'Other'],
-  Admin: ['Source of Funds', 'Site Visit', 'Enhanced Verification', 'Screening', 'Other'],
+  Analyst: ['Business Registration', 'Screening'],
+  'Senior Analyst': ['Source of Funds', 'Site Visit', 'Enhanced Verification'],
 };
 
 async function uploadCaseDocument(req, res) {
@@ -986,12 +1068,24 @@ async function uploadCaseDocument(req, res) {
   if (!allowedTypes.includes(documentType)) return res.status(403).send('Forbidden');
 
   await ensureRiskAndContactSchema();
-  const [transactionRows] = await database.query('SELECT merchant_id FROM transactions WHERE transaction_id = ? LIMIT 1', [req.params.id]);
+  const [transactionRows] = await database.query(
+    `SELECT t.merchant_id, c.case_id
+     FROM transactions t
+     LEFT JOIN cases c ON c.transaction_id = t.transaction_id
+     WHERE t.transaction_id = ?
+     ORDER BY c.created_at DESC
+     LIMIT 1`,
+    [req.params.id],
+  );
   const merchantId = transactionRows[0]?.merchant_id;
   if (!merchantId) return res.status(404).send('Transaction not found');
+  const caseId = transactionRows[0]?.case_id;
+  if (!caseId) return res.status(400).send('Supporting documents can only be uploaded to an active transaction case.');
 
   const documentId = await saveCddDocument(database, {
     merchantId,
+    transactionId: req.params.id,
+    caseId,
     documentType,
     originalFilename: req.file.originalname,
     storedFilename: req.file.filename,
@@ -1005,7 +1099,7 @@ async function uploadCaseDocument(req, res) {
      VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
     [
       id('AUD'), req.params.id, 'MerchantCddDocument', documentId, 'Merchant CDD Document Uploaded', currentUser.id,
-      `${documentType} document "${req.file.originalname}" uploaded for merchant ${merchantId} by ${currentUser.name} (${currentUser.role}).`,
+      `${documentType} document "${req.file.originalname}" uploaded for transaction ${req.params.id}, case ${caseId}, by ${currentUser.name} (${currentUser.role}).`,
     ],
   );
 

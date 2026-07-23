@@ -3,7 +3,6 @@ const { suite, runTest, finish } = require('./runAll');
 const {
   parseRequiredWholeNumber,
   calculateFinalScoreFromContributions,
-  validateContributionLimits,
   reviewRequirementForScoreChange,
   buildReconciliationResult,
   cddGateRequirement,
@@ -26,31 +25,6 @@ function testCalculateFinalScoreFromContributions() {
   assert.strictEqual(calculateFinalScoreFromContributions(20, 15, 35), 70);
   assert.strictEqual(calculateFinalScoreFromContributions(0, 0, 0), 0);
   assert.strictEqual(calculateFinalScoreFromContributions(80, 20, 15), 100);
-}
-
-function testContributionLimitValidationPassesWithinModelLimits() {
-  const message = validateContributionLimits({
-    actualMccContribution: 20,
-    actualProfileContribution: 15,
-    actualDetectionContribution: 35,
-    manualMccContribution: 20,
-    manualProfileContribution: 10,
-    manualDetectionContribution: 30,
-  });
-  assert.strictEqual(message, null);
-}
-
-function testContributionLimitValidationRejectsAboveModelLimits() {
-  const message = validateContributionLimits({
-    actualMccContribution: 20,
-    actualProfileContribution: 15,
-    actualDetectionContribution: 35,
-    manualMccContribution: 25,
-    manualProfileContribution: 15,
-    manualDetectionContribution: 40,
-  });
-  assert.match(message, /MCC: maximum 20, entered 25/);
-  assert.match(message, /Detection: maximum 35, entered 40/);
 }
 
 function testReviewRequirementAllowsSameBandSmallChange() {
@@ -133,7 +107,7 @@ function testCddGateBlocksAnalystWhenEddIncomplete() {
   const result = cddGateRequirement({
     role: 'Analyst',
     cddContext: {
-      eddRequired: true, eddComplete: false, reviewOverdue: false,
+      cddComplete: true, eddRequired: true, eddComplete: false, reviewOverdue: false,
     },
   });
   assert.strictEqual(result.allowed, false);
@@ -145,39 +119,49 @@ function testCddGateBlocksAnalystWhenReviewOverdue() {
   const result = cddGateRequirement({
     role: 'Analyst',
     cddContext: {
-      eddRequired: false, eddComplete: false, reviewOverdue: true,
+      cddComplete: true, eddRequired: true, eddComplete: true, reviewOverdue: true,
     },
   });
   assert.strictEqual(result.allowed, false);
   assert.match(result.message, /CDD review date has passed/);
 }
 
+function testCddGateBlocksMediumCaseWithIncompleteCdd() {
+  const result = cddGateRequirement({
+    role: 'Analyst',
+    cddContext: {
+      cddComplete: false, eddRequired: false, eddComplete: false, reviewOverdue: false,
+    },
+  });
+  assert.strictEqual(result.allowed, false);
+  assert.match(result.message, /CDD is incomplete/);
+}
+
 function testCddGateAllowsAnalystWhenNothingOutstanding() {
   const result = cddGateRequirement({
     role: 'Analyst',
     cddContext: {
-      eddRequired: true, eddComplete: true, reviewOverdue: false,
+      cddComplete: true, eddRequired: true, eddComplete: true, reviewOverdue: false,
     },
   });
   assert.strictEqual(result.allowed, true);
 }
 
-function testCddGateAlwaysAllowsSeniorAnalyst() {
+function testCddGateBlocksSeniorAnalystWhenCddIncomplete() {
   const result = cddGateRequirement({
     role: 'Senior Analyst',
     cddContext: {
-      eddRequired: true, eddComplete: false, reviewOverdue: true,
+      cddComplete: false, eddRequired: true, eddComplete: true, reviewOverdue: false,
     },
   });
-  assert.strictEqual(result.allowed, true);
+  assert.strictEqual(result.allowed, false);
+  assert.match(result.message, /CDD is incomplete/);
 }
 
 async function main() {
   suite('Resolve Workflow');
   await runTest('parses required whole numbers for manual reconciliation fields', testParseRequiredWholeNumber);
   await runTest('calculates final score from contributions with cap at 100', testCalculateFinalScoreFromContributions);
-  await runTest('accepts manual contributions within model limits', testContributionLimitValidationPassesWithinModelLimits);
-  await runTest('rejects manual contributions above model limits', testContributionLimitValidationRejectsAboveModelLimits);
   await runTest('allows same-band small final-score changes', testReviewRequirementAllowsSameBandSmallChange);
   await runTest('requires detailed notes for large score changes', testReviewRequirementNeedsDetailedNotesForLargeChange);
   await runTest('blocks Analyst from lowering the risk band', testReviewRequirementBlocksAnalystLoweringRiskBand);
@@ -187,8 +171,9 @@ async function main() {
   await runTest('treats an unset actual contribution as zero, not a forced mismatch', testReconciliationTreatsNullActualsAsZero);
   await runTest('CDD gate blocks an Analyst from resolving when EDD is incomplete', testCddGateBlocksAnalystWhenEddIncomplete);
   await runTest('CDD gate blocks an Analyst from resolving when the CDD review is overdue', testCddGateBlocksAnalystWhenReviewOverdue);
+  await runTest('CDD gate blocks a Medium case when CDD is incomplete', testCddGateBlocksMediumCaseWithIncompleteCdd);
   await runTest('CDD gate allows an Analyst to resolve when nothing is outstanding', testCddGateAllowsAnalystWhenNothingOutstanding);
-  await runTest('CDD gate always allows a Senior Analyst to resolve', testCddGateAlwaysAllowsSeniorAnalyst);
+  await runTest('CDD gate blocks a Senior Analyst when CDD is incomplete', testCddGateBlocksSeniorAnalystWhenCddIncomplete);
   finish();
 }
 

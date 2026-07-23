@@ -100,13 +100,20 @@ async function testIngestTransactionPersistsEvaluationAndBroadcasts() {
   const evaluation = await ingestTransaction(
     database,
     {
-      id: 'TXN-001',
+      id: 'UNIT-REFERENCE-A',
       merchantId: 'M001',
       storeId: 'S001',
       amount: 1500,
       method: 'card',
       scheme: 'visa',
       issuer: 'SG',
+      issuerBank: 'Example Bank',
+      cardBin: '424242',
+      cardLast4: '4242',
+      cardRef: 'CARD-TOKEN-001',
+      cvvValidationResult: 'Passed',
+      expiryValidationResult: 'Passed',
+      transactionCode: 'AUTH-001',
       transactionType: 'sale',
       entryMode: 'chip',
       status: 'captured',
@@ -129,25 +136,32 @@ async function testIngestTransactionPersistsEvaluationAndBroadcasts() {
     call.type === 'execute' && /INSERT INTO transactions/.test(call.sql)
   ));
   assert.ok(transactionInsert);
-  assert.strictEqual(transactionInsert.params[0], 'TXN-001');
+  assert.strictEqual(transactionInsert.params[0], 'UNIT-REFERENCE-A');
   assert.match(transactionInsert.params[1], /^TXN-\d{4}-\d{6}$/);
-  assert.strictEqual(transactionInsert.params[17], 55);
-  assert.strictEqual(transactionInsert.params[18], 'High');
-  assert.strictEqual(transactionInsert.params[19], 0);
-  assert.strictEqual(transactionInsert.params[20], 0);
-  assert.strictEqual(transactionInsert.params[21], 55);
-  assert.strictEqual(transactionInsert.params[22], 'Flagged');
+  assert.strictEqual(transactionInsert.params[8], 'Example Bank');
+  assert.strictEqual(transactionInsert.params[9], '424242');
+  assert.strictEqual(transactionInsert.params[10], '4242');
+  assert.strictEqual(transactionInsert.params[11], 'Passed');
+  assert.strictEqual(transactionInsert.params[12], 'Passed');
+  assert.strictEqual(transactionInsert.params[13], 'AUTH-001');
+  assert.strictEqual(transactionInsert.params[23], 55);
+  assert.strictEqual(transactionInsert.params[24], 'High');
+  assert.strictEqual(transactionInsert.params[25], 0);
+  assert.strictEqual(transactionInsert.params[26], 0);
+  assert.strictEqual(transactionInsert.params[27], 55);
+  assert.strictEqual(transactionInsert.params[28], 'Flagged');
+  assert.strictEqual(transactionInsert.params[30], 'CARD-TOKEN-001');
 
   const ruleInsert = database.calls.find((call) => (
     call.type === 'execute' && /INSERT INTO transaction_matched_rules/.test(call.sql)
   ));
-  assert.deepStrictEqual(ruleInsert.params, ['TXN-001', 'R-AMOUNT']);
+  assert.deepStrictEqual(ruleInsert.params, ['UNIT-REFERENCE-A', 'R-AMOUNT']);
 
   assert.strictEqual(events.length, 1);
   assert.strictEqual(events[0].event, 'transaction');
   assert.match(events[0].data.uniqueTransactionReference, /^TXN-\d{4}-\d{6}$/);
   assert.deepStrictEqual({ ...events[0].data, uniqueTransactionReference: undefined }, {
-    transactionId: 'TXN-001',
+    transactionId: 'UNIT-REFERENCE-A',
     uniqueTransactionReference: undefined,
     merchantId: 'M001',
     amount: 1500,
@@ -212,7 +226,7 @@ async function testIngestTransactionNormalizesStringAmountsAndDates() {
   const transactionInsert = database.calls.find((call) => (
     call.type === 'execute' && /INSERT INTO transactions/.test(call.sql)
   ));
-  assert.ok(transactionInsert.params[15] instanceof Date);
+  assert.ok(transactionInsert.params[21] instanceof Date);
 }
 
 async function main() {

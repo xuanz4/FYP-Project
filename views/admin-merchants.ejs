@@ -4,8 +4,7 @@
    const kycStatuses = ['Not Started', 'Pending', 'Verified', 'Rejected'];
    const ownerRoles = ['Beneficial Owner', 'Authorised Representative', 'Director'];
    const screeningTypes = ['Sanctions', 'PEP', 'Adverse Media'];
-   const screeningResults = ['Clear', 'Potential Match', 'Confirmed Match'];
-   const documentTypes = ['Source of Funds', 'Site Visit', 'Enhanced Verification', 'Screening', 'Other']; %>
+   const screeningResults = ['Clear', 'Potential Match', 'Confirmed Match']; %>
 <main class="analyst-page admin-list-page admin-merchants-page">
   <section class="analyst-page-header"><div><p class="detail-eyebrow">System administration</p><h1>Merchants</h1><p>Create, edit or retire merchant monitoring profiles.</p></div><button class="primary-btn" type="button" data-open-dialog="createMerchantDialog">Create Merchant</button></section>
   <form class="analyst-filter-bar" method="get"><label><span>Status</span><select name="status"><option value="">All</option><option value="active" <%= filters.status === 'active' ? 'selected' : '' %>>Active</option><option value="inactive" <%= filters.status === 'inactive' ? 'selected' : '' %>>Inactive</option></select></label><label><span>Industry</span><select name="industry"><option value="">All</option><% industries.forEach((item) => { %><option value="<%= item.industry %>" <%= filters.industry === item.industry ? 'selected' : '' %>><%= item.industry %></option><% }) %></select></label><label><span>MCC</span><select name="mcc"><option value="">All</option><% mccs.forEach((item) => { %><option value="<%= item.mcc_code %>" <%= filters.mcc === item.mcc_code ? 'selected' : '' %>><%= item.mcc_code %></option><% }) %></select></label><label><span>Search</span><input name="q" value="<%= filters.q %>" placeholder="Merchant, ID, industry"></label><button class="secondary-btn" type="submit">Apply</button></form>
@@ -18,8 +17,7 @@
   <div class="modal-actions"><button class="secondary-btn" type="button" data-close-dialog>Cancel</button><button class="primary-btn" type="submit">Create Merchant</button></div></form></dialog>
 <% rows.forEach((merchant) => {
      const owners = beneficialOwnersByMerchant[merchant.merchant_id] || [];
-     const screenings = screeningRecordsByMerchant[merchant.merchant_id] || [];
-     const documents = documentsByMerchant[merchant.merchant_id] || []; %>
+     const screenings = screeningRecordsByMerchant[merchant.merchant_id] || []; %>
 <dialog class="management-dialog" id="editMerchantDialog-<%= merchant.merchant_id %>">
   <!-- Single form with formaction-per-button on each submit control: the dialog CSS
        (.management-dialog > form) assumes exactly one direct-child form, and each button here
@@ -32,11 +30,9 @@
     <div class="modal-actions"><button class="secondary-btn" type="button" data-close-dialog>Cancel</button><button class="primary-btn" type="submit" formaction="/admin/merchants/<%= merchant.merchant_id %>">Save Changes</button></div>
 
     <% if (merchant.risk_tier === 'High') { %>
-    <p class="detail-eyebrow">EDD checklist (High-risk merchant - all four items required before a case can be resolved without Senior Analyst override; Analysts may only set the first two from the case workspace)</p>
+    <p class="detail-eyebrow">EDD baseline checks (Enhanced Verification and final sign-off are completed by a Senior Analyst in the case workspace)</p>
     <label class="checkbox-field"><input type="checkbox" name="sourceOfFundsCompleted" value="1" <%= merchant.source_of_funds_verified ? 'checked' : '' %>><span>Source of Funds Verified</span></label><input name="sourceOfFundsNotes" placeholder="Notes" value="<%= merchant.source_of_funds_notes || '' %>">
     <label class="checkbox-field"><input type="checkbox" name="siteVisitCompleted" value="1" <%= merchant.site_visit_completed ? 'checked' : '' %>><span>Site Visit or Equivalent Check Completed</span></label><input name="siteVisitNotes" placeholder="Notes" value="<%= merchant.site_visit_notes || '' %>">
-    <label class="checkbox-field"><input type="checkbox" name="enhancedVerificationCompleted" value="1" <%= merchant.enhanced_verification_completed ? 'checked' : '' %>><span>Enhanced Verification Completed</span></label><input name="enhancedVerificationNotes" placeholder="Notes" value="<%= merchant.enhanced_verification_notes || '' %>">
-    <label class="checkbox-field"><input type="checkbox" name="seniorSignoffCompleted" value="1" <%= merchant.senior_signoff_completed ? 'checked' : '' %>><span>Senior Sign-off Provided</span></label><input name="seniorSignoffNotes" placeholder="Notes" value="<%= merchant.senior_signoff_notes || '' %>">
     <div class="modal-actions"><button class="primary-btn" type="submit" formaction="/admin/merchants/<%= merchant.merchant_id %>/edd-checklist">Save Checklist</button></div>
     <% } %>
 
@@ -45,19 +41,17 @@
     <label><span>Full Name</span><input name="fullName"></label><label><span>Role</span><select name="ownerRole"><% ownerRoles.forEach((r) => { %><option value="<%= r %>"><%= r %></option><% }) %></select></label><label><span>Ownership %</span><input name="ownershipPercentage" type="number" min="0" max="100" step="0.01"></label><label><span>Nationality</span><input name="nationality"></label><label><span>ID Reference (self-declared)</span><input name="idReference"></label><label><span>Date of Birth</span><input name="dateOfBirth" type="date"></label><div class="modal-actions"><button class="secondary-btn" type="submit" formaction="/admin/merchants/<%= merchant.merchant_id %>/beneficial-owners">Add Owner</button></div>
 
     <p class="detail-eyebrow">Screening records (manual attestation - no live sanctions/PEP/adverse-media API in this project's scope)</p>
-    <ul class="admin-inline-list"><% if (screenings.length) { screenings.forEach((record) => { %><li><strong><%= record.screening_type %></strong>: <%= record.result %><% if (record.screened_against) { %> vs <%= record.screened_against %><% } %><% if (record.notes) { %> - <%= record.notes %><% } %></li><% }) } else { %><li class="empty-inline">No screening records on file.</li><% } %></ul>
+    <ul class="admin-inline-list">
+      <% if (screenings.length) { screenings.forEach((record) => { %>
+        <li class="screening-record-item">
+          <strong><%= record.screening_type %>:</strong>
+          <span><%= record.result %><% if (record.screened_against) { %> vs <%= record.screened_against %><% } %><% if (record.notes) { %> - <%= record.notes %><% } %></span>
+        </li>
+      <% }) } else { %>
+        <li class="empty-inline">No screening records on file.</li>
+      <% } %>
+    </ul>
     <label><span>Screening Type</span><select name="screeningType"><% screeningTypes.forEach((t) => { %><option value="<%= t %>"><%= t %></option><% }) %></select></label><label><span>Result</span><select name="result"><% screeningResults.forEach((r) => { %><option value="<%= r %>"><%= r %></option><% }) %></select></label><label><span>Screened Against (source)</span><input name="screenedAgainst" placeholder="e.g. UN Consolidated List"></label><label><span>Notes</span><input name="notes"></label><div class="modal-actions"><button class="secondary-btn" type="submit" formaction="/admin/merchants/<%= merchant.merchant_id %>/screening">Add Screening Record</button></div>
-  </form>
-  <!-- Separate form (own enctype) rather than another formaction on the shared form above -
-       file uploads need multipart/form-data, which would force every other button in this
-       dialog onto multipart too if it lived on the same <form>. -->
-  <form method="post" action="/admin/merchants/<%= merchant.merchant_id %>/documents" enctype="multipart/form-data">
-    <p class="detail-eyebrow">CDD/EDD supporting documents (PDF/JPG/PNG, max 5MB - what an Analyst/Senior Analyst actually reviews when marking a checklist item complete)</p>
-    <ul class="admin-inline-list"><% if (documents.length) { documents.forEach((doc) => { %><li><strong><%= doc.document_type %></strong>: <a href="/documents/<%= doc.document_id %>/download" target="_blank" rel="noopener"><%= doc.original_filename %></a> (<%= Math.round(doc.file_size / 1024) %> KB)<% if (doc.notes) { %> - <%= doc.notes %><% } %></li><% }) } else { %><li class="empty-inline">No documents on file.</li><% } %></ul>
-    <label><span>Document Type</span><select name="documentType"><% documentTypes.forEach((t) => { %><option value="<%= t %>"><%= t %></option><% }) %></select></label>
-    <label><span>File</span><input name="document" type="file" accept=".pdf,.jpg,.jpeg,.png" required></label>
-    <label><span>Notes</span><input name="documentNotes" placeholder="What this document shows"></label>
-    <div class="modal-actions"><button class="secondary-btn" type="submit">Upload Document</button></div>
   </form>
 </dialog>
 <% }) %>
