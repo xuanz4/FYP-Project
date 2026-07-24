@@ -6963,7 +6963,620 @@ body.app-shell.transaction-review-shell .merchant-cdd-card {
   padding-bottom: 16px;
 }
 
+/* Shared notification centre */
+.sidebar .notification-centre {
+  position: relative;
+  width: 100%;
+  margin-top: 3px;
+}
+
+.sidebar .notification-bell {
+  display: flex;
+  width: 100%;
+  min-height: 40px;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 12px;
+  border: 1px solid rgba(157, 199, 255, 0.28);
+  border-radius: 8px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.sidebar .notification-bell:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.notification-bell-icon {
+  display: flex;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  font-family: "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
+  font-size: 15px;
+  line-height: 1;
+  transform: translate(-2px, -1px);
+}
+
+.notification-count {
+  min-width: 20px;
+  margin-left: auto;
+  padding: 2px 5px;
+  border-radius: 999px;
+  color: #fff;
+  background: #e23c4b;
+  font-size: 0.6rem;
+  text-align: center;
+}
+
+.notification-panel {
+  position: absolute;
+  z-index: 1200;
+  top: calc(100% + 7px);
+  left: 0;
+  width: min(390px, calc(100vw - var(--sidebar-width) - 24px));
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 20px 55px rgba(7, 26, 51, 0.24);
+  transform-origin: top left;
+  animation: notification-panel-in 160ms ease-out;
+}
+
+.notification-panel[hidden] {
+  display: none;
+}
+
+@keyframes notification-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.notification-panel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.notification-panel > header strong {
+  color: var(--navy-950);
+  font-size: 0.82rem;
+}
+
+.notification-panel > header button {
+  border: 0;
+  color: var(--primary);
+  background: transparent;
+  font-size: 0.65rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.notification-list {
+  max-height: 380px;
+  overflow-y: auto;
+}
+
+.notification-item {
+  display: grid;
+  width: 100%;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-main);
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.notification-item.is-unread {
+  border-left: 3px solid var(--role-accent);
+  background: var(--role-accent-soft);
+}
+
+.notification-item strong {
+  color: var(--navy-950);
+  font-size: 0.72rem;
+}
+
+.notification-item span {
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  line-height: 1.4;
+}
+
+.notification-item time {
+  color: #8090a5;
+  font-size: 0.58rem;
+}
+
+.notification-empty,
+.notification-list > p {
+  margin: 0;
+  padding: 22px 14px;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  text-align: center;
+}
+
+#merchant-rfi-response:target {
+  outline: 3px solid color-mix(in srgb, var(--role-accent) 35%, transparent);
+  scroll-margin-top: 18px;
+}
+
+@media (max-width: 980px) {
+  .notification-panel {
+    left: 0;
+    width: min(360px, calc(100vw - 24px));
+  }
+}
+
+/* Top-right notification and account controls */
+.global-account-tools {
+  position: fixed;
+  z-index: 1100;
+  top: 25px;
+  right: 24px;
+}
+
+.app-shell .global-account-tools .global-notification-bell {
+  position: relative;
+  display: grid;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  place-items: center;
+  border: 1px solid #dce5f2;
+  border-radius: 10px;
+  color: #1769e0;
+  background: #fff;
+  box-shadow: 0 4px 12px rgba(7, 26, 51, 0.08);
+  cursor: pointer;
+  padding: 0;
+  transform: none;
+}
+
+.app-shell .global-account-tools .global-notification-bell:hover {
+  border-color: #c6d8f3;
+  color: #1258bd;
+  background: #eef4ff;
+  box-shadow: 0 5px 14px rgba(7, 26, 51, 0.1);
+  transform: none;
+}
+
+body.app-shell.role-analyst .global-account-tools .global-notification-bell,
+body.app-shell.transaction-review-shell .global-account-tools .global-notification-bell {
+  border-color: #1769e0;
+  color: #fff;
+  background: #1769e0;
+  box-shadow: 0 5px 13px rgba(23, 105, 224, 0.25);
+}
+
+body.app-shell.role-analyst .global-account-tools .global-notification-bell:hover,
+body.app-shell.transaction-review-shell .global-account-tools .global-notification-bell:hover {
+  border-color: #1258bd;
+  color: #fff;
+  background: #1258bd;
+}
+
+body.app-shell.role-analyst .global-notification-bell .notification-bell-icon,
+body.app-shell.transaction-review-shell .global-notification-bell .notification-bell-icon {
+  transform: translateY(-1px);
+}
+
+.global-notification-bell:focus-visible,
+.notification-panel button:focus-visible,
+.notification-panel a:focus-visible {
+  outline: 3px solid rgba(23, 105, 224, 0.32);
+  outline-offset: 2px;
+}
+
+.global-notification-bell .notification-count {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  padding: 2px 5px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  color: #fff;
+  background: #df3346;
+  font-size: 0.56rem;
+  line-height: 1.2;
+}
+
+.global-account-tools .notification-panel {
+  position: fixed;
+  top: 66px;
+  right: 18px;
+  left: auto;
+  width: min(410px, calc(100vw - 28px));
+  border-color: #dce5f2;
+  transform-origin: top right;
+}
+
+.global-account-tools .notification-panel > header {
+  padding: 13px 14px 10px;
+}
+
+.notification-filters {
+  display: flex;
+  gap: 5px;
+  padding: 0 14px 10px;
+  border-bottom: 1px solid #dce5f2;
+}
+
+.notification-filters button {
+  min-height: 28px;
+  padding: 5px 12px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: #667085;
+  background: transparent;
+  font-size: 0.63rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.notification-filters button.active {
+  border-color: #cfe0fb;
+  color: #1769e0;
+  background: #eef4ff;
+}
+
+.global-account-tools .notification-list {
+  max-height: min(430px, calc(100vh - 190px));
+}
+
+.global-account-tools .notification-item {
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-left: 0;
+  border-color: #dce5f2;
+  background: #fff;
+}
+
+.global-account-tools .notification-item:hover {
+  background: #f7f9fc;
+}
+
+.global-account-tools .notification-item.is-unread {
+  border-left: 0;
+  background: #eef4ff;
+}
+
+.notification-type-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 8px;
+  color: #1769e0;
+  background: #e1ebfc;
+  font-size: 0.75rem;
+  font-weight: 900;
+}
+
+.notification-type-icon.type-rfi_failed {
+  color: #bd2638;
+  background: #ffedf0;
+}
+
+.notification-item-content {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.global-account-tools .notification-item-content > strong {
+  color: #14213d;
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.global-account-tools .notification-item.is-unread .notification-item-content > strong {
+  font-weight: 850;
+}
+
+.global-account-tools .notification-item-content > span:not(.notification-item-meta) {
+  overflow: visible;
+  color: #4b5563;
+  font-size: 0.65rem;
+  line-height: 1.42;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.notification-item-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.global-account-tools .notification-item time {
+  color: #8a94a6;
+  font-size: 0.58rem;
+}
+
+.notification-view-label {
+  color: #1769e0;
+  font-size: 0.6rem;
+  font-weight: 800;
+}
+
+.notification-unread-dot {
+  width: 7px;
+  height: 7px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: #1769e0;
+}
+
+.notification-panel > footer {
+  padding: 10px 14px;
+  border-top: 1px solid #dce5f2;
+  text-align: center;
+}
+
+.notification-panel > footer a {
+  color: #1769e0;
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+@media (max-width: 760px) {
+  .global-account-tools {
+    top: 10px;
+    right: 10px;
+  }
+
+  .global-account-tools .notification-panel {
+    position: fixed;
+    top: 58px;
+    right: 10px;
+    left: 10px;
+    width: auto;
+  }
+}
+
+@media (min-width: 761px) {
+  .app-shell .overview-user-actions,
+  .app-shell .senior-user-actions,
+  .app-shell .stro-user-actions {
+    margin-right: 54px;
+  }
+
+  .app-shell .admin-user,
+  .app-shell .review-role-card,
+  .app-shell .analyst-page-header > .role-chip,
+  .app-shell .analyst-page-header > [data-page-read-all] {
+    margin-right: 54px;
+  }
+}
+
+.notifications-page {
+  max-width: 1100px;
+}
+
+.notifications-page-panel {
+  overflow: hidden;
+}
+
+.notifications-page-list {
+  display: grid;
+}
+
+.notifications-page-item {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 15px 18px;
+  border-bottom: 1px solid #dce5f2;
+  color: inherit;
+  background: #fff;
+  text-decoration: none;
+}
+
+.notifications-page-item:hover {
+  background: #f7f9fc;
+}
+
+.notifications-page-item.is-unread {
+  background: #eef4ff;
+}
+
+.notifications-page-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.notifications-page-copy strong {
+  color: #14213d;
+  font-size: 0.82rem;
+}
+
+.notifications-page-copy > span {
+  color: #4b5563;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.notifications-page-copy time {
+  color: #8a94a6;
+  font-size: 0.62rem;
+}
+
+.notifications-page-state {
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: #667085;
+  background: #f1f3f6;
+  font-size: 0.6rem;
+  font-weight: 800;
+}
+
+.notifications-page-item.is-unread .notifications-page-state {
+  color: #1769e0;
+  background: #dce9ff;
+}
+
+@media (max-width: 560px) {
+  .notifications-page-item {
+    grid-template-columns: 34px minmax(0, 1fr);
+  }
+
+  .notifications-page-state {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
+body.app-shell.transaction-review-shell .contribution-copy {
+  min-width: 0;
+}
+
+body.app-shell.transaction-review-shell .contribution-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+body.app-shell.transaction-review-shell .contribution-heading span {
+  flex: 0 0 auto;
+  color: var(--navy-950);
+  font-size: 0.62rem;
+  font-weight: 850;
+}
+
+body.app-shell.transaction-review-shell .contribution-meter {
+  width: 100%;
+  height: 5px;
+  margin-top: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e7edf5;
+}
+
+body.app-shell.transaction-review-shell .contribution-meter span {
+  display: block;
+  width: var(--contribution-width);
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--role-accent), #287cf4);
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+body.app-shell.transaction-review-shell .cdd-detail-toggle {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--role-accent) 35%, var(--border));
+  border-radius: 7px;
+  color: var(--role-accent);
+  background: var(--role-accent-soft);
+  font-size: 0.6rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+body.app-shell.transaction-review-shell .cdd-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 18px;
+  margin: 0 12px;
+}
+
+body.app-shell.transaction-review-shell .cdd-summary-grid > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+body.app-shell.transaction-review-shell .cdd-summary-grid span {
+  color: var(--text-muted);
+  font-size: 0.59rem;
+  font-weight: 750;
+}
+
+body.app-shell.transaction-review-shell .cdd-summary-grid strong {
+  color: var(--navy-950);
+  font-size: 0.64rem;
+  text-align: right;
+}
+
+body.app-shell.transaction-review-shell .cdd-summary-status {
+  padding: 3px 6px;
+  border-radius: 5px;
+}
+
+body.app-shell.transaction-review-shell .cdd-summary-status.is-complete {
+  color: #0d744f;
+  background: var(--success-light);
+}
+
+body.app-shell.transaction-review-shell .cdd-summary-status.is-incomplete {
+  color: #975a08;
+  background: var(--pending-light);
+}
+
+body.app-shell.transaction-review-shell .cdd-detail-body.is-collapsed {
+  display: none;
+}
+
+body.app-shell.transaction-review-shell .cdd-detail-body {
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
 body.app-shell.transaction-review-shell .merchant-cdd-card > :not(.panel-header) {
+  margin-left: 16px;
+  margin-right: 16px;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card > .cdd-summary-grid {
+  margin-left: 12px;
+  margin-right: 12px;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card > .cdd-detail-body {
+  margin: 10px 0 0;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-detail-body > * {
   margin-left: 16px;
   margin-right: 16px;
 }
@@ -6991,6 +7604,26 @@ body.app-shell.transaction-review-shell .merchant-cdd-card > .review-definition-
   border: 1px solid var(--border);
   border-radius: 10px;
   background: #f8fafc;
+}
+
+body.app-shell.transaction-review-shell .merchant-cdd-card .cdd-detail-body > .review-definition-grid {
+  margin-top: 14px;
+  margin-bottom: 18px;
+  padding: 13px 15px;
+  gap: 12px 22px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+@media (max-width: 560px) {
+  body.app-shell.transaction-review-shell .cdd-summary-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  body.app-shell.transaction-review-shell .merchant-cdd-card .panel-header {
+    align-items: flex-start;
+  }
 }
 
 body.app-shell.transaction-review-shell .merchant-cdd-card > .review-definition-grid div {

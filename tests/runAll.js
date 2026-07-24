@@ -19,6 +19,7 @@ const testFiles = [
   'riskEvaluation.test.js',
   'rfiWorkflow.test.js',
   'rfiInboxService.test.js',
+  'rfiNotifications.test.js',
   'authMiddleware.test.js',
   'strDraft.test.js',
   'caseFilters.test.js',

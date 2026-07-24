@@ -1,0 +1,64 @@
+<%- include('partials/head', { title, activePage }) %>
+<%
+  const iconFor = (type) => ({
+    RFI_SENT: '&#9993;',
+    RFI_REPLIED: '&#8617;',
+    RFI_FAILED: '!',
+    CASE_ASSIGNED: '&#9786;',
+    CASE_ESCALATED: '&#8599;',
+    STR_UPDATED: '&#9636;'
+  }[type] || '&#9671;');
+  const pageHref = (page) => `/notifications?page=${page}`;
+%>
+<main class="analyst-page notifications-page">
+  <section class="analyst-page-header">
+    <div>
+      <p class="detail-eyebrow">Personal activity</p>
+      <h1>Notifications</h1>
+      <p>RFI delivery, merchant replies and case-workflow updates assigned to you.</p>
+    </div>
+    <button type="button" class="secondary-btn" data-page-read-all>Mark all as read</button>
+  </section>
+
+  <section class="panel notifications-page-panel">
+    <% if (rows.length) { %>
+      <div class="notifications-page-list">
+        <% rows.forEach((item) => { %>
+          <a class="notifications-page-item <%= item.is_read ? '' : 'is-unread' %>"
+             href="<%= item.target_url || '#' %>"
+             data-page-notification-id="<%= item.notification_id %>">
+            <span class="notification-type-icon type-<%= String(item.notification_type || '').toLowerCase() %>" aria-hidden="true"><%- iconFor(item.notification_type) %></span>
+            <span class="notifications-page-copy">
+              <strong><%= item.title %></strong>
+              <span><%= item.message %></span>
+              <time datetime="<%= item.created_at %>"><%= new Date(item.created_at).toLocaleString('en-SG') %></time>
+            </span>
+            <span class="notifications-page-state"><%= item.is_read ? 'Read' : 'Unread' %></span>
+          </a>
+        <% }) %>
+      </div>
+    <% } else { %>
+      <p class="notification-empty">No notifications yet.</p>
+    <% } %>
+    <div class="pagination-row">
+      <a class="secondary-btn <%= pagination.page <= 1 ? 'disabled' : '' %>" href="<%= pageHref(Math.max(1, pagination.page - 1)) %>">Previous</a>
+      <span>Page <%= pagination.page %> of <%= pagination.totalPages %> &middot; <%= pagination.total %> notifications</span>
+      <a class="secondary-btn <%= pagination.page >= pagination.totalPages ? 'disabled' : '' %>" href="<%= pageHref(Math.min(pagination.totalPages, pagination.page + 1)) %>">Next</a>
+    </div>
+  </section>
+</main>
+<script>
+  document.querySelectorAll('[data-page-notification-id]').forEach((link) => {
+    link.addEventListener('click', async (event) => {
+      event.preventDefault();
+      const target = link.getAttribute('href');
+      await fetch(`/api/notifications/${encodeURIComponent(link.dataset.pageNotificationId)}/read`, { method: 'PATCH' });
+      if (target && target !== '#') window.location.assign(target);
+    });
+  });
+  document.querySelector('[data-page-read-all]')?.addEventListener('click', async () => {
+    const response = await fetch('/api/notifications/read-all', { method: 'PATCH' });
+    if (response.ok) window.location.reload();
+  });
+</script>
+<%- include('partials/footer', { includeClientScript: false }) %>

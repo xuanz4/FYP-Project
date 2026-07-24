@@ -16,6 +16,7 @@ const {
   validateRfiRequestBody,
 } = require('./src/lib/rfiWorkflow');
 const { validateStrTransition, autoAssignStaleCases, backfillCaseDueDates } = require('./controllers/transactionsController');
+const { startRfiReplyChecker } = require('./src/jobs/rfiReplyChecker');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -48,6 +49,7 @@ initSocket(server);
 
 app.use(authRedirect);
 app.use(require('./routes/auth'));
+app.use(require('./routes/notifications'));
 app.use(require('./routes/admin'));
 app.use(require('./routes/analyst'));
 app.use(require('./routes/seniorAnalyst'));
@@ -74,6 +76,8 @@ async function startServer() {
   server.listen(PORT, () => {
     console.log(`UNIWEB local (domestic) card-payment monitoring running on http://localhost:${PORT} - any Singapore merchant profile, MCC-driven risk classification`);
   });
+
+  startRfiReplyChecker();
 
   server.on('error', (error) => {
     console.error(`Server failed to listen on port ${PORT}: ${error.message}`);

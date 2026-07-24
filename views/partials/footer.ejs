@@ -2,6 +2,9 @@
   <script src="/socket.io/socket.io.js"></script>
   <script src="/app.js"></script>
   <% } %>
+    <% if (currentUser) { %>
+      <script src="/notifications.js"></script>
+    <% } %>
     </body>
 
     </html>

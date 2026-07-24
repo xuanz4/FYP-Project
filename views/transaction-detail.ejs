@@ -269,22 +269,27 @@
                 <div class="panel-header">
                     <div>
                         <h2>Risk Contributions</h2>
-                        <p>Contribution points affect the score. Screening confidence is supporting evidence.</p>
+                        <p>Contribution points used to calculate the initial transaction risk score.</p>
                     </div>
                 </div>
                 <% if (hasAnyContributionDetails) { %>
                     <div class="contribution-list">
                         <% baselineContributions.forEach((item) => { %>
                             <article class="contribution-item <%= item.missingDetails ? 'missing-rule-details' : '' %>">
-                                <div>
-                                    <strong><%= item.label %></strong>
+                                <div class="contribution-copy">
+                                    <div class="contribution-heading">
+                                        <strong><%= item.label %></strong>
+                                        <span><%= item.points === null ? 'Not stored' : `${item.points} pts` %></span>
+                                    </div>
                                     <p><%= item.description %></p>
+                                    <div class="contribution-meter" aria-label="<%= item.label %>: <%= item.points === null ? 0 : item.points %> points">
+                                        <span style="--contribution-width: <%= Math.min(100, Math.max(0, Number(item.points) || 0)) %>%"></span>
+                                    </div>
                                 </div>
-                                <dl>
+                                <dl class="contribution-details">
                                     <div><dt>Component</dt><dd><%= item.label.replace(' Contribution', '') %></dd></div>
                                     <div><dt>Contribution</dt><dd><%= item.points === null ? 'Not stored' : `${item.points} pts` %></dd></div>
                                     <div><dt>Matched field</dt><dd><%= item.matchedField %></dd></div>
-                                    <div><dt>Confidence</dt><dd>Not a screening confidence score</dd></div>
                                 </dl>
                             </article>
                         <% }) %>
@@ -298,7 +303,6 @@
                                     <div><dt>Severity</dt><dd><span class="risk-badge risk-<%= String(rule.risk_level || rule.severity || initialLevel).toLowerCase() %>"><%= rule.risk_level || rule.severity || initialLevel %></span></dd></div>
                                     <div><dt>Risk contribution</dt><dd><%= rule.weight ?? rule.score ?? rule.riskContribution ?? 'Not assigned' %> pts</dd></div>
                                     <div><dt>Matched field</dt><dd><%= rule.matchedField || rule.field || 'Transaction context' %></dd></div>
-                                    <div><dt>Confidence</dt><dd><%= rule.confidence ? `${rule.confidence}%` : 'Evidence only' %></dd></div>
                                 </dl>
                             </article>
                         <% }) %>
@@ -322,9 +326,19 @@
                 <div class="panel-header">
                     <div>
                         <h2>Merchant Due Diligence</h2>
-                        <p>Merchant KYC baseline is admin-recorded reference data; the CDD and EDD checklists below belong to this transaction's own case - not a substitute for senior review.</p>
+                        <p>Key CDD/EDD and screening information for this merchant.</p>
                     </div>
+                    <button type="button" class="cdd-detail-toggle" data-cdd-detail-toggle aria-expanded="false" aria-controls="merchantDueDiligenceDetails">View full details</button>
                 </div>
+                <div class="cdd-summary-grid" aria-label="Merchant due diligence summary">
+                    <div><span>CDD Checklist</span><strong class="cdd-summary-status <%= cdd.cddComplete ? 'is-complete' : 'is-incomplete' %>"><%= cdd.cddComplete ? 'Complete' : 'Incomplete' %></strong></div>
+                    <div><span>KYC Status</span><strong class="cdd-summary-status <%= cdd.kycStatus === 'Verified' ? 'is-complete' : 'is-incomplete' %>"><%= cdd.kycStatus %></strong></div>
+                    <div><span>EDD Checklist</span><strong class="cdd-summary-status <%= !cdd.eddRequired || cdd.eddComplete ? 'is-complete' : 'is-incomplete' %>"><%= cdd.eddRequired ? (cdd.eddComplete ? 'Complete' : 'Incomplete') : 'Not required' %></strong></div>
+                    <div><span>Next Review</span><strong class="<%= cdd.reviewOverdue ? 'text-danger' : '' %>"><%= cdd.nextReviewDate ? new Date(cdd.nextReviewDate).toLocaleDateString('en-SG') : 'Not set' %></strong></div>
+                    <div><span>Supporting Documents</span><strong><%= cddDocumentsList.length %> uploaded</strong></div>
+                    <div><span>Screening Records</span><strong><%= screenings.length ? `${screenings.length} recorded` : 'None recorded' %></strong></div>
+                </div>
+                <div id="merchantDueDiligenceDetails" class="cdd-detail-body is-collapsed">
                 <dl class="review-definition-grid">
                     <div><dt>KYC Status</dt><dd><%= cdd.kycStatus %></dd></div>
                     <div><dt>Verification Date</dt><dd><%= cdd.verificationDate ? new Date(cdd.verificationDate).toLocaleDateString('en-SG') : 'Not set' %></dd></div>
@@ -408,6 +422,7 @@
                         <p class="form-feedback upload-feedback" data-upload-feedback role="status" aria-live="polite"></p>
                     </form>
                 <% } %>
+                </div>
             </article>
         </section>
 
@@ -427,9 +442,9 @@
                                 <dt>Unique Transaction Reference</dt>
                                 <dd>
                                     <% if (isSenior || isStro) { %>
-                                        <button type="button" id="utrDetailsToggle" class="link-button" aria-expanded="false" aria-controls="utrDetailsPanel"><%= tx.unique_transaction_reference || 'Not assigned' %></button>
+                                        <button type="button" id="utrDetailsToggle" class="link-button" aria-expanded="false" aria-controls="utrDetailsPanel"><%= tx.unique_transaction_reference || transactionId %></button>
                                     <% } else { %>
-                                        <%= tx.unique_transaction_reference || 'Not assigned' %>
+                                        <%= tx.unique_transaction_reference || transactionId %>
                                     <% } %>
                                 </dd>
                             </div>
@@ -543,7 +558,7 @@
                         </article>
                     <% } %>
                     <% if (caseInfo && !isAdmin && ['Pending RFI', 'Waiting for Information'].includes(rawCaseStatus)) { %>
-                        <article class="review-info-card rfi-response-panel overview-rfi-response-card">
+                        <article id="merchant-rfi-response" class="review-info-card rfi-response-panel overview-rfi-response-card">
                             <div class="rfi-response-card-header">
                                 <div>
                                     <h3>Merchant RFI Response</h3>
@@ -1789,6 +1804,15 @@
             if (!response.ok) throw new Error(result.message || `Request failed (${response.status})`);
             return result;
         };
+
+        const cddDetailToggle = document.querySelector('[data-cdd-detail-toggle]');
+        const cddDetailBody = document.querySelector('#merchantDueDiligenceDetails');
+        cddDetailToggle?.addEventListener('click', () => {
+            const willExpand = cddDetailBody?.classList.contains('is-collapsed');
+            cddDetailBody?.classList.toggle('is-collapsed', !willExpand);
+            cddDetailToggle.setAttribute('aria-expanded', String(Boolean(willExpand)));
+            cddDetailToggle.textContent = willExpand ? 'Hide full details' : 'View full details';
+        });
 
         const eddSignoffForm = document.querySelector('#eddSignoffForm');
         eddSignoffForm?.addEventListener('submit', async (event) => {

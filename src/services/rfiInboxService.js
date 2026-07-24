@@ -192,11 +192,14 @@ function parseEmailMessage(raw) {
   const headers = parseHeaders(raw);
   return {
     from: decodeEncodedWords(headers.from || ''),
+    to: decodeEncodedWords(headers.to || ''),
     subject: decodeEncodedWords(headers.subject || ''),
     date: headers.date || '',
     // Exposed for case_rfi_evidence.mailbox_reference (see rfiEvidence.js) - lets an evidence
     // log entry point at a specific, independently re-checkable message instead of just text.
     messageId: headers['message-id'] || '',
+    inReplyTo: headers['in-reply-to'] || '',
+    references: headers.references || '',
     text: extractTextBody(raw).replace(/\r/g, '').trim(),
   };
 }

@@ -1,0 +1,41 @@
+CREATE TABLE IF NOT EXISTS rfi_requests (
+    rfi_id VARCHAR(40) PRIMARY KEY,
+    transaction_id VARCHAR(40) NOT NULL,
+    case_id VARCHAR(40) NULL,
+    sent_by VARCHAR(20) NOT NULL,
+    recipient_email VARCHAR(255) NOT NULL,
+    subject VARCHAR(255) NOT NULL,
+    request_summary TEXT NULL,
+    status ENUM('Sent', 'Failed', 'Replied') NOT NULL,
+    outbound_message_id VARCHAR(255) NULL,
+    sent_at DATETIME NULL,
+    failure_code VARCHAR(80) NULL,
+    failure_message VARCHAR(500) NULL,
+    reply_message_id VARCHAR(255) NULL,
+    reply_sender VARCHAR(255) NULL,
+    reply_subject VARCHAR(255) NULL,
+    replied_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_rfi_requests_waiting (status, sent_at),
+    INDEX idx_rfi_requests_transaction (transaction_id),
+    INDEX idx_rfi_requests_case (case_id)
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+    notification_id VARCHAR(40) PRIMARY KEY,
+    user_id VARCHAR(20) NOT NULL,
+    case_id VARCHAR(40) NULL,
+    transaction_id VARCHAR(40) NULL,
+    rfi_id VARCHAR(40) NULL,
+    reply_fingerprint CHAR(64) NULL,
+    notification_type VARCHAR(50) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    target_url VARCHAR(500) NULL,
+    is_read TINYINT(1) NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    read_at DATETIME NULL,
+    INDEX idx_notifications_user_unread (user_id, is_read, created_at),
+    UNIQUE KEY uq_notification_reply_user (user_id, rfi_id, notification_type, reply_fingerprint)
+);

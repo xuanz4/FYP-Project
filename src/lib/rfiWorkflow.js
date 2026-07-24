@@ -1,7 +1,8 @@
 const database = require('../database');
 const emailService = require('../services/emailService');
 const { id } = require('./ids');
-const { ensureStrWorkflowSchema, ensureRiskAndContactSchema } = require('./schema');
+const { ensureStrWorkflowSchema, ensureRiskAndContactSchema, ensureNotificationSchema } = require('./schema');
+const { createNotification } = require('../services/notificationService');
 const { hasMeaningfulAnalystNotes } = require('./strDraft');
 const { roleCanPerform, forbidJson } = require('../middleware/auth');
 
@@ -193,6 +194,10 @@ async function handleDatabaseRfiRequest(req, res) {
     return res.status(400).json({ success: false, message: 'Recipient email is missing or invalid' });
   }
 
+  await ensureNotificationSchema();
+  const rfiId = id('RFI');
+  const subject = String(req.body.subject || '').trim();
+  const informationRequested = String(req.body.informationRequested || '').trim();
   let delivery;
   try {
     delivery = await emailService.sendRfiEmail({
@@ -203,8 +208,8 @@ async function handleDatabaseRfiRequest(req, res) {
       transactionDate: new Date(context.createdAt).toLocaleString('en-SG'),
       currency: context.currency,
       amount: context.amount,
-      subject: String(req.body.subject || '').trim(),
-      informationRequested: String(req.body.informationRequested || '').trim(),
+      subject,
+      informationRequested,
     });
   } catch (error) {
     console.error('RFI SMTP delivery failed', {
@@ -213,12 +218,44 @@ async function handleDatabaseRfiRequest(req, res) {
       message: error.message,
     });
     const safeError = getSafeEmailError(error);
+    try {
+      await database.withTransaction(async (tx) => {
+        await tx.execute(
+          `INSERT INTO rfi_requests
+            (rfi_id, transaction_id, case_id, sent_by, recipient_email, subject, request_summary,
+             status, failure_code, failure_message, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'Failed', ?, ?, NOW(), NOW())`,
+          [
+            rfiId, context.transactionId, context.caseId, req.session.user.id, recipient.email,
+            subject, informationRequested, safeError.code, safeError.message,
+          ],
+        );
+        await tx.execute(
+          `INSERT INTO audit_logs
+            (audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at)
+           VALUES (?, ?, 'RFI', ?, 'RFI_SEND_FAILED', ?, ?, NOW())`,
+          [id('AUD'), context.transactionId, rfiId, req.session.user.id, `RFI send failed: ${safeError.code}.`],
+        );
+        await createNotification({
+          userId: req.session.user.id,
+          caseId: context.caseId,
+          transactionId: context.transactionId,
+          rfiId,
+          type: 'RFI_FAILED',
+          title: 'RFI could not be sent',
+          message: `The RFI for transaction ${context.uniqueTransactionReference || context.transactionId} could not be sent. Please try again.`,
+          targetUrl: `/transactions/${encodeURIComponent(context.transactionId)}#merchant-rfi-response`,
+        }, tx);
+      });
+    } catch (persistenceError) {
+      console.error('Unable to persist failed RFI notification', {
+        transactionId: context.transactionId,
+        message: persistenceError.message,
+      });
+    }
     return res.status(502).json({ success: false, ...safeError });
   }
 
-  const action = req.session.user.role === 'STRO'
-    ? 'Additional Information Requested by STRO'
-    : 'Request for Information Sent';
   // Full recipient address (not masked) is recorded here on purpose: this is a permanent
   // historical snapshot of the address actually used at send time, distinct from the live
   // merchant_contacts lookup - so it still reads correctly even after a later contact edit.
@@ -240,11 +277,31 @@ async function handleDatabaseRfiRequest(req, res) {
       }
       await tx.execute('UPDATE transactions SET action_status = ?, updated_at = CURRENT_TIMESTAMP WHERE transaction_id = ?', ['Pending RFI', context.transactionId]);
       await tx.execute(
+        `INSERT INTO rfi_requests
+          (rfi_id, transaction_id, case_id, sent_by, recipient_email, subject, request_summary,
+           status, outbound_message_id, sent_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'Sent', ?, NOW(), NOW(), NOW())`,
+        [
+          rfiId, context.transactionId, context.caseId, req.session.user.id, recipient.email,
+          subject, informationRequested, delivery.messageId || null,
+        ],
+      );
+      await tx.execute(
         `INSERT INTO audit_logs (audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-        [id('AUD'), context.transactionId, context.caseId ? 'Case' : 'Transaction',
-          context.caseId || context.transactionId, action, req.session.user.id, auditSummary],
+        [id('AUD'), context.transactionId, 'RFI',
+          rfiId, 'RFI_SENT', req.session.user.id, auditSummary],
       );
+      await createNotification({
+        userId: req.session.user.id,
+        caseId: context.caseId,
+        transactionId: context.transactionId,
+        rfiId,
+        type: 'RFI_SENT',
+        title: 'RFI sent successfully',
+        message: `The RFI for transaction ${context.uniqueTransactionReference || context.transactionId} was sent to the merchant.`,
+        targetUrl: `/transactions/${encodeURIComponent(context.transactionId)}#merchant-rfi-response`,
+      }, tx);
     });
   } catch (error) {
     console.error('RFI email sent but database persistence failed', {
@@ -265,6 +322,7 @@ async function handleDatabaseRfiRequest(req, res) {
     recipient: recipient.email,
     recipientSource: recipient.source,
     messageId: delivery.messageId || null,
+    rfiId,
     message: `RFI email accepted for delivery to ${recipient.email}.`,
     caseStatus: context.caseId ? 'Pending RFI' : null,
     transactionStatus: 'Pending RFI',

@@ -1,4 +1,3 @@
-const crypto = require('crypto');
 const database = require('../src/database');
 const { id } = require('../src/lib/ids');
 const { broadcast } = require('../src/lib/socket');
@@ -14,7 +13,8 @@ const {
 const { forbidJson, activePageForRole } = require('../src/middleware/auth');
 const { ingestTransaction } = require('../src/transactionIngestion');
 const { ensureRiskAndContactSchema } = require('../src/lib/schema');
-const { fetchLatestRfiResponse } = require('../src/services/rfiInboxService');
+const { checkLatestTransactionReply } = require('../src/services/rfiMailboxService');
+const { logAdminAudit } = require('../src/lib/auditLog');
 const { loadMerchantCddContext } = require('../src/lib/merchantCdd');
 const { setEddChecklistField } = require('../src/lib/eddChecklist');
 const { setCddChecklistField } = require('../src/lib/cddChecklist');
@@ -915,58 +915,22 @@ async function latestRfiResponseEndpoint(req, res) {
 
   const transactionId = String(req.params.id || '').trim();
   try {
-    const result = await fetchLatestRfiResponse({ transactionId });
-    let receiptLogged = false;
-
+    const { mailboxResult: result, detection } = await checkLatestTransactionReply(transactionId);
     if (result.found && result.message) {
-      await ensureRiskAndContactSchema();
-      const [caseRows] = await database.query(
-        'SELECT case_id FROM cases WHERE transaction_id = ? ORDER BY created_at DESC LIMIT 1',
-        [transactionId],
-      );
-      const caseId = caseRows[0]?.case_id;
-
-      if (caseId) {
-        const messageAnchor = result.message.messageId
-          || [result.message.from, result.message.subject, result.message.date, result.message.text].join('\n');
-        const messageFingerprint = crypto.createHash('sha256').update(messageAnchor).digest('hex');
-        const mailboxReference = result.message.messageId
-          ? `Message-ID ${result.message.messageId}`
-          : `SHA-256 ${messageFingerprint}`;
-        const [insertResult] = await database.execute(
-          `INSERT IGNORE INTO rfi_email_receipts
-            (receipt_id, transaction_id, case_id, message_fingerprint, mailbox_reference, sender, subject, email_date, detected_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-          [
-            id('RFI-REPLY'), transactionId, caseId, messageFingerprint, mailboxReference,
-            String(result.message.from || '').slice(0, 255) || null,
-            String(result.message.subject || '').slice(0, 255) || null,
-            String(result.message.date || '').slice(0, 255) || null,
-          ],
-        );
-
-        if (insertResult.affectedRows === 1) {
-          const receiptDetails = [
-            `Reply received from ${result.message.from || 'unknown sender'}.`,
-            result.message.subject ? `Subject: ${result.message.subject}.` : '',
-            result.message.date ? `Email date: ${result.message.date}.` : '',
-            mailboxReference,
-          ].filter(Boolean).join(' ');
-          await database.execute(
-            `INSERT INTO audit_logs
-              (audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at)
-             VALUES (?, ?, 'Case', ?, 'RFI Email Reply Received', NULL, ?, NOW())`,
-            [id('AUD'), transactionId, caseId, receiptDetails],
-          );
-          receiptLogged = true;
-        }
-      }
+      await logAdminAudit({
+        action: 'RFI_RESPONSE_VIEWED',
+        userId: req.session.user.id,
+        transactionId,
+        entityType: 'RFI',
+        entityId: detection.mailboxReference || transactionId,
+        notes: 'The merchant RFI response was opened through Load Response.',
+      });
     }
 
     return res.status(200).json({
       success: true,
       transactionId,
-      receiptLogged,
+      receiptLogged: Boolean(detection.created),
       ...result,
     });
   } catch (error) {

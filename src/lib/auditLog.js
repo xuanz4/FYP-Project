@@ -5,8 +5,8 @@ const { id } = require('./ids');
 // Admin/Analyst/STRO routes use.
 async function logAdminAudit({
   action, userId, notes = null, transactionId = null, entityType = null, entityId = null,
-}) {
-  await database.execute(
+}, db = database) {
+  await db.execute(
     `INSERT INTO audit_logs (audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
     [id('AUD'), transactionId, entityType, entityId, action, userId, notes],

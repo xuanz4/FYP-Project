@@ -36,3 +36,25 @@
     <p id="connectionText">Connecting</p>
   </div>
 </aside>
+<div class="global-account-tools" data-notification-centre>
+  <button type="button" class="notification-bell global-notification-bell" data-notification-toggle aria-label="Open notifications" aria-expanded="false" aria-controls="notificationPanel">
+    <span class="notification-bell-icon" aria-hidden="true">
+      &#128276;
+    </span>
+    <strong class="notification-count" data-notification-count hidden>0</strong>
+  </button>
+  <section id="notificationPanel" class="notification-panel" data-notification-panel aria-label="Notifications" hidden>
+    <header>
+      <strong>Notifications</strong>
+      <button type="button" data-notification-read-all>Mark all as read</button>
+    </header>
+    <div class="notification-filters" role="group" aria-label="Filter notifications">
+      <button type="button" class="active" data-notification-filter="all" aria-pressed="true">All</button>
+      <button type="button" data-notification-filter="unread" aria-pressed="false">Unread</button>
+    </div>
+    <div class="notification-list" data-notification-list>
+      <p>Loading notifications...</p>
+    </div>
+    <footer><a href="/notifications">View all notifications</a></footer>
+  </section>
+</div>
