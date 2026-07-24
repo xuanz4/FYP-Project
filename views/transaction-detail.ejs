@@ -41,7 +41,8 @@
         'None': 'New'
     };
     const assessmentStatus = assessmentStatusMap[rawCaseStatus] || rawCaseStatus;
-    const decision = caseInfo?.decision || tx.decision || (rawCaseStatus === 'Dismissed as False Positive' ? 'Accepted' : rawCaseStatus === 'STR Filed' ? 'Escalated' : 'Not assigned');
+    const savedDecision = caseInfo?.decision || tx.decision || null;
+    const decision = savedDecision || (rawCaseStatus === 'Dismissed as False Positive' ? 'Accepted' : rawCaseStatus === 'STR Filed' ? 'Escalated' : 'Not assigned');
     const initialScore = tx.initial_risk_score ?? tx.initialRiskScore ?? tx.risk_score ?? tx.riskScore ?? 'Not assigned';
     const initialLevel = tx.initial_risk_level || tx.initialRiskLevel || tx.risk_level || tx.riskBand || 'Not assigned';
     const finalScore = tx.final_risk_score ?? tx.finalRiskScore ?? null;
@@ -97,11 +98,6 @@
     // RFI, escalate, refer to STRO, STR file, resolve) - falls back to the older
     // referred-to-STRO-specific fields for cases actioned before that column existed.
     const referredBy = caseInfo?.last_actioned_by_name || caseInfo?.referred_by_user_name || caseInfo?.referredByName || caseInfo?.referred_to_stro_by || 'Not assigned';
-    const canReferToStro = !isResolved && isSenior && !!caseInfo && !routedToStro && strStatus === 'Not Started';
-    const canStroWorkStr = !isResolved && isStro && routedToStro && strStatus === 'Recommended';
-    const canStroRequestInfo = canStroWorkStr;
-    const canMarkStrNotRequired = canStroWorkStr;
-    const canPrepareStr = canStroWorkStr;
     const screeningResult = transactionStatus === 'Flagged' ? 'Potential review required' : 'Cleared';
     const recommendedAction = tx.recommendedAction || (initialLevel === 'Critical' ? 'Manual Review or Hold Settlement' : initialLevel === 'High' ? 'Additional verification required' : initialLevel === 'Medium' ? 'Monitor' : 'Allow');
     const backHref = role === 'Admin' ? '/admin' : role === 'STRO' ? '/stro' : role === 'Senior Analyst' ? '/senior-analyst' : '/analyst';
@@ -110,11 +106,46 @@
         || caseInfo?.escalation_destination === 'Senior Analyst'
         || caseInfo?.escalationDestination === 'Senior Analyst'
         || rawCaseStatus === 'Pending Senior Review';
-    const isRfiTerminal = isResolved || ['Filed', 'Not Required'].includes(strStatus);
-    const canSendRfi = !isRfiTerminal && ((isAnalyst && !!caseInfo && escalationDestination === 'Not assigned') || (isSenior && !!caseInfo && routedToSenior) || canStroRequestInfo);
-    const canEscalate = !isResolved && isAnalyst && !!caseInfo && escalationDestination === 'Not assigned' && strStatus === 'Not Started';
-    const canResolve = !isResolved && ((isAnalyst && rawCaseStatus !== 'Escalated' && rawCaseStatus !== 'Pending Senior Review' && initialLevel !== 'Critical') || isSenior);
-    const canAssignToMe = !isResolved && isUnassignedCase && role === requiredAssignmentRole && (isAnalyst || isSenior || isStro);
+    const isTerminalCase = isResolved || ['Filed', 'Not Required'].includes(strStatus);
+    const analystInitialStage = isAnalyst && !!caseInfo && escalationDestination === 'Not assigned';
+    const seniorReviewStage = isSenior && !!caseInfo && routedToSenior && !routedToStro;
+    const stroReviewStage = isStro && !!caseInfo && routedToStro && strStatus === 'Recommended';
+    const canReferToStro = !isTerminalCase && seniorReviewStage && strStatus === 'Not Started';
+    const canStroWorkStr = !isTerminalCase && stroReviewStage;
+    const canStroRequestInfo = canStroWorkStr;
+    const canMarkStrNotRequired = canStroWorkStr;
+    const canPrepareStr = canStroWorkStr;
+    const canSendRfi = !isTerminalCase && (analystInitialStage || seniorReviewStage || canStroRequestInfo);
+    const canEscalate = !isTerminalCase && analystInitialStage && strStatus === 'Not Started';
+    const canResolve = !isTerminalCase
+        && ((analystInitialStage && initialLevel !== 'Critical') || seniorReviewStage);
+    const canAssignToMe = !isTerminalCase && isUnassignedCase && role === requiredAssignmentRole && (isAnalyst || isSenior || isStro);
+    const workflowDecisionMap = {
+        Open: 'Awaiting review',
+        New: 'Awaiting review',
+        'Under Review': 'Review started',
+        'Pending RFI': 'RFI requested',
+        'Waiting for Information': 'RFI requested',
+        'Pending Senior Review': 'Escalated to Senior Analyst',
+        Escalated: 'Referred to STRO'
+    };
+    const currentWorkflowDecision = savedDecision
+        || (strStatus === 'Recommended' ? 'STR review recommended' : workflowDecisionMap[rawCaseStatus])
+        || workflowDecisionMap[assessmentStatus]
+        || assessmentStatus;
+    const hasFinalAssessment = finalScore !== null || isTerminalCase;
+    const assessmentCardValue = hasFinalAssessment ? (finalScore ?? decision) : assessmentStatus;
+    const assessmentCardDetail = finalLevel || (hasFinalAssessment ? decision : 'In progress');
+    const assessmentCardReason = caseInfo?.resolution_reason
+        || tx.resolutionReason
+        || tx.resolution_reason
+        || (hasFinalAssessment ? rawCaseStatus : 'Awaiting final resolution');
+    const assessmentActor = hasFinalAssessment
+        ? (caseInfo?.resolved_by_name || tx.resolvedBy || caseInfo?.last_actioned_by_name || 'System')
+        : (caseInfo?.last_actioned_by_name || caseInfo?.assigned_user_name || 'System');
+    const assessmentActionAt = hasFinalAssessment
+        ? (caseInfo?.resolved_at || tx.resolvedAt || tx.resolved_at)
+        : (caseInfo?.last_actioned_at || caseInfo?.updated_at);
     const strDraft = (typeof strAutoFill !== 'undefined' && strAutoFill) ? strAutoFill : {
         referenceNumber: '', filingDate: '', reportingReason: '', suspicionSummary: '', stroNotes: '', supportingEvidence: []
     };
@@ -138,7 +169,12 @@
     // uploaded (see transactionsController.js's uploadCaseDocument) - there is no manual
     // checklist form for either role. canPerformSeniorEddReview now only gates the Sign-off
     // form, the one EDD item that stays a manual attestation.
-    const canPerformSeniorEddReview = isSenior && cdd.eddRequired && !isResolved;
+    // EDD completion is a due-diligence exception to workflow routing: a Senior Analyst may
+    // provide the required sign-off after escalation, but gains no other case action rights.
+    const canPerformSeniorEddReview = isSenior
+        && cdd.eddRequired
+        && !eddChecklist.senior_signoff_completed
+        && !isTerminalCase;
     const eddPrerequisitesComplete = Boolean(
         eddChecklist.source_of_funds_verified
         && eddChecklist.site_visit_completed
@@ -147,10 +183,19 @@
     // Case-workspace upload duties are separated between Analysts (CDD) and Senior Analysts
     // (EDD). Admin has read-only oversight on transaction cases.
     const cddDocumentsList = Array.isArray(cddDocuments) ? cddDocuments : [];
-    const documentUploadTypes = isSenior
-        ? ['Source of Funds', 'Site Visit', 'Enhanced Verification']
-        : (isAnalyst ? ['Business Registration', 'Screening'] : []);
-    const canUploadCddDocument = documentUploadTypes.length > 0 && !isResolved;
+    const documentUploadTypes = isSenior && cdd.eddRequired
+        ? [
+            !eddChecklist.source_of_funds_verified ? 'Source of Funds' : null,
+            !eddChecklist.site_visit_completed ? 'Site Visit' : null,
+            !eddChecklist.enhanced_verification_completed ? 'Enhanced Verification' : null
+        ].filter(Boolean)
+        : (isAnalyst
+            ? [
+                !cddChecklist.business_registration_verified ? 'Business Registration' : null,
+                !cddChecklist.screening_verified ? 'Screening' : null
+            ].filter(Boolean)
+            : []);
+    const canUploadCddDocument = documentUploadTypes.length > 0 && !isTerminalCase;
 %>
 
 <main class="transaction-review-page">
@@ -165,12 +210,22 @@
                 <p class="review-header-subtitle">Transaction not found.</p>
             <% } %>
         </div>
-        <div class="review-role-card">
-            <span>Viewing as</span>
-            <strong><%= roleLabel %></strong>
-            <small><%= userName %></small>
+        <div class="review-header-controls">
+            <div class="review-role-card">
+                <span>Viewing as</span>
+                <strong><%= roleLabel %></strong>
+                <small><%= userName %></small>
+            </div>
+            <div class="transaction-notification-slot" data-transaction-notification-slot></div>
         </div>
     </section>
+    <script>
+        (() => {
+            const slot = document.querySelector('[data-transaction-notification-slot]');
+            const notifications = document.querySelector('[data-notification-centre]');
+            if (slot && notifications) slot.append(notifications);
+        })();
+    </script>
 
     <% if (!transaction) { %>
         <section class="panel detail-empty-state">
@@ -253,13 +308,13 @@
                     </div>
                     <div class="assessment-block final-block">
                         <span>Final Assessment</span>
-                        <strong><%= finalScore ?? 'Not assigned' %></strong>
-                        <small><%= finalLevel || 'Not assigned' %></small>
+                        <strong><%= assessmentCardValue %></strong>
+                        <small><%= assessmentCardDetail %></small>
                         <dl>
-                            <div><dt>Decision</dt><dd><%= decision %></dd></div>
-                            <div><dt>Resolution reason</dt><dd><%= caseInfo?.resolution_reason || tx.resolutionReason || tx.resolution_reason || (isResolved ? rawCaseStatus : 'Not assigned') %></dd></div>
-                            <div><dt>Resolved by</dt><dd><%= caseInfo?.resolved_by_name || tx.resolvedBy || 'Not assigned' %></dd></div>
-                            <div><dt>Resolved at</dt><dd><%= (caseInfo?.resolved_at || tx.resolvedAt || tx.resolved_at) ? new Date(caseInfo?.resolved_at || tx.resolvedAt || tx.resolved_at).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }) : 'Not assigned' %></dd></div>
+                            <div><dt><%= hasFinalAssessment ? 'Decision' : 'Latest action' %></dt><dd><%= hasFinalAssessment ? decision : currentWorkflowDecision %></dd></div>
+                            <div><dt><%= hasFinalAssessment ? 'Resolution reason' : 'Outcome' %></dt><dd><%= assessmentCardReason %></dd></div>
+                            <div><dt><%= hasFinalAssessment ? 'Resolved by' : 'Actioned by' %></dt><dd><%= assessmentActor %></dd></div>
+                            <div><dt><%= hasFinalAssessment ? 'Resolved at' : 'Actioned at' %></dt><dd><%= assessmentActionAt ? new Date(assessmentActionAt).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }) : 'Not recorded' %></dd></div>
                         </dl>
                     </div>
                 </div>
@@ -1025,22 +1080,31 @@
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
-        loadRfiResponseButton?.addEventListener('click', async (event) => {
-            event.preventDefault();
+        let rfiResponseRequestInFlight = false;
+        let rfiResponseFound = false;
+        let rfiResponsePollTimer = null;
+        const checkForRfiResponse = async ({ interactive = false } = {}) => {
+            if (!loadRfiResponseButton || rfiResponseRequestInFlight || rfiResponseFound) return;
             const responseTransactionId = loadRfiResponseButton.dataset.transactionId || '';
-            loadRfiResponseButton.disabled = true;
-            loadRfiResponseButton.textContent = 'Loading...';
-            if (rfiResponseContent) rfiResponseContent.innerHTML = '<p class="empty-inline">Checking mailbox...</p>';
+            rfiResponseRequestInFlight = true;
+            if (interactive) {
+                loadRfiResponseButton.disabled = true;
+                loadRfiResponseButton.textContent = 'Loading...';
+                if (rfiResponseContent) rfiResponseContent.innerHTML = '<p class="empty-inline">Checking mailbox...</p>';
+            }
             try {
-                const response = await fetch(`/api/transactions/${encodeURIComponent(responseTransactionId)}/rfi/latest-response`);
+                const source = interactive ? 'manual' : 'poll';
+                const response = await fetch(`/api/transactions/${encodeURIComponent(responseTransactionId)}/rfi/latest-response?source=${source}`);
                 const result = await response.json();
                 if (!response.ok) throw new Error(result.message || 'Unable to retrieve RFI response.');
                 if (!result.found || !result.message) {
-                    if (rfiResponseContent) {
+                    if (interactive && rfiResponseContent) {
                         rfiResponseContent.innerHTML = `<p class="empty-inline">No matching response found in ${escapeHtml(result.account || 'the mailbox')}.</p>`;
                     }
                     return;
                 }
+                rfiResponseFound = true;
+                if (rfiResponsePollTimer) clearInterval(rfiResponsePollTimer);
                 if (rfiResponseContent) {
                     const parsedMessageDate = result.message.date ? new Date(result.message.date) : null;
                     const displayMessageDate = parsedMessageDate && !Number.isNaN(parsedMessageDate.getTime())
@@ -1057,12 +1121,28 @@
                     `;
                 }
             } catch (error) {
-                if (rfiResponseContent) rfiResponseContent.innerHTML = `<p class="field-error">${escapeHtml(error.message)}</p>`;
+                // Background polling stays silent and retries. Manual checks surface the error.
+                if (interactive && rfiResponseContent) {
+                    rfiResponseContent.innerHTML = `<p class="field-error">${escapeHtml(error.message)}</p>`;
+                }
             } finally {
-                loadRfiResponseButton.disabled = false;
-                loadRfiResponseButton.textContent = 'Load Response';
+                rfiResponseRequestInFlight = false;
+                if (interactive) {
+                    loadRfiResponseButton.disabled = false;
+                    loadRfiResponseButton.textContent = 'Load Response';
+                }
             }
+        };
+        loadRfiResponseButton?.addEventListener('click', (event) => {
+            event.preventDefault();
+            checkForRfiResponse({ interactive: true });
         });
+        if (loadRfiResponseButton) {
+            setTimeout(() => checkForRfiResponse(), 1000);
+            rfiResponsePollTimer = setInterval(() => {
+                if (!document.hidden) checkForRfiResponse();
+            }, 8000);
+        }
         utrDetailsToggle?.addEventListener('click', () => {
             const isHidden = utrDetailsPanel.classList.toggle('is-hidden');
             utrDetailsToggle.setAttribute('aria-expanded', isHidden ? 'false' : 'true');
@@ -1455,6 +1535,7 @@
                         : 'Case escalated to Senior Analyst for critical-risk review.',
                 });
                 closeDetailModal(escalationModal, escalationFeedback);
+                window.location.reload();
             } catch (error) {
                 if (escalationFeedback) escalationFeedback.textContent = error.message;
             } finally {
@@ -1511,6 +1592,7 @@
                 if (document.querySelector('#caseReferredByValue')) document.querySelector('#caseReferredByValue').textContent = <%- JSON.stringify(userName) %>;
                 appendActivity({ action: 'Case Referred to STRO', notes: 'Case referred to STRO for suspicious transaction reporting review.' });
                 closeDetailModal(referStroModal, referStroFeedback);
+                window.location.reload();
             } catch (error) {
                 if (referStroFeedback) referStroFeedback.textContent = error.message;
             } finally {
@@ -1616,6 +1698,7 @@
                 if (document.querySelector('#caseReferredByValue')) document.querySelector('#caseReferredByValue').textContent = <%- JSON.stringify(userName) %>;
                 appendActivity({ action: 'STR Marked Not Required', notes: 'STR marked not required after STRO review.' });
                 closeDetailModal(strNotRequiredModal, strNotRequiredFeedback);
+                window.location.reload();
             } catch (error) {
                 if (strNotRequiredFeedback) strNotRequiredFeedback.textContent = error.message;
             } finally {
@@ -1811,11 +1894,23 @@
 
         const cddDetailToggle = document.querySelector('[data-cdd-detail-toggle]');
         const cddDetailBody = document.querySelector('#merchantDueDiligenceDetails');
+        const cddExpandedStorageKey = `merchantCddExpanded:${window.location.pathname}`;
+        const setCddExpanded = (expanded) => {
+            cddDetailBody?.classList.toggle('is-collapsed', !expanded);
+            cddDetailToggle?.setAttribute('aria-expanded', String(expanded));
+            if (cddDetailToggle) {
+                cddDetailToggle.textContent = expanded ? 'Hide full details' : 'View full details';
+            }
+            sessionStorage.setItem(cddExpandedStorageKey, String(expanded));
+        };
+
+        if (sessionStorage.getItem(cddExpandedStorageKey) === 'true') {
+            setCddExpanded(true);
+        }
+
         cddDetailToggle?.addEventListener('click', () => {
             const willExpand = cddDetailBody?.classList.contains('is-collapsed');
-            cddDetailBody?.classList.toggle('is-collapsed', !willExpand);
-            cddDetailToggle.setAttribute('aria-expanded', String(Boolean(willExpand)));
-            cddDetailToggle.textContent = willExpand ? 'Hide full details' : 'View full details';
+            setCddExpanded(Boolean(willExpand));
         });
 
         const eddSignoffForm = document.querySelector('#eddSignoffForm');

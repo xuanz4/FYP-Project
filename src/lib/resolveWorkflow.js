@@ -121,8 +121,24 @@ async function handleDatabaseResolveRequest(req, res) {
   if (!row) return res.status(404).json({ success: false, message: 'Transaction not found' });
 
   const currentStatus = row.case_status || row.action_status || 'Open';
-  if (req.session.user.role === 'Analyst' && (currentStatus === 'Escalated' || currentStatus === 'Pending Senior Review' || row.risk_level === 'Critical')) {
-    return forbidJson(res);
+  if (
+    ['Resolved', 'Dismissed as False Positive', 'STR Filed'].includes(currentStatus)
+    || ['Filed', 'Not Required'].includes(row.str_status)
+  ) {
+    return res.status(409).json({ success: false, message: 'This case is closed and cannot be actioned further.' });
+  }
+  const routedToSenior = row.assigned_role === 'Senior Analyst'
+    || row.escalation_destination === 'Senior Analyst'
+    || currentStatus === 'Pending Senior Review';
+  if (req.session.user.role === 'Analyst') {
+    const routedAway = ['Senior Analyst', 'STRO'].includes(row.assigned_role)
+      || ['Senior Analyst', 'STRO'].includes(row.escalation_destination);
+    if (routedAway || currentStatus === 'Escalated' || currentStatus === 'Pending Senior Review' || row.risk_level === 'Critical') {
+      return forbidJson(res);
+    }
+  }
+  if (req.session.user.role === 'Senior Analyst' && !routedToSenior) {
+    return res.status(403).json({ success: false, message: 'This case is not routed to Senior Analyst review.' });
   }
   if (row.final_risk_score !== null && row.final_risk_score !== undefined && row.final_risk_level) {
     return res.status(409).json({ success: false, message: 'Assessment already resolved' });

@@ -195,7 +195,7 @@ function testFrontendHasNoPreviewAndProtectsDoubleClick() {
   assert.doesNotMatch(view, /id="rfiPreviewButton"|id="rfiEmailPreview"|previewButton\?\.addEventListener/);
   assert.match(view, /sendButton\.disabled = true/);
   assert.match(view, /sendButton\.disabled = false/);
-  assert.match(view, /const canSendRfi = !isRfiTerminal/);
+  assert.match(view, /const canSendRfi = !isTerminalCase/);
 }
 
 async function main() {

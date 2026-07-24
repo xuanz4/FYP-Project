@@ -30,6 +30,8 @@ const { setEddChecklistField } = require('../src/lib/eddChecklist');
 const { setCddChecklistField } = require('../src/lib/cddChecklist');
 const { saveCddDocument, listCddDocuments } = require('../src/lib/cddDocuments');
 const { buildMailboxReference } = require('../src/lib/rfiEvidence');
+const { handleDatabaseRfiRequest } = require('../src/lib/rfiWorkflow');
+const { handleDatabaseResolveRequest } = require('../src/lib/resolveWorkflow');
 const {
   emptyStrAutoFill,
   stroReferralReasons,
@@ -77,6 +79,7 @@ async function transactionDetailPage(req, res) {
       cddContext: null,
       screeningRecords: [],
       rfiEvidence: [],
+      cddDocuments: [],
     });
   }
 
@@ -305,6 +308,15 @@ function isResolvedCaseStatus(status) {
   return ['Resolved', 'Dismissed as False Positive', 'STR Filed'].includes(status);
 }
 
+function isTerminalCaseContext(context) {
+  return isResolvedCaseStatus(context?.case_status)
+    || ['Filed', 'Not Required'].includes(context?.str_status);
+}
+
+function isRoutedToRole(context, role) {
+  return context?.assigned_role === role || context?.escalation_destination === role;
+}
+
 async function auditCaseAction({ transactionId, caseId, action, userId, notes }) {
   await auditLogModel.insert({
     auditId: id('AUD'), transactionId, entityType: 'Case', entityId: caseId, action, userId, notes,
@@ -318,8 +330,11 @@ async function referToStro(req, res) {
   if (!context || !context.case_id) {
     return res.status(404).json({ success: false, message: 'Transaction or linked case not found.' });
   }
-  if (isResolvedCaseStatus(context.case_status)) {
-    return res.status(409).json({ success: false, message: 'Resolved cases cannot be referred to STRO.' });
+  if (isTerminalCaseContext(context)) {
+    return res.status(409).json({ success: false, message: 'Terminal cases cannot be referred to STRO.' });
+  }
+  if (!isRoutedToRole(context, 'Senior Analyst')) {
+    return res.status(403).json({ success: false, message: 'Only the Senior Analyst role currently assigned this escalation may refer it to STRO.' });
   }
   if (context.str_status || context.assigned_role === 'STRO' || context.escalation_destination === 'STRO') {
     return res.status(409).json({ success: false, message: 'This case has already been referred to STRO.' });
@@ -386,8 +401,8 @@ async function escalate(req, res) {
   if (!context || !context.case_id) {
     return res.status(404).json({ success: false, message: 'Transaction or linked case not found.' });
   }
-  if (isResolvedCaseStatus(context.case_status)) {
-    return res.status(409).json({ success: false, message: 'Resolved cases cannot be escalated.' });
+  if (isTerminalCaseContext(context)) {
+    return res.status(409).json({ success: false, message: 'Terminal cases cannot be escalated.' });
   }
   if (context.str_status === 'Filed') {
     return res.status(409).json({ success: false, message: 'Filed STR cases cannot be referred again.' });
@@ -484,8 +499,8 @@ async function fileStr(req, res) {
   if (!context || !context.case_id) {
     return res.status(404).json({ success: false, message: 'Transaction or linked case not found.' });
   }
-  if (isResolvedCaseStatus(context.case_status)) {
-    return res.status(409).json({ success: false, message: 'Resolved cases cannot be updated for STR.' });
+  if (isTerminalCaseContext(context)) {
+    return res.status(409).json({ success: false, message: 'Terminal cases cannot be updated for STR.' });
   }
   if (context.assigned_role !== 'STRO' && context.escalation_destination !== 'STRO') {
     return res.status(403).json({ success: false, message: 'This case is not routed to STRO.' });
@@ -579,8 +594,8 @@ async function strNotRequired(req, res) {
   if (!context || !context.case_id) {
     return res.status(404).json({ success: false, message: 'Transaction or linked case not found.' });
   }
-  if (isResolvedCaseStatus(context.case_status)) {
-    return res.status(409).json({ success: false, message: 'Resolved cases cannot be updated for STR.' });
+  if (isTerminalCaseContext(context)) {
+    return res.status(409).json({ success: false, message: 'Terminal cases cannot be updated for STR.' });
   }
   if (context.assigned_role !== 'STRO' && context.escalation_destination !== 'STRO') {
     return res.status(403).json({ success: false, message: 'This case is not routed to STRO.' });
@@ -595,7 +610,12 @@ async function strNotRequired(req, res) {
   }
 
   await strReportModel.markNotRequired(context.case_id, reason);
-  await caseModel.touchLastActioned({ caseId: context.case_id, userId: req.session.user.id });
+  await caseModel.markStrNotRequired({
+    caseId: context.case_id,
+    resolvedAt: new Date(),
+    resolvedBy: req.session.user.id,
+  });
+  await transactionModel.updateActionStatus(context.transaction_id, 'Resolved');
   await auditCaseAction({
     transactionId: context.transaction_id,
     caseId: context.case_id,
@@ -711,15 +731,18 @@ async function latestRfiResponseEndpoint(req, res) {
   try {
     const { mailboxResult: result, detection } = await checkLatestTransactionReply(transactionId);
     if (result.found && result.message) {
+      const automaticDisplay = req.query.source === 'poll';
       await logAdminAudit({
-        action: 'RFI_RESPONSE_VIEWED',
+        action: automaticDisplay ? 'RFI_RESPONSE_AUTO_DISPLAYED' : 'RFI_RESPONSE_VIEWED',
         userId: req.session.user.id,
         transactionId,
         entityType: 'RFI',
         // entity_id is VARCHAR(40); mailboxReference ("Message-ID <...>") is a display string that
         // regularly runs longer than that, so it must be truncated rather than passed through raw.
         entityId: String(detection.mailboxReference || transactionId).slice(0, 40),
-        notes: 'The merchant RFI response was opened through Load Response.',
+        notes: automaticDisplay
+          ? 'The merchant RFI response was detected and displayed by transaction-page polling.'
+          : 'The merchant RFI response was opened through Load Response.',
       });
     }
 
@@ -768,11 +791,37 @@ async function updateCaseEddChecklist(req, res) {
 
   await ensureRiskAndContactSchema();
   const transactionId = req.params.id;
+  const caseContext = await loadRoleCaseContext(transactionId);
+  if (!caseContext?.case_id) {
+    return res.status(400).json({ success: false, message: 'EDD updates require an active transaction case.' });
+  }
+  if (isTerminalCaseContext(caseContext)) {
+    return res.status(409).json({ success: false, message: 'CDD/EDD checks cannot be changed after the case is closed.' });
+  }
   const merchantId = await transactionModel.findMerchantIdById(transactionId);
   if (!merchantId) return res.status(404).json({ success: false, message: 'Transaction not found' });
+  const cddContext = await loadMerchantCddContext(database, merchantId, {
+    transactionRiskLevel: caseContext.risk_level,
+    transactionId,
+  });
+  if (!cddContext.eddRequired) {
+    return res.status(409).json({ success: false, message: 'EDD sign-off is not required for this case.' });
+  }
 
+  const checklist = await eddChecklistModel.findByTransactionId(transactionId);
+  if (checklist?.senior_signoff_completed) {
+    return res.status(409).json({
+      success: false,
+      message: 'Senior Sign-off has already been completed and cannot be changed.',
+    });
+  }
+  if (!completed) {
+    return res.status(400).json({
+      success: false,
+      message: 'Senior Sign-off is a one-time approval and must be submitted as complete.',
+    });
+  }
   if (completed) {
-    const checklist = await eddChecklistModel.findByTransactionId(transactionId);
     if (
       !checklist?.source_of_funds_verified
       || !checklist?.site_visit_completed
@@ -822,6 +871,39 @@ const EDD_DOCUMENT_TYPE_TO_FIELD = {
   'Enhanced Verification': 'enhancedVerification',
 };
 
+async function authorizeCaseDocumentUpload(req, res, next) {
+  const currentUser = req.session?.user;
+  if (!currentUser || !DOCUMENT_TYPE_ROLE_MAP[currentUser.role]) return res.status(403).send('Forbidden');
+
+  const transactionCase = await transactionModel.findMerchantAndLatestCaseId(req.params.id);
+  if (!transactionCase?.merchant_id) return res.status(404).send('Transaction not found');
+  if (!transactionCase.case_id) {
+    return res.status(400).send('Supporting documents can only be uploaded to an active transaction case.');
+  }
+  if (isTerminalCaseContext(transactionCase)) {
+    return res.status(409).send('Documents cannot be uploaded after the case is closed.');
+  }
+  const cddContext = await loadMerchantCddContext(database, transactionCase.merchant_id, {
+    transactionRiskLevel: transactionCase.risk_level,
+    transactionId: req.params.id,
+  });
+  if (currentUser.role === 'Analyst' && cddContext.cddComplete) {
+    return res.status(409).send('CDD is already complete; no additional CDD document is required.');
+  }
+  const eddChecklist = cddContext.eddChecklist || {};
+  const eddEvidenceOutstanding = cddContext.eddRequired && (
+    !eddChecklist.source_of_funds_verified
+    || !eddChecklist.site_visit_completed
+    || !eddChecklist.enhanced_verification_completed
+  );
+  if (currentUser.role === 'Senior Analyst' && !eddEvidenceOutstanding) {
+    return res.status(409).send('EDD is not outstanding for this case.');
+  }
+  req.caseDocumentContext = transactionCase;
+  req.caseDocumentCddContext = cddContext;
+  return next();
+}
+
 async function uploadCaseDocument(req, res) {
   const currentUser = req.session?.user;
   const allowedTypes = currentUser ? DOCUMENT_TYPE_ROLE_MAP[currentUser.role] : null;
@@ -831,11 +913,32 @@ async function uploadCaseDocument(req, res) {
   if (!allowedTypes.includes(documentType)) return res.status(403).send('Forbidden');
 
   await ensureRiskAndContactSchema();
-  const transactionCase = await transactionModel.findMerchantAndLatestCaseId(req.params.id);
+  const transactionCase = req.caseDocumentContext
+    || await transactionModel.findMerchantAndLatestCaseId(req.params.id);
   const merchantId = transactionCase?.merchant_id;
   if (!merchantId) return res.status(404).send('Transaction not found');
   const caseId = transactionCase?.case_id;
   if (!caseId) return res.status(400).send('Supporting documents can only be uploaded to an active transaction case.');
+  if (isTerminalCaseContext(transactionCase)) {
+    return res.status(409).send('Documents cannot be uploaded after the case is closed.');
+  }
+  const cddContext = req.caseDocumentCddContext
+    || await loadMerchantCddContext(database, merchantId, {
+      transactionRiskLevel: transactionCase.risk_level,
+      transactionId: req.params.id,
+    });
+  const cddChecklist = cddContext.cddChecklist || {};
+  const eddChecklist = cddContext.eddChecklist || {};
+  const outstandingDocument = {
+    'Business Registration': !cddChecklist.business_registration_verified,
+    Screening: !cddChecklist.screening_verified,
+    'Source of Funds': cddContext.eddRequired && !eddChecklist.source_of_funds_verified,
+    'Site Visit': cddContext.eddRequired && !eddChecklist.site_visit_completed,
+    'Enhanced Verification': cddContext.eddRequired && !eddChecklist.enhanced_verification_completed,
+  };
+  if (!outstandingDocument[documentType]) {
+    return res.status(409).send('This due-diligence item is already complete or is not required.');
+  }
 
   const documentNotes = String(req.body.documentNotes || '').trim() || null;
   const documentId = await saveCddDocument(database, {
@@ -973,6 +1076,14 @@ function apiNotFound(req, res) {
   });
 }
 
+function sendRfi(req, res) {
+  return handleDatabaseRfiRequest(req, res);
+}
+
+function resolveAssessment(req, res) {
+  return handleDatabaseResolveRequest(req, res);
+}
+
 module.exports = {
   transactionDetailPage,
   assignToMe,
@@ -987,9 +1098,12 @@ module.exports = {
   ingestTransactionEndpoint,
   latestRfiResponseEndpoint,
   updateCaseEddChecklist,
+  authorizeCaseDocumentUpload,
   uploadCaseDocument,
   logRfiEvidence,
   apiNotFound,
+  sendRfi,
+  resolveAssessment,
   DOCUMENT_TYPE_ROLE_MAP,
   CDD_DOCUMENT_TYPE_TO_FIELD,
   EDD_DOCUMENT_TYPE_TO_FIELD,

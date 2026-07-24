@@ -45,6 +45,17 @@ function testTransactionDetailWorkflowControls() {
   assert.match(view, /fetch\(`\/api\/transactions\/\$\{encodeURIComponent\(<%- JSON\.stringify\(transactionId\) %>\)\}\/refer-to-stro`/);
   assert.match(view, /fetch\(`\/api\/transactions\/\$\{encodeURIComponent\(<%- JSON\.stringify\(transactionId\) %>\)\}\/str`/);
   assert.match(view, /fetch\(`\/api\/transactions\/\$\{encodeURIComponent\(<%- JSON\.stringify\(transactionId\) %>\)\}\/str\/not-required`/);
+  assert.match(view, /rfi\/latest-response\?source=\$\{source\}/);
+  assert.match(view, /setInterval\(\(\) => \{/);
+  assert.match(view, /}, 8000\)/);
+  assert.match(view, /if \(!document\.hidden\) checkForRfiResponse\(\)/);
+  assert.match(view, /const isTerminalCase = isResolved \|\| \['Filed', 'Not Required'\]\.includes\(strStatus\)/);
+  assert.match(view, /const seniorReviewStage = isSenior && !!caseInfo && routedToSenior && !routedToStro/);
+  assert.match(view, /data-transaction-notification-slot/);
+  assert.match(view, /slot\.append\(notifications\)/);
+  assert.match(view, /const hasFinalAssessment = finalScore !== null \|\| isTerminalCase/);
+  assert.match(view, /hasFinalAssessment \? 'Decision' : 'Latest action'/);
+  assert.match(view, /hasFinalAssessment \? 'Resolved by' : 'Actioned by'/);
 }
 
 function testApiRoutesExist() {
@@ -58,6 +69,7 @@ function testApiRoutesExist() {
   assert.match(routes, /router\.post\('\/api\/transactions\/:id\/refer-to-stro'/);
   assert.match(routes, /router\.patch\('\/api\/transactions\/:id\/str'/);
   assert.match(routes, /router\.post\('\/api\/transactions\/:id\/str\/not-required'/);
+  assert.match(routes, /transactionsController\.authorizeCaseDocumentUpload,\s*uploadCddDocument/);
   // The manual CDD checklist endpoint was removed - CDD items are only ever completed as a
   // side effect of a validated document upload, never through a standalone form/route.
   assert.doesNotMatch(routes, /\/api\/transactions\/:id\/cdd-checklist/);
@@ -70,11 +82,30 @@ function testApiRoutesExist() {
 // notes fields don't come back.
 function testChecklistFormsAreUploadDrivenExceptSignoff() {
   const view = readView('views/transaction-detail.ejs');
+  const controller = readView('controllers/transactionsController.js');
   assert.doesNotMatch(view, /id="cddChecklistForm"/);
   assert.doesNotMatch(view, /id="eddAnalystForm"/);
   assert.doesNotMatch(view, /id="eddEnhancedVerificationForm"/);
   assert.match(view, /id="eddSignoffForm"/);
   assert.match(view, /id="cddDocumentForm"/);
+  assert.match(view, /: \(isAnalyst\s*\?\s*\[/);
+  assert.match(view, /!cddChecklist\.business_registration_verified \? 'Business Registration' : null/);
+  assert.match(view, /!eddChecklist\.source_of_funds_verified \? 'Source of Funds' : null/);
+  assert.match(view, /&& !eddChecklist\.senior_signoff_completed\s*&& !isTerminalCase/);
+  assert.match(controller, /Senior Sign-off has already been completed and cannot be changed/);
+  assert.match(controller, /Senior Sign-off is a one-time approval/);
+  assert.match(controller, /CDD is already complete; no additional CDD document is required/);
+  assert.match(controller, /Documents cannot be uploaded after the case is closed/);
+  assert.match(controller, /transactionRiskLevel: transactionCase\.risk_level/);
+}
+
+function testCddPanelStaysOpenAfterDocumentUpload() {
+  const uploadScript = readView('public/cdd-upload.js');
+  const transactionDetail = readView('views/transaction-detail.ejs');
+
+  assert.match(uploadScript, /sessionStorage\.setItem\(`merchantCddExpanded:/);
+  assert.match(transactionDetail, /sessionStorage\.getItem\(cddExpandedStorageKey\) === 'true'/);
+  assert.match(transactionDetail, /setCddExpanded\(true\)/);
 }
 
 async function main() {
@@ -84,6 +115,7 @@ async function main() {
   await runTest('keeps transaction detail workflow controls wired to APIs', testTransactionDetailWorkflowControls);
   await runTest('defines expected transaction API routes', testApiRoutesExist);
   await runTest('checklist completion is upload-driven except Senior Sign-off', testChecklistFormsAreUploadDrivenExceptSignoff);
+  await runTest('keeps merchant due diligence expanded after document upload', testCddPanelStaysOpenAfterDocumentUpload);
   finish();
 }
 

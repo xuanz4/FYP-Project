@@ -176,6 +176,18 @@ async function markStrFiled({ caseId, resolvedAt, resolvedBy }) {
   );
 }
 
+async function markStrNotRequired({ caseId, resolvedAt, resolvedBy }) {
+  await database.execute(
+    `UPDATE cases
+     SET status = 'Resolved', decision = 'No STR Required',
+         resolution_reason = 'STR not required after STRO review',
+         resolved_at = ?, resolved_by = ?, last_actioned_by = ?,
+         last_actioned_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+     WHERE case_id = ?`,
+    [resolvedAt, resolvedBy, resolvedBy, caseId],
+  );
+}
+
 async function touchLastActioned({ caseId, userId }) {
   await database.execute(
     'UPDATE cases SET last_actioned_by = ?, last_actioned_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE case_id = ?',
@@ -466,6 +478,7 @@ module.exports = {
   routeToStro,
   routeToSeniorAnalyst,
   markStrFiled,
+  markStrNotRequired,
   touchLastActioned,
   setStatusAndTouch,
   countForStroView,

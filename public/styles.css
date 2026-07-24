@@ -6533,6 +6533,27 @@ body.app-shell.transaction-review-shell .transaction-review-page .review-role-ca
   padding: 6px 9px;
 }
 
+body.app-shell.transaction-review-shell .review-header-controls {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+body.app-shell.transaction-review-shell .transaction-notification-slot {
+  position: relative;
+  display: flex;
+  align-self: stretch;
+  align-items: center;
+}
+
+body.app-shell.transaction-review-shell .transaction-notification-slot .global-account-tools {
+  position: relative;
+  z-index: 40;
+  margin: 0;
+  padding: 0;
+}
+
 body.app-shell.transaction-review-shell .transaction-review-page .review-meta-strip {
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 6px;

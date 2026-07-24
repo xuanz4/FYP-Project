@@ -37,6 +37,9 @@
           feedback.textContent = 'Document uploaded successfully. Refreshing the document list...';
           feedback.classList.add('is-success');
         }
+        // The refreshed page contains the latest checklist and document count. Preserve the
+        // expanded panel so the user can immediately upload another supporting document.
+        sessionStorage.setItem(`merchantCddExpanded:${window.location.pathname}`, 'true');
         window.location.reload();
       } catch (error) {
         if (feedback) {

@@ -85,9 +85,11 @@ async function findMerchantIdById(transactionId) {
 // which case it belongs to alongside the merchant.
 async function findMerchantAndLatestCaseId(transactionId) {
   const [rows] = await database.query(
-    `SELECT t.merchant_id, c.case_id
+    `SELECT t.merchant_id, t.risk_level, c.case_id, c.status AS case_status, c.assigned_role,
+            c.escalation_destination, sr.str_status
      FROM transactions t
      LEFT JOIN cases c ON c.transaction_id = t.transaction_id
+     LEFT JOIN str_reports sr ON sr.case_id = c.case_id
      WHERE t.transaction_id = ?
      ORDER BY c.created_at DESC
      LIMIT 1`,
@@ -139,9 +141,11 @@ async function findResolveContextByTransactionId(transactionId) {
     `SELECT t.transaction_id, t.unique_transaction_reference, t.merchant_id, t.risk_score, t.risk_level, t.status, t.action_status,
             t.final_risk_score, t.final_risk_level,
             t.mcc_risk_contribution, t.profile_risk_contribution, t.transaction_detection_contribution,
-            c.case_id, c.status AS case_status, c.resolved_at
+            c.case_id, c.status AS case_status, c.resolved_at, c.assigned_role,
+            c.escalation_destination, sr.str_status
      FROM transactions t
      LEFT JOIN cases c ON c.transaction_id = t.transaction_id
+     LEFT JOIN str_reports sr ON sr.case_id = c.case_id
      WHERE t.transaction_id = ?
      ORDER BY c.created_at DESC
      LIMIT 1`,
