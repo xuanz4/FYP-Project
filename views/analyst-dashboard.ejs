@@ -1,8 +1,8 @@
 <%- include('partials/head', { title, activePage }) %>
 
 <%
-  const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG') : 'Not assigned';
-  const shortDate = (value) => value ? new Date(value).toLocaleDateString('en-SG', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'Not assigned';
+  const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }) : 'Not assigned';
+  const shortDate = (value) => value ? new Date(value).toLocaleDateString('en-SG', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Asia/Singapore' }) : 'Not assigned';
   const initials = String(currentUser.name || 'Analyst').split(/\s+/).filter(Boolean).map((part) => part[0]).slice(0, 2).join('').toUpperCase();
   const statusLabel = (value) => ({ Open: 'Under Review', 'Pending RFI': 'Waiting for Information', 'Pending Senior Review': 'Escalated to Senior Analyst', Escalated: 'Escalated to STRO' }[value] || value || 'Open');
   const activityTone = (action = '') => {
@@ -135,8 +135,8 @@
               <i class="bar-escalated" style="height: <%= Math.max(2, (day.escalated / chartMaximum) * 100) %>%" title="Escalated: <%= day.escalated %>"><%= day.escalated || '' %></i>
               <i class="bar-resolved" style="height: <%= Math.max(2, (day.resolved / chartMaximum) * 100) %>%" title="Resolved: <%= day.resolved %>"><%= day.resolved || '' %></i>
             </div>
-            <span><%= day.date.toLocaleDateString('en-SG', { weekday: 'short' }) %></span>
-            <small><%= day.date.toLocaleDateString('en-SG', { day: '2-digit', month: 'short' }) %></small>
+            <span><%= day.date.toLocaleDateString('en-SG', { weekday: 'short', timeZone: 'Asia/Singapore' }) %></span>
+            <small><%= day.date.toLocaleDateString('en-SG', { day: '2-digit', month: 'short', timeZone: 'Asia/Singapore' }) %></small>
           </div>
         <% }) %>
       </div>

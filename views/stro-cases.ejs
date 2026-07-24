@@ -1,6 +1,6 @@
 <%- include('partials/head', { title, activePage }) %>
 <%
-  const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG') : 'Not assigned';
+  const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }) : 'Not assigned';
   const isOverdue = (item) => item.due_at && new Date(item.due_at).getTime() < Date.now() && !['Resolved','Dismissed as False Positive','STR Filed'].includes(item.status);
   const statusLabel = (value) => ({ 'Pending RFI': 'Waiting for Information', Escalated: 'Escalated', 'STR Filed': 'Resolved' }[value] || value || 'New');
   const params = new URLSearchParams(filters);

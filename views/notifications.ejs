@@ -31,7 +31,7 @@
             <span class="notifications-page-copy">
               <strong><%= item.title %></strong>
               <span><%= item.message %></span>
-              <time datetime="<%= item.created_at %>"><%= new Date(item.created_at).toLocaleString('en-SG') %></time>
+              <time datetime="<%= item.created_at %>"><%= new Date(item.created_at).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }) %></time>
             </span>
             <span class="notifications-page-state"><%= item.is_read ? 'Read' : 'Unread' %></span>
           </a>

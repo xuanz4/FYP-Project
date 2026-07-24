@@ -191,7 +191,7 @@
             </article>
             <article>
                 <span>Date and Time</span>
-                <strong><%= tx.created_at || tx.createdAt ? new Date(tx.created_at || tx.createdAt).toLocaleString('en-SG') : 'Not assigned' %></strong>
+                <strong><%= tx.created_at || tx.createdAt ? new Date(tx.created_at || tx.createdAt).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }) : 'Not assigned' %></strong>
             </article>
             <article>
                 <span>Transaction Status</span>
@@ -228,7 +228,7 @@
             <% } %>
             <article>
                 <span>Due Date</span>
-                <strong id="caseDueDateValue"><%= dueDate === 'Not assigned' ? dueDate : new Date(dueDate).toLocaleString('en-SG') %></strong>
+                <strong id="caseDueDateValue"><%= dueDate === 'Not assigned' ? dueDate : new Date(dueDate).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }) %></strong>
             </article>
         </section>
 
@@ -259,7 +259,7 @@
                             <div><dt>Decision</dt><dd><%= decision %></dd></div>
                             <div><dt>Resolution reason</dt><dd><%= caseInfo?.resolution_reason || tx.resolutionReason || tx.resolution_reason || (isResolved ? rawCaseStatus : 'Not assigned') %></dd></div>
                             <div><dt>Resolved by</dt><dd><%= caseInfo?.resolved_by_name || tx.resolvedBy || 'Not assigned' %></dd></div>
-                            <div><dt>Resolved at</dt><dd><%= (caseInfo?.resolved_at || tx.resolvedAt || tx.resolved_at) ? new Date(caseInfo?.resolved_at || tx.resolvedAt || tx.resolved_at).toLocaleString('en-SG') : 'Not assigned' %></dd></div>
+                            <div><dt>Resolved at</dt><dd><%= (caseInfo?.resolved_at || tx.resolvedAt || tx.resolved_at) ? new Date(caseInfo?.resolved_at || tx.resolvedAt || tx.resolved_at).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }) : 'Not assigned' %></dd></div>
                         </dl>
                     </div>
                 </div>
@@ -334,15 +334,15 @@
                     <div><span>CDD Checklist</span><strong class="cdd-summary-status <%= cdd.cddComplete ? 'is-complete' : 'is-incomplete' %>"><%= cdd.cddComplete ? 'Complete' : 'Incomplete' %></strong></div>
                     <div><span>KYC Status</span><strong class="cdd-summary-status <%= cdd.kycStatus === 'Verified' ? 'is-complete' : 'is-incomplete' %>"><%= cdd.kycStatus %></strong></div>
                     <div><span>EDD Checklist</span><strong class="cdd-summary-status <%= !cdd.eddRequired || cdd.eddComplete ? 'is-complete' : 'is-incomplete' %>"><%= cdd.eddRequired ? (cdd.eddComplete ? 'Complete' : 'Incomplete') : 'Not required' %></strong></div>
-                    <div><span>Next Review</span><strong class="<%= cdd.reviewOverdue ? 'text-danger' : '' %>"><%= cdd.nextReviewDate ? new Date(cdd.nextReviewDate).toLocaleDateString('en-SG') : 'Not set' %></strong></div>
+                    <div><span>Next Review</span><strong class="<%= cdd.reviewOverdue ? 'text-danger' : '' %>"><%= cdd.nextReviewDate ? new Date(cdd.nextReviewDate).toLocaleDateString('en-SG', { timeZone: 'Asia/Singapore' }) : 'Not set' %></strong></div>
                     <div><span>Supporting Documents</span><strong><%= cddDocumentsList.length %> uploaded</strong></div>
                     <div><span>Screening Records</span><strong><%= screenings.length ? `${screenings.length} recorded` : 'None recorded' %></strong></div>
                 </div>
                 <div id="merchantDueDiligenceDetails" class="cdd-detail-body is-collapsed">
                 <dl class="review-definition-grid">
                     <div><dt>KYC Status</dt><dd><%= cdd.kycStatus %></dd></div>
-                    <div><dt>Verification Date</dt><dd><%= cdd.verificationDate ? new Date(cdd.verificationDate).toLocaleDateString('en-SG') : 'Not set' %></dd></div>
-                    <div><dt>Next Review Date</dt><dd class="<%= cdd.reviewOverdue ? 'text-danger' : '' %>"><%= cdd.nextReviewDate ? new Date(cdd.nextReviewDate).toLocaleDateString('en-SG') : 'Not set' %><%= cdd.reviewOverdue ? ' (Overdue)' : '' %></dd></div>
+                    <div><dt>Verification Date</dt><dd><%= cdd.verificationDate ? new Date(cdd.verificationDate).toLocaleDateString('en-SG', { timeZone: 'Asia/Singapore' }) : 'Not set' %></dd></div>
+                    <div><dt>Next Review Date</dt><dd class="<%= cdd.reviewOverdue ? 'text-danger' : '' %>"><%= cdd.nextReviewDate ? new Date(cdd.nextReviewDate).toLocaleDateString('en-SG', { timeZone: 'Asia/Singapore' }) : 'Not set' %><%= cdd.reviewOverdue ? ' (Overdue)' : '' %></dd></div>
                     <div><dt>Expected Avg Ticket</dt><dd><%= cdd.expectedAvgTicket !== null ? `${currency} ${Number(cdd.expectedAvgTicket).toFixed(2)}` : 'Not set' %></dd></div>
                     <div><dt>Expected Monthly Volume</dt><dd><%= cdd.expectedMonthlyVolume !== null ? `${currency} ${Number(cdd.expectedMonthlyVolume).toFixed(2)}` : 'Not set' %></dd></div>
                     <div><dt>Expected Countries</dt><dd><%= cdd.expectedCountries.length ? cdd.expectedCountries.join(', ') : 'Not set' %></dd></div>
@@ -462,7 +462,7 @@
                             <div><dt>Issuer country</dt><dd><%= tx.issuer_country || 'Not provided' %></dd></div>
                             <div><dt>CVV check</dt><dd><%= tx.cvv_validation_result || 'Not provided' %></dd></div>
                             <div><dt>Expiry check</dt><dd><%= tx.expiry_validation_result || 'Not provided' %></dd></div>
-                            <div><dt>Date and time</dt><dd><%= tx.created_at || tx.createdAt ? new Date(tx.created_at || tx.createdAt).toLocaleString('en-SG') : 'Not assigned' %></dd></div>
+                            <div><dt>Date and time</dt><dd><%= tx.created_at || tx.createdAt ? new Date(tx.created_at || tx.createdAt).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }) : 'Not assigned' %></dd></div>
                         </dl>
                         <% if (isSenior || isStro) { %>
                             <dl id="utrDetailsPanel" class="review-definition-grid utr-details-panel is-hidden">
@@ -496,7 +496,7 @@
                             <div><dt>Historical Transaction Count</dt><dd><%= tx.profile_transaction_count ?? 'Insufficient transaction history' %></dd></div>
                             <div><dt>Flagged Transaction Rate</dt><dd><%= tx.flagged_transaction_rate !== null && tx.flagged_transaction_rate !== undefined ? `${Math.round(Number(tx.flagged_transaction_rate) * 100)}%` : 'Insufficient transaction history' %></dd></div>
                             <div><dt>Previous Escalation Count</dt><dd><%= tx.profile_escalation_count ?? 'Insufficient transaction history' %></dd></div>
-                            <div><dt>Profile Last Updated</dt><dd><%= tx.risk_last_calculated_at ? new Date(tx.risk_last_calculated_at).toLocaleString('en-SG') : 'Insufficient transaction history' %></dd></div>
+                            <div><dt>Profile Last Updated</dt><dd><%= tx.risk_last_calculated_at ? new Date(tx.risk_last_calculated_at).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }) : 'Insufficient transaction history' %></dd></div>
                             <% if (tx.contact_name) { %><div><dt>Contact Person</dt><dd><%= tx.contact_name %></dd></div><% } %>
                             <% if (tx.rfi_email) { %><div><dt>RFI Email</dt><dd><%= tx.rfi_email %></dd></div><% } %>
                             <% if (tx.phone_number) { %><div><dt>Phone Number</dt><dd><%= tx.phone_number %></dd></div><% } %>
@@ -527,7 +527,7 @@
                                         data-recipient-name="<%= rfiRecipientName %>"
                                         data-recipient-email="<%= displayedRfiRecipientEmail %>"
                                         data-recipient-source="<%= rfiRecipientSource %>"
-                                        data-transaction-date="<%= tx.created_at || tx.createdAt ? new Date(tx.created_at || tx.createdAt).toLocaleString('en-SG') : '' %>"
+                                        data-transaction-date="<%= tx.created_at || tx.createdAt ? new Date(tx.created_at || tx.createdAt).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }) : '' %>"
                                         data-transaction-amount="<%= amount.toFixed(2) %>"
                                         data-currency="<%= currency %>"><%= isStro ? 'Request More Information' : isSenior ? 'Send Request for Information' : 'Request for Information' %></button>
                                 <% } %>
@@ -629,8 +629,8 @@
                                     <div><dt>Reference number</dt><dd id="strSummaryReference"><%= caseInfo.reference_number || 'Not assigned' %></dd></div>
                                     <div><dt>Prepared by</dt><dd><%= caseInfo.prepared_by_name || caseInfo.prepared_by || 'Not assigned' %></dd></div>
                                     <div><dt>Filed by</dt><dd><%= caseInfo.filed_by_name || caseInfo.filed_by || 'Not assigned' %></dd></div>
-                                    <div><dt>Filing date</dt><dd id="strSummaryFilingDate"><%= caseInfo.filing_date ? new Date(caseInfo.filing_date).toLocaleDateString('en-SG') : 'Not assigned' %></dd></div>
-                                    <div><dt>Last updated</dt><dd><%= caseInfo.str_updated_at ? new Date(caseInfo.str_updated_at).toLocaleString('en-SG') : 'Not assigned' %></dd></div>
+                                    <div><dt>Filing date</dt><dd id="strSummaryFilingDate"><%= caseInfo.filing_date ? new Date(caseInfo.filing_date).toLocaleDateString('en-SG', { timeZone: 'Asia/Singapore' }) : 'Not assigned' %></dd></div>
+                                    <div><dt>Last updated</dt><dd><%= caseInfo.str_updated_at ? new Date(caseInfo.str_updated_at).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }) : 'Not assigned' %></dd></div>
                                 </dl>
                             </article>
                         <% } %>
@@ -662,7 +662,7 @@
                     <div id="activityTimeline" class="activity-timeline">
                         <% logs.forEach((entry) => { %>
                             <article class="activity-timeline-item">
-                                <time><%= entry.created_at || entry.createdAt ? new Date(entry.created_at || entry.createdAt).toLocaleString('en-SG') : 'Time unavailable' %></time>
+                                <time><%= entry.created_at || entry.createdAt ? new Date(entry.created_at || entry.createdAt).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }) : 'Time unavailable' %></time>
                                 <div>
                                     <strong><%= entry.action || 'Activity recorded' %></strong>
                                     <p><%= entry.notes || entry.message || 'No message recorded.' %></p>
@@ -886,7 +886,7 @@
                             <span>Transaction Summary</span>
                             <textarea readonly><%= [
                                 `Transaction ID: ${transactionId}`,
-                                `Transaction date: ${tx.created_at || tx.createdAt ? new Date(tx.created_at || tx.createdAt).toLocaleString('en-SG') : 'Not assigned'}`,
+                                `Transaction date: ${tx.created_at || tx.createdAt ? new Date(tx.created_at || tx.createdAt).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }) : 'Not assigned'}`,
                                 `Amount: ${currency} ${amount.toFixed(2)}`,
                                 `Direction: ${tx.direction || 'Local card payment'}`,
                                 `Counterparty: ${tx.counterparty || tx.counterpartyName || merchantName}`,
@@ -1042,11 +1042,15 @@
                     return;
                 }
                 if (rfiResponseContent) {
+                    const parsedMessageDate = result.message.date ? new Date(result.message.date) : null;
+                    const displayMessageDate = parsedMessageDate && !Number.isNaN(parsedMessageDate.getTime())
+                        ? parsedMessageDate.toLocaleString('en-SG', { timeZone: 'Asia/Singapore' })
+                        : (result.message.date || 'Date unavailable');
                     rfiResponseContent.innerHTML = `
                         <dl class="review-definition-grid rfi-response-meta">
                             <div><dt>Mailbox</dt><dd>${escapeHtml(result.account || 'Configured inbox')}</dd></div>
                             <div><dt>From</dt><dd>${escapeHtml(result.message.from || 'Unknown sender')}</dd></div>
-                            <div><dt>Date</dt><dd>${escapeHtml(result.message.date || 'Date unavailable')}</dd></div>
+                            <div><dt>Date</dt><dd>${escapeHtml(displayMessageDate)}</dd></div>
                             <div class="wide"><dt>Subject</dt><dd>${escapeHtml(result.message.subject || 'No subject')}</dd></div>
                         </dl>
                         <pre class="rfi-response-message">${escapeHtml(result.message.text || 'No readable message body found.')}</pre>
@@ -1314,7 +1318,7 @@
 
                 if (assignedAnalystValue) assignedAnalystValue.textContent = result.case?.assignedAnalyst || 'Assigned';
                 if (caseDueDateValue && result.case?.dueAt) {
-                    caseDueDateValue.textContent = new Date(result.case.dueAt).toLocaleString('en-SG');
+                    caseDueDateValue.textContent = new Date(result.case.dueAt).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' });
                 }
                 if (assessmentStatusValue) {
                     assessmentStatusValue.textContent = result.case?.assessmentStatus || 'Under Review';
@@ -1335,7 +1339,7 @@
                     const item = document.createElement('article');
                     item.className = 'activity-timeline-item';
                     item.innerHTML = `
-                        <time>${escapeHtml(new Date(result.auditEntry.createdAt).toLocaleString('en-SG'))}</time>
+                        <time>${escapeHtml(new Date(result.auditEntry.createdAt).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }))}</time>
                         <div>
                             <strong>${escapeHtml(result.auditEntry.action)}</strong>
                             <p>${escapeHtml(result.auditEntry.notes)}</p>
@@ -1377,7 +1381,7 @@
             const item = document.createElement('article');
             item.className = 'activity-timeline-item';
             item.innerHTML = `
-                <time>${escapeHtml(new Date().toLocaleString('en-SG'))}</time>
+                <time>${escapeHtml(new Date().toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }))}</time>
                 <div>
                     <strong>${escapeHtml(entry.action || 'Activity recorded')}</strong>
                     <p>${escapeHtml(entry.notes || entry.message || '')}</p>
@@ -1562,7 +1566,7 @@
                     if (strStatusValue) strStatusValue.textContent = result.strStatus;
                     if (strSummaryStatus) strSummaryStatus.textContent = result.strStatus;
                     if (strSummaryReference) strSummaryReference.textContent = result.referenceNumber || 'Not assigned';
-                    if (strSummaryFilingDate) strSummaryFilingDate.textContent = result.filingDate ? new Date(result.filingDate).toLocaleDateString('en-SG') : 'Not assigned';
+                    if (strSummaryFilingDate) strSummaryFilingDate.textContent = result.filingDate ? new Date(result.filingDate).toLocaleDateString('en-SG', { timeZone: 'Asia/Singapore' }) : 'Not assigned';
                     appendActivity({ action: 'STR Filed', notes: result.message });
                     closeDetailModal(strModal, strFeedback);
                     window.location.reload();

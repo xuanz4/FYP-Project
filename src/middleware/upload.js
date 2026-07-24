@@ -6,7 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
-const database = require('../database');
+const transactionModel = require('../../models/transactionModel');
 
 const UPLOAD_ROOT = path.join(__dirname, '..', '..', 'uploads', 'cdd');
 const ALLOWED_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
@@ -89,15 +89,7 @@ function validateUploadFilename({ originalFilename, documentType, role, merchant
 }
 
 async function loadExpectedMerchant(req) {
-  const [rows] = await database.query(
-    `SELECT m.merchant_id, m.merchant_name
-     FROM transactions t
-     JOIN merchants m ON m.merchant_id = t.merchant_id
-     WHERE t.transaction_id = ?
-     LIMIT 1`,
-    [req.params.id],
-  );
-  return rows[0] || null;
+  return transactionModel.findMerchantByTransactionId(req.params.id);
 }
 
 async function fileFilter(req, file, cb) {

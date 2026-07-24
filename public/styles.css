@@ -2954,6 +2954,7 @@ button,
 .app-shell .primary-navigation .logout-link { margin-top: 0; }
 .app-shell .connection { margin-top: 0; }
 .app-shell main { margin-left: 0; padding: 18px; }
+.global-account-tools { margin-left: 0; }
 }
 
 @media (max-width: 640px) {
@@ -3162,6 +3163,7 @@ button,
 }
 
 .app-shell.role-analyst .overview-user .role-chip {
+  align-self: center;
   min-width: 84px;
   padding: 5px 12px;
   border: 0;
@@ -4919,6 +4921,7 @@ button,
 }
 
 .app-shell.role-senior-analyst .senior-user .role-chip {
+  align-self: center;
   min-width: 104px;
   padding: 5px 12px;
   border: 0;
@@ -5365,7 +5368,7 @@ button,
 
 .app-shell.role-stro .stro-user { display: flex; align-items: center; gap: 11px; color: var(--navy-950); font-size: 0.76rem; }
 
-.app-shell.role-stro .stro-user .role-chip { min-width: 64px; padding: 5px 12px; border: 0; font-size: 0.68rem; }
+.app-shell.role-stro .stro-user .role-chip { align-self: center; min-width: 64px; padding: 5px 12px; border: 0; font-size: 0.68rem; }
 
 .app-shell.role-stro .stro-user-avatar { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 50%; color: #c4510b; background: var(--high-light); font-weight: 800; }
 
@@ -5612,7 +5615,7 @@ button,
 
 .app-shell.role-admin .admin-user { display: flex; align-items: center; gap: 11px; color: var(--navy-950); font-size: 0.76rem; }
 
-.app-shell.role-admin .admin-user .role-chip { min-width: 98px; padding: 5px 12px; border: 0; font-size: 0.68rem; }
+.app-shell.role-admin .admin-user .role-chip { align-self: center; min-width: 98px; padding: 5px 12px; border: 0; font-size: 0.68rem; }
 
 .app-shell.role-admin .admin-user-avatar { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 50%; color: #087e73; background: #e6f7f5; font-weight: 800; }
 
@@ -7126,12 +7129,24 @@ body.app-shell.transaction-review-shell .merchant-cdd-card {
   }
 }
 
-/* Top-right notification and account controls */
+/* Top-right notification and account controls.
+   Sits in normal document flow at the top of the page (not pinned to the
+   viewport), so it scrolls away with the rest of the content like any other
+   element. */
 .global-account-tools {
-  position: fixed;
-  z-index: 1100;
-  top: 25px;
-  right: 24px;
+  position: relative;
+  z-index: 40;
+  display: flex;
+  justify-content: flex-end;
+  margin-left: var(--sidebar-width);
+  padding: 25px 24px 0;
+}
+
+/* transaction-detail.ejs's custom .detail-modal popups (RFI, escalation, STR workflow, etc.)
+   are plain fixed-position divs below the bell's z-index, unlike native <dialog> elements
+   which the browser already stacks above everything - so hide the bell only for those. */
+body.modal-open .global-account-tools {
+  display: none;
 }
 
 .app-shell .global-account-tools .global-notification-bell {
@@ -7160,6 +7175,9 @@ body.app-shell.transaction-review-shell .merchant-cdd-card {
 }
 
 body.app-shell.role-analyst .global-account-tools .global-notification-bell,
+body.app-shell.role-senior-analyst .global-account-tools .global-notification-bell,
+body.app-shell.role-stro .global-account-tools .global-notification-bell,
+body.app-shell.role-admin .global-account-tools .global-notification-bell,
 body.app-shell.transaction-review-shell .global-account-tools .global-notification-bell {
   border-color: #1769e0;
   color: #fff;
@@ -7168,6 +7186,9 @@ body.app-shell.transaction-review-shell .global-account-tools .global-notificati
 }
 
 body.app-shell.role-analyst .global-account-tools .global-notification-bell:hover,
+body.app-shell.role-senior-analyst .global-account-tools .global-notification-bell:hover,
+body.app-shell.role-stro .global-account-tools .global-notification-bell:hover,
+body.app-shell.role-admin .global-account-tools .global-notification-bell:hover,
 body.app-shell.transaction-review-shell .global-account-tools .global-notification-bell:hover {
   border-color: #1258bd;
   color: #fff;
@@ -7175,6 +7196,9 @@ body.app-shell.transaction-review-shell .global-account-tools .global-notificati
 }
 
 body.app-shell.role-analyst .global-notification-bell .notification-bell-icon,
+body.app-shell.role-senior-analyst .global-notification-bell .notification-bell-icon,
+body.app-shell.role-stro .global-notification-bell .notification-bell-icon,
+body.app-shell.role-admin .global-notification-bell .notification-bell-icon,
 body.app-shell.transaction-review-shell .global-notification-bell .notification-bell-icon {
   transform: translateY(-1px);
 }
@@ -7201,7 +7225,7 @@ body.app-shell.transaction-review-shell .global-notification-bell .notification-
 }
 
 .global-account-tools .notification-panel {
-  position: fixed;
+  position: absolute;
   top: 66px;
   right: 18px;
   left: auto;
@@ -7346,12 +7370,11 @@ body.app-shell.transaction-review-shell .global-notification-bell .notification-
 
 @media (max-width: 760px) {
   .global-account-tools {
-    top: 10px;
-    right: 10px;
+    padding: 10px 10px 0;
   }
 
   .global-account-tools .notification-panel {
-    position: fixed;
+    position: absolute;
     top: 58px;
     right: 10px;
     left: 10px;
@@ -7362,15 +7385,10 @@ body.app-shell.transaction-review-shell .global-notification-bell .notification-
 @media (min-width: 761px) {
   .app-shell .overview-user-actions,
   .app-shell .senior-user-actions,
-  .app-shell .stro-user-actions {
-    margin-right: 54px;
-  }
-
-  .app-shell .admin-user,
-  .app-shell .review-role-card,
-  .app-shell .analyst-page-header > .role-chip,
-  .app-shell .analyst-page-header > [data-page-read-all] {
-    margin-right: 54px;
+  .app-shell .stro-user-actions,
+  .app-shell .admin-user {
+    align-self: flex-start;
+    margin-top: 6px;
   }
 }
 

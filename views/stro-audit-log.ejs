@@ -1,6 +1,6 @@
 <%- include('partials/head', { title, activePage }) %>
 <%
-  const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG') : 'Not assigned';
+  const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }) : 'Not assigned';
   const params = new URLSearchParams({ ...filters, actionType: query.actionType || '', userId: query.userId || '', userRole: query.userRole || '', dateFrom: query.dateFrom || '', dateTo: query.dateTo || '', scope: query.scope || '' });
   const pageLink = (page) => { const next = new URLSearchParams(params); next.set('page', page); return `/stro/audit-log?${next.toString()}`; };
 %>

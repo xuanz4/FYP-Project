@@ -6,6 +6,8 @@ const { logAdminAudit } = require('../lib/auditLog');
 const { fetchLatestRfiResponse } = require('./rfiInboxService');
 const { createNotification } = require('./notificationService');
 const emailService = require('./emailService');
+const caseModel = require('../../models/caseModel');
+const rfiModel = require('../../models/rfiModel');
 
 function normalizeMessageId(value) {
   return String(value || '').trim().replace(/^<|>$/g, '').toLowerCase();
@@ -42,8 +44,8 @@ function isMatchingRfiReply(rfi, mailboxResult) {
 async function recipientsForReply(rfi, db = database) {
   const recipients = new Set([rfi.sent_by].filter(Boolean));
   if (rfi.case_id) {
-    const [rows] = await db.query('SELECT assigned_to FROM cases WHERE case_id = ? LIMIT 1', [rfi.case_id]);
-    if (rows[0]?.assigned_to) recipients.add(rows[0].assigned_to);
+    const assignedTo = await caseModel.findAssignedTo(db, rfi.case_id);
+    if (assignedTo) recipients.add(assignedTo);
   }
   return [...recipients];
 }
@@ -58,35 +60,27 @@ async function recordDetectedReply(rfi, mailboxResult, { db = database } = {}) {
   const mailboxReference = message.messageId
     ? `Message-ID ${message.messageId}`
     : `SHA-256 ${fingerprint}`;
-  const [receiptResult] = await db.execute(
-    `INSERT IGNORE INTO rfi_email_receipts
-      (receipt_id, transaction_id, case_id, message_fingerprint, mailbox_reference,
-       sender, subject, email_date, detected_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-    [
-      id('RFI-REPLY'), rfi.transaction_id, rfi.case_id, fingerprint, mailboxReference,
-      String(message.from || '').slice(0, 255) || null,
-      String(message.subject || '').slice(0, 255) || null,
-      String(message.date || '').slice(0, 255) || null,
-    ],
-  );
+  const receiptResult = await rfiModel.insertReceipt(db, {
+    receiptId: id('RFI-REPLY'),
+    transactionId: rfi.transaction_id,
+    caseId: rfi.case_id,
+    fingerprint,
+    mailboxReference,
+    sender: String(message.from || '').slice(0, 255) || null,
+    subject: String(message.subject || '').slice(0, 255) || null,
+    emailDate: String(message.date || '').slice(0, 255) || null,
+  });
 
   if (receiptResult.affectedRows !== 1) {
     return { matched: true, created: false, fingerprint, mailboxReference };
   }
 
-  await db.execute(
-    `UPDATE rfi_requests
-     SET status = 'Replied', reply_message_id = ?, reply_sender = ?, reply_subject = ?,
-         replied_at = COALESCE(replied_at, NOW()), updated_at = NOW()
-     WHERE rfi_id = ?`,
-    [
-      String(message.messageId || '').slice(0, 255) || null,
-      String(message.from || '').slice(0, 255) || null,
-      String(message.subject || '').slice(0, 255) || null,
-      rfi.rfi_id,
-    ],
-  );
+  await rfiModel.markReplied(db, {
+    rfiId: rfi.rfi_id,
+    replyMessageId: String(message.messageId || '').slice(0, 255) || null,
+    replySender: String(message.from || '').slice(0, 255) || null,
+    replySubject: String(message.subject || '').slice(0, 255) || null,
+  });
 
   await logAdminAudit({
     action: 'RFI_REPLY_RECEIVED',
@@ -128,15 +122,7 @@ async function checkRfiForReply(rfi, {
 
 async function findLatestSentRfi(transactionId, db = database) {
   await ensureNotificationSchema();
-  const [rows] = await db.query(
-    `SELECT rfi_id, transaction_id, case_id, sent_by, recipient_email, outbound_message_id, sent_at, status
-     FROM rfi_requests
-     WHERE transaction_id = ? AND status IN ('Sent', 'Replied')
-     ORDER BY sent_at DESC, created_at DESC
-     LIMIT 1`,
-    [transactionId],
-  );
-  return rows[0] || null;
+  return rfiModel.findLatestSent(db, transactionId);
 }
 
 async function checkLatestTransactionReply(transactionId, dependencies = {}) {

@@ -6,30 +6,23 @@ const { evaluateTransaction } = require('./riskEngine');
 const { ensureRiskAndContactSchema } = require('./lib/schema');
 const { upsertMerchantRiskProfile, generateUniqueTransactionReference } = require('./lib/merchantRiskProfile');
 const { loadMerchantCddContext } = require('./lib/merchantCdd');
+const merchantModel = require('../models/merchantModel');
+const transactionModel = require('../models/transactionModel');
+const matchedRuleModel = require('../models/matchedRuleModel');
 
 async function ensureMerchant(database, merchant) {
-  await database.execute(
-    `INSERT INTO merchants (merchant_id, merchant_name, merchant_mid, merchant_country, authorised_contact_name, authorised_contact_email, mcc_code, industry, mcc_risk_score, risk_tier, is_active)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-     ON DUPLICATE KEY UPDATE
-       merchant_name = VALUES(merchant_name),
-       merchant_mid = VALUES(merchant_mid),
-       merchant_country = VALUES(merchant_country),
-       authorised_contact_name = COALESCE(VALUES(authorised_contact_name), authorised_contact_name),
-       authorised_contact_email = COALESCE(VALUES(authorised_contact_email), authorised_contact_email)`,
-    [
-      merchant.merchantId,
-      merchant.merchantName,
-      merchant.merchantMid || null,
-      merchant.merchantCountry || null,
-      merchant.authorisedContactName || null,
-      merchant.authorisedContactEmail || null,
-      merchant.mccCode || '0000',
-      merchant.industry || 'Unclassified',
-      merchant.mccRiskScore || 0,
-      merchant.riskTier || 'Standard',
-    ],
-  );
+  await merchantModel.upsertFromPartnerFeed(database, {
+    merchantId: merchant.merchantId,
+    merchantName: merchant.merchantName,
+    merchantMid: merchant.merchantMid || null,
+    merchantCountry: merchant.merchantCountry || null,
+    authorisedContactName: merchant.authorisedContactName || null,
+    authorisedContactEmail: merchant.authorisedContactEmail || null,
+    mccCode: merchant.mccCode || '0000',
+    industry: merchant.industry || 'Unclassified',
+    mccRiskScore: merchant.mccRiskScore || 0,
+    riskTier: merchant.riskTier || 'Standard',
+  });
 }
 
 // raw: { id, merchantId, storeId, amount, method, scheme, issuer, issuerBank, cardBin,
@@ -74,35 +67,42 @@ async function ingestTransaction(database, raw, merchant, { broadcast } = {}) {
 
   const uniqueTransactionReference = await generateUniqueTransactionReference(database, txnTime);
 
-  await database.execute(
-    `INSERT INTO transactions (
-      transaction_id, unique_transaction_reference, merchant_id, store_id, amount, method, scheme, issuer_country,
-      issuer_bank, card_bin, card_last4, cvv_validation_result, expiry_validation_result, transaction_code,
-      transaction_type, entry_mode, payment_status, payment_status_label, payment_status_tone,
-      net, fee, txn_time, source_note, risk_score, risk_level,
-      mcc_risk_contribution, profile_risk_contribution, transaction_detection_contribution,
-      status, action_status, created_at, card_ref
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'None', ?, ?)`,
-    [
-      raw.id, uniqueTransactionReference, raw.merchantId, raw.storeId || null, raw.amount, raw.method || null, raw.scheme || null, raw.issuer || null,
-      raw.issuerBank || null,
-      /^\d{6,8}$/.test(String(raw.cardBin || '')) ? String(raw.cardBin) : null,
-      /^\d{4}$/.test(String(raw.cardLast4 || '')) ? String(raw.cardLast4) : null,
-      raw.cvvValidationResult || null, raw.expiryValidationResult || null, raw.transactionCode || null,
-      raw.transactionType || null, raw.entryMode || null, raw.status || null, raw.statusLabel || null, raw.statusTone || null,
-      raw.net ?? null, raw.fee ?? null, txnTime, raw.note || null,
-      evaluation.riskScore, evaluation.riskLevel,
-      evaluation.mccRiskContribution, evaluation.profileRiskContribution, evaluation.detectionContribution,
-      evaluation.status, txnTime, raw.cardRef || null,
-    ],
-  );
+  await transactionModel.insertIngested(database, {
+    transactionId: raw.id,
+    uniqueTransactionReference,
+    merchantId: raw.merchantId,
+    storeId: raw.storeId || null,
+    amount: raw.amount,
+    method: raw.method || null,
+    scheme: raw.scheme || null,
+    issuerCountry: raw.issuer || null,
+    issuerBank: raw.issuerBank || null,
+    cardBin: /^\d{6,8}$/.test(String(raw.cardBin || '')) ? String(raw.cardBin) : null,
+    cardLast4: /^\d{4}$/.test(String(raw.cardLast4 || '')) ? String(raw.cardLast4) : null,
+    cvvValidationResult: raw.cvvValidationResult || null,
+    expiryValidationResult: raw.expiryValidationResult || null,
+    transactionCode: raw.transactionCode || null,
+    transactionType: raw.transactionType || null,
+    entryMode: raw.entryMode || null,
+    paymentStatus: raw.status || null,
+    paymentStatusLabel: raw.statusLabel || null,
+    paymentStatusTone: raw.statusTone || null,
+    net: raw.net ?? null,
+    fee: raw.fee ?? null,
+    txnTime,
+    sourceNote: raw.note || null,
+    riskScore: evaluation.riskScore,
+    riskLevel: evaluation.riskLevel,
+    mccRiskContribution: evaluation.mccRiskContribution,
+    profileRiskContribution: evaluation.profileRiskContribution,
+    transactionDetectionContribution: evaluation.detectionContribution,
+    status: evaluation.status,
+    cardRef: raw.cardRef || null,
+  });
 
   for (const rule of evaluation.matchedRules) {
-    await database.execute(
-      `INSERT INTO transaction_matched_rules (transaction_id, rule_id) VALUES (?, ?)
-       ON DUPLICATE KEY UPDATE matched_at = matched_at`,
-      [raw.id, rule.id],
-    );
+    // eslint-disable-next-line no-await-in-loop
+    await matchedRuleModel.recordMatch(database, raw.id, rule.id);
   }
 
   // Recomputed after this transaction is committed, from history strictly up to and including

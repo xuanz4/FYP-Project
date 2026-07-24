@@ -5,6 +5,10 @@ const { ensureStrWorkflowSchema, ensureRiskAndContactSchema, ensureNotificationS
 const { createNotification } = require('../services/notificationService');
 const { hasMeaningfulAnalystNotes } = require('./strDraft');
 const { roleCanPerform, forbidJson } = require('../middleware/auth');
+const transactionModel = require('../../models/transactionModel');
+const caseModel = require('../../models/caseModel');
+const auditLogModel = require('../../models/auditLogModel');
+const rfiModel = require('../../models/rfiModel');
 
 function selectRfiDeliveryRecipient({ savedEmail, accountType }) {
   const trimmedEmail = String(savedEmail || '').trim();
@@ -118,23 +122,7 @@ async function findDatabaseRfiContext(transactionId) {
   if (!database.isEnabled()) return null;
   await ensureRiskAndContactSchema();
 
-  const [rows] = await database.query(
-    `SELECT t.transaction_id, t.unique_transaction_reference, t.amount, t.created_at, t.action_status,
-            m.merchant_name, m.merchant_mid,
-            mc.contact_name, mc.rfi_email,
-            c.case_id, c.status AS case_status,
-            c.assigned_role, c.escalation_destination, sr.str_status
-     FROM transactions t
-     LEFT JOIN merchants m ON t.merchant_id = m.merchant_id
-     LEFT JOIN merchant_contacts mc ON mc.merchant_id = t.merchant_id AND mc.status = 'Active'
-     LEFT JOIN cases c ON c.transaction_id = t.transaction_id
-     LEFT JOIN str_reports sr ON sr.case_id = c.case_id
-     WHERE t.transaction_id = ?
-     ORDER BY c.created_at DESC
-     LIMIT 1`,
-    [transactionId],
-  );
-  const row = rows[0];
+  const row = await transactionModel.findRfiContextByTransactionId(transactionId);
   if (!row) return null;
   return {
     transactionId: row.transaction_id,
@@ -205,7 +193,7 @@ async function handleDatabaseRfiRequest(req, res) {
       recipientName: context.recipientName,
       companyName: context.companyName,
       transactionId: context.transactionId,
-      transactionDate: new Date(context.createdAt).toLocaleString('en-SG'),
+      transactionDate: new Date(context.createdAt).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }),
       currency: context.currency,
       amount: context.amount,
       subject,
@@ -220,22 +208,26 @@ async function handleDatabaseRfiRequest(req, res) {
     const safeError = getSafeEmailError(error);
     try {
       await database.withTransaction(async (tx) => {
-        await tx.execute(
-          `INSERT INTO rfi_requests
-            (rfi_id, transaction_id, case_id, sent_by, recipient_email, subject, request_summary,
-             status, failure_code, failure_message, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'Failed', ?, ?, NOW(), NOW())`,
-          [
-            rfiId, context.transactionId, context.caseId, req.session.user.id, recipient.email,
-            subject, informationRequested, safeError.code, safeError.message,
-          ],
-        );
-        await tx.execute(
-          `INSERT INTO audit_logs
-            (audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at)
-           VALUES (?, ?, 'RFI', ?, 'RFI_SEND_FAILED', ?, ?, NOW())`,
-          [id('AUD'), context.transactionId, rfiId, req.session.user.id, `RFI send failed: ${safeError.code}.`],
-        );
+        await rfiModel.insertFailedRequest(tx, {
+          rfiId,
+          transactionId: context.transactionId,
+          caseId: context.caseId,
+          sentBy: req.session.user.id,
+          recipientEmail: recipient.email,
+          subject,
+          requestSummary: informationRequested,
+          failureCode: safeError.code,
+          failureMessage: safeError.message,
+        });
+        await auditLogModel.insert({
+          auditId: id('AUD'),
+          transactionId: context.transactionId,
+          entityType: 'RFI',
+          entityId: rfiId,
+          action: 'RFI_SEND_FAILED',
+          userId: req.session.user.id,
+          notes: `RFI send failed: ${safeError.code}.`,
+        }, tx);
         await createNotification({
           userId: req.session.user.id,
           caseId: context.caseId,
@@ -270,28 +262,28 @@ async function handleDatabaseRfiRequest(req, res) {
   try {
     await database.withTransaction(async (tx) => {
       if (context.caseId) {
-        await tx.execute(
-          'UPDATE cases SET status = ?, last_actioned_by = ?, last_actioned_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE case_id = ?',
-          ['Pending RFI', req.session.user.id, context.caseId],
-        );
+        await caseModel.setStatusAndTouch({ caseId: context.caseId, status: 'Pending RFI', userId: req.session.user.id }, tx);
       }
-      await tx.execute('UPDATE transactions SET action_status = ?, updated_at = CURRENT_TIMESTAMP WHERE transaction_id = ?', ['Pending RFI', context.transactionId]);
-      await tx.execute(
-        `INSERT INTO rfi_requests
-          (rfi_id, transaction_id, case_id, sent_by, recipient_email, subject, request_summary,
-           status, outbound_message_id, sent_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'Sent', ?, NOW(), NOW(), NOW())`,
-        [
-          rfiId, context.transactionId, context.caseId, req.session.user.id, recipient.email,
-          subject, informationRequested, delivery.messageId || null,
-        ],
-      );
-      await tx.execute(
-        `INSERT INTO audit_logs (audit_id, transaction_id, entity_type, entity_id, action, user_id, notes, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-        [id('AUD'), context.transactionId, 'RFI',
-          rfiId, 'RFI_SENT', req.session.user.id, auditSummary],
-      );
+      await transactionModel.updateActionStatus(context.transactionId, 'Pending RFI', tx);
+      await rfiModel.insertSentRequest(tx, {
+        rfiId,
+        transactionId: context.transactionId,
+        caseId: context.caseId,
+        sentBy: req.session.user.id,
+        recipientEmail: recipient.email,
+        subject,
+        requestSummary: informationRequested,
+        outboundMessageId: delivery.messageId || null,
+      });
+      await auditLogModel.insert({
+        auditId: id('AUD'),
+        transactionId: context.transactionId,
+        entityType: 'RFI',
+        entityId: rfiId,
+        action: 'RFI_SENT',
+        userId: req.session.user.id,
+        notes: auditSummary,
+      }, tx);
       await createNotification({
         userId: req.session.user.id,
         caseId: context.caseId,

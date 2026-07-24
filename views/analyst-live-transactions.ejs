@@ -7,7 +7,7 @@
     next.set('page', page);
     return `/analyst/live-transactions?${next.toString()}`;
   };
-  const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG') : 'Not assigned';
+  const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }) : 'Not assigned';
 %>
 
 <main class="analyst-page">

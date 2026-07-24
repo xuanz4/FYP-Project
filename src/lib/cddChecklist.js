@@ -2,7 +2,7 @@
 // ensureMerchantCddSchema) - every transaction's case gets its own CDD checklist, required
 // regardless of risk level. Mirrors eddChecklist.js's shape exactly. Which fieldKey a caller may
 // use is enforced by the caller (transactionsController.js), not here.
-const database = require('../database');
+const cddChecklistModel = require('../../models/cddChecklistModel');
 
 const FIELD_DEFS = {
   businessRegistration: {
@@ -19,17 +19,17 @@ async function setCddChecklistField(db, {
   const def = FIELD_DEFS[fieldKey];
   if (!def) throw new Error(`Unknown CDD checklist field: ${fieldKey}`);
   if (!transactionId) throw new Error('transactionId is required to set a CDD checklist field');
-  const client = db || database;
-  await client.execute(
-    `INSERT INTO merchant_cdd_checklist (transaction_id, merchant_id, ${def.completed}, ${def.notes}, ${def.by}, ${def.at})
-     VALUES (?, ?, ?, ?, ?, NOW())
-     ON DUPLICATE KEY UPDATE
-       ${def.completed} = VALUES(${def.completed}),
-       ${def.notes} = VALUES(${def.notes}),
-       ${def.by} = VALUES(${def.by}),
-       ${def.at} = VALUES(${def.at})`,
-    [transactionId, merchantId, completed ? 1 : 0, notes || null, userId],
-  );
+  await cddChecklistModel.upsertField(db, {
+    transactionId,
+    merchantId,
+    completedColumn: def.completed,
+    notesColumn: def.notes,
+    byColumn: def.by,
+    atColumn: def.at,
+    completed,
+    notes,
+    userId,
+  });
 }
 
 module.exports = { setCddChecklistField, FIELD_DEFS };

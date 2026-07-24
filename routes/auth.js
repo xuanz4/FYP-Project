@@ -1,5 +1,5 @@
 const express = require('express');
-const database = require('../src/database');
+const userModel = require('../models/userModel');
 const { roleHomePath, requireAuth } = require('../src/middleware/auth');
 
 const router = express.Router();
@@ -26,17 +26,7 @@ router.post('/auth/login', async (req, res) => {
       return renderLogin(req, res, 'User ID and password are required.');
     }
 
-    const [rows] = await database.query(
-      `SELECT user_id, user_name, user_role, is_active
-       FROM users
-       WHERE user_id = ?
-         AND password = SHA2(?, 256)
-         AND is_active = 1
-       LIMIT 1`,
-      [userId, password],
-    );
-
-    const user = rows[0];
+    const user = await userModel.findActiveByCredentials(userId, password);
     if (!user) {
       return renderLogin(req, res, 'Invalid credentials or inactive account.');
     }

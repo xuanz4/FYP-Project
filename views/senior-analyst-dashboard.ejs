@@ -1,7 +1,7 @@
 <%- include('partials/head', { title, activePage }) %>
 
 <%
-  const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG') : 'Not assigned';
+  const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }) : 'Not assigned';
   const initials = String(currentUser.name || 'Senior Analyst').split(/\s+/).filter(Boolean).map((part) => part[0]).slice(0, 2).join('').toUpperCase();
   const terminalStatuses = ['Resolved', 'Dismissed as False Positive', 'STR Filed'];
   const statusLabel = (value) => ({ Open: 'Under Review', 'Pending RFI': 'Pending RFI', 'Pending Senior Review': 'Pending Review' }[value] || value || 'Pending Review');

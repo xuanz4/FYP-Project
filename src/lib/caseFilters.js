@@ -1,5 +1,6 @@
-const database = require('../database');
 const { ensureDatabaseResolveColumns, ensureStrWorkflowSchema } = require('./schema');
+const merchantModel = require('../../models/merchantModel');
+const userModel = require('../../models/userModel');
 
 async function ensureAnalystListSchema() {
   await ensureDatabaseResolveColumns();
@@ -23,8 +24,8 @@ function analystFiltersFromQuery(query) {
 }
 
 async function getAnalystFilterOptions() {
-  const [merchants] = await database.query('SELECT merchant_id, merchant_name FROM merchants WHERE is_active = 1 ORDER BY merchant_name ASC');
-  const [users] = await database.query("SELECT user_id, user_name FROM users WHERE user_role IN ('Analyst', 'Senior Analyst', 'STRO') ORDER BY user_name ASC");
+  const merchants = await merchantModel.listActiveForDropdown();
+  const users = await userModel.listAnalystRoleUsersForDropdown();
   return { merchants, users };
 }
 

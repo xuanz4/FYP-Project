@@ -5,6 +5,9 @@ const { parseFinalRiskScore, getRiskLevelFromScore, hasMeaningfulAnalystNotes } 
 const { assessmentDecisions, resolutionReasons } = require('../constants');
 const { roleCanPerform, forbidJson } = require('../middleware/auth');
 const { loadMerchantCddContext } = require('./merchantCdd');
+const transactionModel = require('../../models/transactionModel');
+const caseModel = require('../../models/caseModel');
+const auditLogModel = require('../../models/auditLogModel');
 
 // Whole number 0-100, required - used for the mandatory manual reconciliation fields. Distinct
 // from parseFinalRiskScore only in name, kept separate since "final risk score" and "manual
@@ -101,23 +104,12 @@ async function handleDatabaseResolveRequest(req, res) {
     return forbidJson(res);
   }
 
-  let rows;
+  let row;
   try {
     await ensureDatabaseResolveColumns();
     await ensureRiskAndContactSchema();
     await ensureCaseAssignmentColumns();
-    [rows] = await database.query(
-      `SELECT t.transaction_id, t.unique_transaction_reference, t.merchant_id, t.risk_score, t.risk_level, t.status, t.action_status,
-              t.final_risk_score, t.final_risk_level,
-              t.mcc_risk_contribution, t.profile_risk_contribution, t.transaction_detection_contribution,
-              c.case_id, c.status AS case_status, c.resolved_at
-       FROM transactions t
-       LEFT JOIN cases c ON c.transaction_id = t.transaction_id
-       WHERE t.transaction_id = ?
-       ORDER BY c.created_at DESC
-       LIMIT 1`,
-      [req.params.id],
-    );
+    row = await transactionModel.findResolveContextByTransactionId(req.params.id);
   } catch (error) {
     console.error('Unable to load database resolve context', {
       transactionId: req.params.id,
@@ -126,7 +118,6 @@ async function handleDatabaseResolveRequest(req, res) {
     return res.status(500).json({ success: false, message: 'Unable to load transaction details' });
   }
 
-  const row = rows[0];
   if (!row) return res.status(404).json({ success: false, message: 'Transaction not found' });
 
   const currentStatus = row.case_status || row.action_status || 'Open';
@@ -217,63 +208,51 @@ async function handleDatabaseResolveRequest(req, res) {
   const resolvedAtSql = new Date();
   const nextStatus = 'Resolved';
 
-  await database.execute(
-    `UPDATE transactions
-     SET final_risk_score = ?, final_risk_level = ?, action_status = ?, updated_at = CURRENT_TIMESTAMP
-     WHERE transaction_id = ?`,
-    [finalRiskScore, finalRiskLevel, nextStatus, row.transaction_id],
-  );
+  await transactionModel.markResolved(row.transaction_id, {
+    finalRiskScore, finalRiskLevel, actionStatus: nextStatus,
+  });
   if (row.case_id) {
-    await database.execute(
-      `UPDATE cases
-       SET status = ?, decision = ?, resolution_reason = ?, analyst_notes = ?, resolved_at = ?, resolved_by = ?,
-           manual_mcc_contribution = ?, manual_profile_contribution = ?, manual_detection_contribution = ?, manual_final_score = ?,
-           discrepancy_flag = ?, discrepancy_notes = ?, last_actioned_by = ?, last_actioned_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-       WHERE case_id = ?`,
-      [
-        nextStatus, decision, resolutionReason, analystNotes, resolvedAtSql, req.session.user.id,
-        manualMccContribution, manualProfileContribution, manualDetectionContribution, manualFinalScore,
-        discrepancyFlag ? 1 : 0, discrepancyNotes, req.session.user.id, row.case_id,
-      ],
-    );
+    await caseModel.resolveCase({
+      caseId: row.case_id,
+      status: nextStatus,
+      decision,
+      resolutionReason,
+      analystNotes,
+      resolvedAt: resolvedAtSql,
+      resolvedBy: req.session.user.id,
+      manualMccContribution,
+      manualProfileContribution,
+      manualDetectionContribution,
+      manualFinalScore,
+      discrepancyFlag,
+      discrepancyNotes,
+    });
   }
-  await database.execute(
-    `INSERT INTO audit_logs (audit_id, transaction_id, action, user_id, notes, created_at)
-     VALUES (?, ?, ?, ?, ?, NOW())`,
-    [
-      id('AUD'),
-      row.transaction_id,
-      'Final Risk Assigned',
-      req.session.user.id,
-      `Final risk assigned as ${finalRiskLevel} with score ${finalRiskScore}.`,
-    ],
-  );
-  await database.execute(
-    `INSERT INTO audit_logs (audit_id, transaction_id, action, user_id, notes, created_at)
-     VALUES (?, ?, ?, ?, ?, NOW())`,
-    [
-      id('AUD'),
-      row.transaction_id,
-      'Assessment Resolved',
-      req.session.user.id,
-      `Assessment resolved with decision ${decision} and reason ${resolutionReason}.`,
-    ],
-  );
+  await auditLogModel.insert({
+    auditId: id('AUD'),
+    transactionId: row.transaction_id,
+    action: 'Final Risk Assigned',
+    userId: req.session.user.id,
+    notes: `Final risk assigned as ${finalRiskLevel} with score ${finalRiskScore}.`,
+  });
+  await auditLogModel.insert({
+    auditId: id('AUD'),
+    transactionId: row.transaction_id,
+    action: 'Assessment Resolved',
+    userId: req.session.user.id,
+    notes: `Assessment resolved with decision ${decision} and reason ${resolutionReason}.`,
+  });
   // Written every time, match or mismatch, so there is a permanent record that reconciliation
   // was performed on every resolved case - not just the ones that found a problem.
-  await database.execute(
-    `INSERT INTO audit_logs (audit_id, transaction_id, action, user_id, notes, created_at)
-     VALUES (?, ?, ?, ?, ?, NOW())`,
-    [
-      id('AUD'),
-      row.transaction_id,
-      'Manual Reconciliation Performed',
-      req.session.user.id,
-      discrepancyFlag
-        ? `Manual reconciliation performed - DISCREPANCY: ${discrepancyNotes} (reference ${row.unique_transaction_reference || row.transaction_id}).`
-        : `Manual reconciliation performed - values matched (reference ${row.unique_transaction_reference || row.transaction_id}).`,
-    ],
-  );
+  await auditLogModel.insert({
+    auditId: id('AUD'),
+    transactionId: row.transaction_id,
+    action: 'Manual Reconciliation Performed',
+    userId: req.session.user.id,
+    notes: discrepancyFlag
+      ? `Manual reconciliation performed - DISCREPANCY: ${discrepancyNotes} (reference ${row.unique_transaction_reference || row.transaction_id}).`
+      : `Manual reconciliation performed - values matched (reference ${row.unique_transaction_reference || row.transaction_id}).`,
+  });
 
   return res.status(200).json({
     success: true,

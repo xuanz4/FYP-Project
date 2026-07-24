@@ -1,9 +1,15 @@
-const database = require('../src/database');
 const emailService = require('../src/services/emailService');
 const { paginationMeta, appendWhere } = require('../src/lib/query');
 const { logAdminAudit } = require('../src/lib/auditLog');
 const { ensureMerchantContactsTable, ensureMerchantCddSchema } = require('../src/lib/schema');
 const { id } = require('../src/lib/ids');
+const userModel = require('../models/userModel');
+const merchantModel = require('../models/merchantModel');
+const merchantContactModel = require('../models/merchantContactModel');
+const merchantCddModel = require('../models/merchantCddModel');
+const complianceRuleModel = require('../models/complianceRuleModel');
+const auditLogModel = require('../models/auditLogModel');
+const dashboardModel = require('../models/dashboardModel');
 
 function adminFiltersFromQuery(query) {
   return {
@@ -33,12 +39,9 @@ async function loadAdminUsers(req) {
   if (filters.status === 'inactive') where.push('is_active = 0');
   if (filters.q) { where.push('(user_id LIKE ? OR user_name LIKE ?)'); values.push(`%${filters.q}%`, `%${filters.q}%`); }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-  const [countRows] = await database.query(`SELECT COUNT(*) AS total FROM users ${whereSql}`, values);
-  const pagination = paginationMeta(req, Number(countRows[0]?.total || 0), 15);
-  const [rows] = await database.query(
-    `SELECT user_id, user_name, user_role, is_active FROM users ${whereSql} ORDER BY user_name ASC LIMIT ? OFFSET ?`,
-    [...values, pagination.limit, pagination.offset],
-  );
+  const total = await userModel.countFiltered(whereSql, values);
+  const pagination = paginationMeta(req, total, 15);
+  const rows = await userModel.listFiltered(whereSql, values, pagination.limit, pagination.offset);
   return { rows, filters, pagination };
 }
 
@@ -54,34 +57,14 @@ async function loadAdminMerchants(req) {
   appendWhere(where, values, 'm.mcc_code = ?', filters.mcc);
   if (filters.q) { where.push('(m.merchant_id LIKE ? OR m.merchant_name LIKE ? OR m.industry LIKE ?)'); values.push(`%${filters.q}%`, `%${filters.q}%`, `%${filters.q}%`); }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-  const [countRows] = await database.query(`SELECT COUNT(*) AS total FROM merchants m ${whereSql}`, values);
-  const pagination = paginationMeta(req, Number(countRows[0]?.total || 0), 15);
-  const [rows] = await database.query(
-    `SELECT m.merchant_id, m.merchant_name, m.merchant_mid, m.merchant_country,
-            m.mcc_code, m.industry, m.mcc_risk_score, m.risk_tier, m.is_active,
-            mc.contact_name, mc.rfi_email, mc.phone_number, mc.store_id AS contact_store_id, mc.status AS contact_status,
-            cdd.kyc_status, cdd.verification_date, cdd.next_review_date,
-            cdd.expected_monthly_volume, cdd.expected_avg_ticket, cdd.expected_countries,
-            cdd.expected_operating_open_hour, cdd.expected_operating_close_hour
-     FROM merchants m
-     LEFT JOIN merchant_contacts mc ON mc.merchant_id = m.merchant_id
-     LEFT JOIN merchant_cdd_profiles cdd ON cdd.merchant_id = m.merchant_id
-     ${whereSql} ORDER BY m.merchant_name ASC LIMIT ? OFFSET ?`,
-    [...values, pagination.limit, pagination.offset],
-  );
+  const total = await merchantModel.countFiltered(whereSql, values);
+  const pagination = paginationMeta(req, total, 15);
+  const rows = await merchantModel.listFiltered(whereSql, values, pagination.limit, pagination.offset);
   const merchantIds = rows.map((row) => row.merchant_id);
-  const [beneficialOwners, screeningRecords] = merchantIds.length ? await Promise.all([
-    database.query(
-      `SELECT owner_id, merchant_id, full_name, owner_role, ownership_percentage, nationality, id_reference, date_of_birth
-       FROM merchant_beneficial_owners WHERE merchant_id IN (?) ORDER BY added_at DESC`,
-      [merchantIds],
-    ).then(([r]) => r),
-    database.query(
-      `SELECT screening_id, merchant_id, screening_type, result, screened_against, notes, screened_at
-       FROM merchant_screening_records WHERE merchant_id IN (?) ORDER BY screened_at DESC`,
-      [merchantIds],
-    ).then(([r]) => r),
-  ]) : [[], []];
+  const [beneficialOwners, screeningRecords] = await Promise.all([
+    merchantCddModel.listBeneficialOwnersByMerchantIds(merchantIds),
+    merchantCddModel.listScreeningRecordsByMerchantIds(merchantIds),
+  ]);
   const beneficialOwnersByMerchant = {};
   beneficialOwners.forEach((owner) => {
     (beneficialOwnersByMerchant[owner.merchant_id] ||= []).push(owner);
@@ -90,8 +73,8 @@ async function loadAdminMerchants(req) {
   screeningRecords.forEach((record) => {
     (screeningRecordsByMerchant[record.merchant_id] ||= []).push(record);
   });
-  const [industries] = await database.query('SELECT DISTINCT industry FROM merchants ORDER BY industry ASC');
-  const [mccs] = await database.query('SELECT DISTINCT mcc_code FROM merchants ORDER BY mcc_code ASC');
+  const industries = await merchantModel.listDistinctIndustries();
+  const mccs = await merchantModel.listDistinctMccCodes();
   return {
     rows, industries, mccs, filters, pagination, beneficialOwnersByMerchant, screeningRecordsByMerchant,
   };
@@ -111,28 +94,12 @@ async function upsertMerchantContactFields(req, merchantId) {
   const storeId = String(req.body.contactStoreId || '').trim() || null;
   if (rfiEmail && !emailService.isValidEmail(rfiEmail)) return;
 
-  const [existingRows] = await database.query(
-    'SELECT contact_name, rfi_email, phone_number, store_id FROM merchant_contacts WHERE merchant_id = ? LIMIT 1',
-    [merchantId],
-  );
-  const existing = existingRows[0] || {};
+  const existing = await merchantContactModel.findByMerchantId(merchantId) || {};
+  const merchantMid = await merchantModel.findMidById(merchantId);
 
-  const [merchantRows] = await database.query('SELECT merchant_mid FROM merchants WHERE merchant_id = ? LIMIT 1', [merchantId]);
-  const merchantMid = merchantRows[0]?.merchant_mid || null;
-
-  await database.execute(
-    `INSERT INTO merchant_contacts (contact_id, merchant_id, merchant_mid, store_id, contact_name, rfi_email, phone_number, status, updated_by, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'Active', ?, NOW())
-     ON DUPLICATE KEY UPDATE
-       merchant_mid = VALUES(merchant_mid),
-       store_id = VALUES(store_id),
-       contact_name = VALUES(contact_name),
-       rfi_email = VALUES(rfi_email),
-       phone_number = VALUES(phone_number),
-       updated_by = VALUES(updated_by),
-       updated_at = NOW()`,
-    [id('MCT'), merchantId, merchantMid, storeId, contactName, rfiEmail, phoneNumber, req.session.user.id],
-  );
+  await merchantContactModel.upsert({
+    contactId: id('MCT'), merchantId, merchantMid, storeId, contactName, rfiEmail, phoneNumber, updatedBy: req.session.user.id,
+  });
 
   const changedFields = [
     ['Contact Name', existing.contact_name, contactName],
@@ -170,22 +137,19 @@ async function upsertMerchantCddFields(req, merchantId) {
   const expectedOperatingOpenHour = req.body.expectedOperatingOpenHour !== '' && req.body.expectedOperatingOpenHour !== undefined ? Number(req.body.expectedOperatingOpenHour) : null;
   const expectedOperatingCloseHour = req.body.expectedOperatingCloseHour !== '' && req.body.expectedOperatingCloseHour !== undefined ? Number(req.body.expectedOperatingCloseHour) : null;
 
-  await database.execute(
-    `INSERT INTO merchant_cdd_profiles (cdd_id, merchant_id, kyc_status, verification_date, next_review_date, expected_monthly_volume, expected_avg_ticket, expected_countries, expected_operating_open_hour, expected_operating_close_hour, updated_by, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
-     ON DUPLICATE KEY UPDATE
-       kyc_status = VALUES(kyc_status),
-       verification_date = VALUES(verification_date),
-       next_review_date = VALUES(next_review_date),
-       expected_monthly_volume = VALUES(expected_monthly_volume),
-       expected_avg_ticket = VALUES(expected_avg_ticket),
-       expected_countries = VALUES(expected_countries),
-       expected_operating_open_hour = VALUES(expected_operating_open_hour),
-       expected_operating_close_hour = VALUES(expected_operating_close_hour),
-       updated_by = VALUES(updated_by),
-       updated_at = NOW()`,
-    [id('CDD'), merchantId, kycStatus, verificationDate, nextReviewDate, expectedMonthlyVolume, expectedAvgTicket, expectedCountries, expectedOperatingOpenHour, expectedOperatingCloseHour, req.session.user.id],
-  );
+  await merchantCddModel.upsertProfile({
+    cddId: id('CDD'),
+    merchantId,
+    kycStatus,
+    verificationDate,
+    nextReviewDate,
+    expectedMonthlyVolume,
+    expectedAvgTicket,
+    expectedCountries,
+    expectedOperatingOpenHour,
+    expectedOperatingCloseHour,
+    updatedBy: req.session.user.id,
+  });
 
   await logAdminAudit({
     action: 'Merchant CDD Profile Updated',
@@ -212,11 +176,9 @@ async function addBeneficialOwner(req, res) {
   const dateOfBirth = String(req.body.dateOfBirth || '').trim() || null;
   const ownerId = id('OWN');
 
-  await database.execute(
-    `INSERT INTO merchant_beneficial_owners (owner_id, merchant_id, full_name, owner_role, ownership_percentage, nationality, id_reference, date_of_birth, added_by, added_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-    [ownerId, merchantId, fullName, ownerRole, ownershipPercentage, nationality, idReference, dateOfBirth, req.session.user.id],
-  );
+  await merchantCddModel.insertBeneficialOwner({
+    ownerId, merchantId, fullName, ownerRole, ownershipPercentage, nationality, idReference, dateOfBirth, addedBy: req.session.user.id,
+  });
   await logAdminAudit({
     action: 'Merchant Beneficial Owner Added',
     userId: req.session.user.id,
@@ -228,7 +190,7 @@ async function addBeneficialOwner(req, res) {
 }
 
 async function deleteBeneficialOwner(req, res) {
-  await database.execute('DELETE FROM merchant_beneficial_owners WHERE owner_id = ?', [req.params.ownerId]);
+  await merchantCddModel.deleteBeneficialOwner(req.params.ownerId);
   await logAdminAudit({
     action: 'Merchant Beneficial Owner Deleted',
     userId: req.session.user.id,
@@ -252,11 +214,9 @@ async function addScreeningRecord(req, res) {
   const notes = String(req.body.notes || '').trim() || null;
   const screeningId = id('SCR');
 
-  await database.execute(
-    `INSERT INTO merchant_screening_records (screening_id, merchant_id, screening_type, result, screened_against, notes, screened_by, screened_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-    [screeningId, merchantId, screeningType, result, screenedAgainst, notes, req.session.user.id],
-  );
+  await merchantCddModel.insertScreeningRecord({
+    screeningId, merchantId, screeningType, result, screenedAgainst, notes, screenedBy: req.session.user.id,
+  });
   await logAdminAudit({
     action: 'Merchant Screening Record Added',
     userId: req.session.user.id,
@@ -278,21 +238,11 @@ async function loadAdminRules(req) {
   if (filters.status === 'inactive') where.push('cr.is_active = 0');
   if (filters.q) { where.push('(cr.rule_id LIKE ? OR cr.rule_name LIKE ?)'); values.push(`%${filters.q}%`, `%${filters.q}%`); }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-  const [countRows] = await database.query(`SELECT COUNT(*) AS total FROM compliance_rules cr ${whereSql}`, values);
-  const pagination = paginationMeta(req, Number(countRows[0]?.total || 0), 15);
-  const [rows] = await database.query(
-    `SELECT cr.rule_id, cr.merchant_id, cr.rule_name, cr.risk_level, cr.reason, cr.weight,
-            cr.amount_threshold, cr.count_threshold, cr.rule_type, cr.is_active,
-            m.merchant_name
-     FROM compliance_rules cr
-     LEFT JOIN merchants m ON m.merchant_id = cr.merchant_id
-     ${whereSql}
-     ORDER BY cr.rule_name ASC
-     LIMIT ? OFFSET ?`,
-    [...values, pagination.limit, pagination.offset],
-  );
-  const [merchants] = await database.query('SELECT merchant_id, merchant_name FROM merchants WHERE is_active = 1 ORDER BY merchant_name ASC');
-  const [ruleTypes] = await database.query('SELECT DISTINCT rule_type FROM compliance_rules ORDER BY rule_type ASC');
+  const total = await complianceRuleModel.countFiltered(whereSql, values);
+  const pagination = paginationMeta(req, total, 15);
+  const rows = await complianceRuleModel.listFiltered(whereSql, values, pagination.limit, pagination.offset);
+  const merchants = await merchantModel.listActiveForDropdown();
+  const ruleTypes = await complianceRuleModel.listDistinctRuleTypes();
   return { rows, merchants, ruleTypes, filters, pagination };
 }
 
@@ -308,21 +258,12 @@ async function loadAdminAudit(req) {
   if (filters.dateTo) { where.push('DATE(al.created_at) <= ?'); values.push(filters.dateTo); }
   if (filters.q) { where.push('(al.transaction_id LIKE ? OR al.entity_id LIKE ? OR al.action LIKE ? OR al.notes LIKE ?)'); values.push(`%${filters.q}%`, `%${filters.q}%`, `%${filters.q}%`, `%${filters.q}%`); }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-  const [countRows] = await database.query(`SELECT COUNT(*) AS total FROM audit_logs al LEFT JOIN users u ON u.user_id = al.user_id ${whereSql}`, values);
-  const pagination = paginationMeta(req, Number(countRows[0]?.total || 0), 20);
-  const [rows] = await database.query(
-    `SELECT al.audit_id, al.transaction_id, al.entity_type, al.entity_id, al.action,
-            al.user_id, al.notes, al.created_at, u.user_name, u.user_role
-     FROM audit_logs al
-     LEFT JOIN users u ON u.user_id = al.user_id
-     ${whereSql}
-     ORDER BY al.created_at DESC
-     LIMIT ? OFFSET ?`,
-    [...values, pagination.limit, pagination.offset],
-  );
-  const [actions] = await database.query('SELECT DISTINCT action FROM audit_logs ORDER BY action ASC');
-  const [users] = await database.query('SELECT user_id, user_name, user_role FROM users ORDER BY user_name ASC');
-  const [entities] = await database.query('SELECT DISTINCT entity_type FROM audit_logs WHERE entity_type IS NOT NULL ORDER BY entity_type ASC');
+  const total = await auditLogModel.countFiltered(whereSql, values);
+  const pagination = paginationMeta(req, total, 20);
+  const rows = await auditLogModel.listFiltered(whereSql, values, pagination.limit, pagination.offset);
+  const actions = await auditLogModel.listDistinctActions();
+  const users = await userModel.listAllForDropdown();
+  const entities = await auditLogModel.listDistinctEntityTypes();
   return { rows, actions, users, entities, filters, pagination };
 }
 
@@ -330,20 +271,12 @@ async function dashboard(req, res) {
   const previewReq = Object.create(req);
   previewReq.session = req.session;
   previewReq.query = { limit: 5 };
-  const [usersData, merchantsData, rulesData, auditData, summaryRows] = await Promise.all([
+  const [usersData, merchantsData, rulesData, auditData, summary] = await Promise.all([
     loadAdminUsers(previewReq),
     loadAdminMerchants(previewReq),
     loadAdminRules(previewReq),
     loadAdminAudit(previewReq),
-    database.query(
-      `SELECT
-         (SELECT COUNT(*) FROM users WHERE is_active = 1) AS active_users,
-         (SELECT COUNT(*) FROM users WHERE is_active = 0) AS disabled_users,
-         (SELECT COUNT(*) FROM merchants WHERE is_active = 1) AS active_merchants,
-         (SELECT COUNT(*) FROM compliance_rules WHERE is_active = 1) AS active_rules,
-         (SELECT COUNT(*) FROM transactions WHERE DATE(created_at) = CURDATE()) AS transactions_today,
-         (SELECT COUNT(*) FROM cases WHERE status NOT IN ('Resolved', 'Dismissed as False Positive', 'STR Filed')) AS open_cases`,
-    ).then(([rows]) => rows),
+    dashboardModel.findAdminSummary(),
   ]);
   const userRoleDistribution = ['Analyst', 'Senior Analyst', 'STRO', 'Admin'].map((role) => ({
     role,
@@ -353,7 +286,7 @@ async function dashboard(req, res) {
     title: 'Admin Overview',
     activePage: 'admin',
     currentUser: req.session.user,
-    summary: summaryRows[0] || {},
+    summary,
     userPreview: usersData.rows.slice(0, 5),
     merchantPreview: merchantsData.rows.slice(0, 5),
     rulePreview: rulesData.rows.slice(0, 5),
@@ -412,16 +345,9 @@ async function createUser(req, res) {
   const isActive = req.body.isActive !== '0';
   if (!userId || !userName || !userRole || !password) return res.redirect('/admin/users');
 
-  const [result] = await database.execute(
-    `INSERT INTO users (user_id, user_name, user_role, password, is_active)
-     VALUES (?, ?, ?, SHA2(?, 256), ?)
-     ON DUPLICATE KEY UPDATE
-       user_name = VALUES(user_name),
-       user_role = VALUES(user_role),
-       password = VALUES(password),
-       is_active = VALUES(is_active)`,
-    [userId, userName, userRole, password, isActive ? 1 : 0],
-  );
+  const result = await userModel.upsert({
+    userId, userName, userRole, password, isActive,
+  });
 
   await logAdminAudit({
     action: result.insertId || result.affectedRows === 1 ? 'User Created' : 'User Updated',
@@ -443,8 +369,7 @@ async function updateUser(req, res) {
   if (req.body.password) { updates.push('password = SHA2(?, 256)'); values.push(String(req.body.password)); }
   if (typeof req.body.isActive !== 'undefined') { updates.push('is_active = ?'); values.push(req.body.isActive === '1' || req.body.isActive === 'true' ? 1 : 0); }
   if (updates.length) {
-    values.push(req.params.id);
-    await database.execute(`UPDATE users SET ${updates.join(', ')} WHERE user_id = ?`, values);
+    await userModel.updateFields(req.params.id, updates.join(', '), values);
     await logAdminAudit({
       action: 'User Updated',
       userId: req.session.user.id,
@@ -457,11 +382,10 @@ async function updateUser(req, res) {
 }
 
 async function toggleUser(req, res) {
-  const [rows] = await database.query('SELECT is_active FROM users WHERE user_id = ? LIMIT 1', [req.params.id]);
-  const current = rows[0];
+  const current = await userModel.findActiveFlag(req.params.id);
   if (current) {
     const nextActive = current.is_active ? 0 : 1;
-    await database.execute('UPDATE users SET is_active = ? WHERE user_id = ?', [nextActive, req.params.id]);
+    await userModel.setActive(req.params.id, nextActive);
     await logAdminAudit({
       action: nextActive ? 'User Activated' : 'User Deactivated',
       userId: req.session.user.id,
@@ -473,7 +397,7 @@ async function toggleUser(req, res) {
 }
 
 async function deleteUser(req, res) {
-  await database.execute('DELETE FROM users WHERE user_id = ?', [req.params.id]);
+  await userModel.deleteById(req.params.id);
   await logAdminAudit({
     action: 'User Deleted',
     userId: req.session.user.id,
@@ -495,20 +419,9 @@ async function createMerchant(req, res) {
   const isActive = req.body.isActive !== '0';
   if (!merchantId || !merchantName || !mccCode || !industry) return res.redirect('/admin/merchants');
 
-  const [result] = await database.execute(
-    `INSERT INTO merchants (merchant_id, merchant_name, mcc_code, industry, mcc_risk_score, merchant_mid, merchant_country, risk_tier, is_active)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE
-       merchant_name = VALUES(merchant_name),
-       mcc_code = VALUES(mcc_code),
-       industry = VALUES(industry),
-       mcc_risk_score = VALUES(mcc_risk_score),
-       merchant_mid = VALUES(merchant_mid),
-       merchant_country = VALUES(merchant_country),
-       risk_tier = VALUES(risk_tier),
-       is_active = VALUES(is_active)`,
-    [merchantId, merchantName, mccCode, industry, mccRiskScore, merchantMid, merchantCountry, riskTier, isActive ? 1 : 0],
-  );
+  const result = await merchantModel.upsert({
+    merchantId, merchantName, mccCode, industry, mccRiskScore, merchantMid, merchantCountry, riskTier, isActive,
+  });
 
   await logAdminAudit({
     action: result.insertId || result.affectedRows === 1 ? 'Merchant Created' : 'Merchant Updated',
@@ -535,8 +448,7 @@ async function updateMerchant(req, res) {
   if (req.body.riskTier !== undefined) { updates.push('risk_tier = ?'); values.push(req.body.riskTier === 'High' ? 'High' : 'Standard'); }
   if (typeof req.body.isActive !== 'undefined') { updates.push('is_active = ?'); values.push(req.body.isActive === '1' || req.body.isActive === 'true' ? 1 : 0); }
   if (updates.length) {
-    values.push(req.params.id);
-    await database.execute(`UPDATE merchants SET ${updates.join(', ')} WHERE merchant_id = ?`, values);
+    await merchantModel.updateFields(req.params.id, updates.join(', '), values);
     await logAdminAudit({
       action: 'Merchant Updated',
       userId: req.session.user.id,
@@ -550,7 +462,7 @@ async function updateMerchant(req, res) {
 }
 
 async function deleteMerchant(req, res) {
-  await database.execute('DELETE FROM merchants WHERE merchant_id = ?', [req.params.id]);
+  await merchantModel.deleteById(req.params.id);
   await logAdminAudit({
     action: 'Merchant Deleted',
     userId: req.session.user.id,
@@ -576,21 +488,7 @@ async function createRule(req, res) {
 
   if (!payload.ruleId || !payload.ruleName || !payload.reason) return res.redirect('/admin/rules');
 
-  const [result] = await database.execute(
-    `INSERT INTO compliance_rules (rule_id, merchant_id, rule_name, risk_level, reason, weight, amount_threshold, count_threshold, rule_type, is_active)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE
-       merchant_id = VALUES(merchant_id),
-       rule_name = VALUES(rule_name),
-       risk_level = VALUES(risk_level),
-       reason = VALUES(reason),
-       weight = VALUES(weight),
-       amount_threshold = VALUES(amount_threshold),
-       count_threshold = VALUES(count_threshold),
-       rule_type = VALUES(rule_type),
-       is_active = VALUES(is_active)`,
-    [payload.ruleId, payload.merchantId, payload.ruleName, payload.riskLevel, payload.reason, payload.weight, payload.amountThreshold, payload.countThreshold, payload.ruleType, payload.isActive ? 1 : 0],
-  );
+  const result = await complianceRuleModel.upsert(payload);
 
   await logAdminAudit({
     action: result.insertId || result.affectedRows === 1 ? 'Rule Created' : 'Rule Updated',
@@ -616,8 +514,7 @@ async function updateRule(req, res) {
   if (req.body.ruleType) { updates.push('rule_type = ?'); values.push(String(req.body.ruleType).trim()); }
   if (typeof req.body.isActive !== 'undefined') { updates.push('is_active = ?'); values.push(req.body.isActive === '1' || req.body.isActive === 'true' ? 1 : 0); }
   if (updates.length) {
-    values.push(req.params.id);
-    await database.execute(`UPDATE compliance_rules SET ${updates.join(', ')} WHERE rule_id = ?`, values);
+    await complianceRuleModel.updateFields(req.params.id, updates.join(', '), values);
     await logAdminAudit({
       action: 'Rule Updated',
       userId: req.session.user.id,
@@ -629,7 +526,7 @@ async function updateRule(req, res) {
 }
 
 async function deleteRule(req, res) {
-  await database.execute('DELETE FROM compliance_rules WHERE rule_id = ?', [req.params.id]);
+  await complianceRuleModel.deleteById(req.params.id);
   await logAdminAudit({
     action: 'Rule Deleted',
     userId: req.session.user.id,

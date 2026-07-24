@@ -53,7 +53,7 @@ function formatSqlDateTime(value) {
 function buildTransactionSummary(transaction) {
   return [
     `Transaction ID: ${transaction.transaction_id || transaction.id || ''}`,
-    `Transaction date: ${transaction.created_at || transaction.createdAt ? new Date(transaction.created_at || transaction.createdAt).toLocaleString('en-SG') : 'Not assigned'}`,
+    `Transaction date: ${transaction.created_at || transaction.createdAt ? new Date(transaction.created_at || transaction.createdAt).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }) : 'Not assigned'}`,
     `Amount: ${transaction.currency || 'SGD'} ${Number(transaction.amount || 0).toFixed(2)}`,
     `Direction: ${transaction.direction || 'Local card payment'}`,
     `Counterparty: ${transaction.counterparty || transaction.counterpartyName || transaction.merchant_name || transaction.companyName || 'Merchant'}`,
@@ -102,7 +102,7 @@ function buildStrDraftSuspicionSummary(transaction, caseRecord, matchedRules) {
   const amount = Number(transaction?.amount || 0).toFixed(2);
   const currency = transaction?.currency || 'SGD';
   const merchantName = transaction?.merchant_name || 'the merchant';
-  const createdAt = transaction?.created_at ? new Date(transaction.created_at).toLocaleString('en-SG') : 'an unrecorded date';
+  const createdAt = transaction?.created_at ? new Date(transaction.created_at).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }) : 'an unrecorded date';
   const ruleSummary = summarizeMatchedRules(matchedRules);
   const parts = [
     `On ${createdAt}, a transaction of ${currency} ${amount} was processed with ${merchantName} (transaction ID ${transaction?.transaction_id || ''}).`,

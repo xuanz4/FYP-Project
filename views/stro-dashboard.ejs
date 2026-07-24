@@ -1,7 +1,7 @@
 <%- include('partials/head', { title, activePage }) %>
 <%
-  const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG') : 'Not assigned';
-  const shortDate = (value) => value ? new Date(value).toLocaleDateString('en-SG') : 'Not assigned';
+  const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }) : 'Not assigned';
+  const shortDate = (value) => value ? new Date(value).toLocaleDateString('en-SG', { timeZone: 'Asia/Singapore' }) : 'Not assigned';
   const initials = String(currentUser.name || 'STRO').split(/\s+/).filter(Boolean).map((part) => part[0]).slice(0, 2).join('').toUpperCase();
   const notRequired = Math.max(0, Number(summary.totalReports || 0) - Number(summary.recommended || 0) - Number(summary.filed || 0));
   const totalReports = Number(summary.totalReports || 0);

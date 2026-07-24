@@ -1,6 +1,7 @@
 const database = require('../database');
 const { ensureNotificationSchema, ensureRiskAndContactSchema } = require('../lib/schema');
 const { checkRfiForReply } = require('../services/rfiMailboxService');
+const rfiModel = require('../../models/rfiModel');
 
 let running = false;
 
@@ -13,14 +14,7 @@ async function checkPendingRfiReplies({
   try {
     await ensureNotificationSchema();
     await ensureRiskAndContactSchema();
-    const [rows] = await db.query(
-      `SELECT rfi_id, transaction_id, case_id, sent_by, recipient_email,
-              outbound_message_id, sent_at, status
-       FROM rfi_requests
-       WHERE status = 'Sent'
-       ORDER BY sent_at ASC
-       LIMIT 50`,
-    );
+    const rows = await rfiModel.findPendingSent(db);
     let replies = 0;
     for (const rfi of rows) {
       try {

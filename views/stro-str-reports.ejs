@@ -1,6 +1,6 @@
 <%- include('partials/head', { title, activePage }) %>
 <%
-  const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG') : 'Not assigned';
+  const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }) : 'Not assigned';
   const params = new URLSearchParams(filters);
   const pageLink = (page) => { const next = new URLSearchParams(params); next.set('page', page); return `/stro/str-reports?${next.toString()}`; };
 %>
@@ -33,7 +33,7 @@
               <td><span class="stro-str-badge stro-str-<%= String(item.str_status).toLowerCase().replaceAll(' ', '-') %>"><%= item.str_status %></span></td>
               <td><%= item.prepared_by_name || item.prepared_by || 'Not assigned' %></td>
               <td><%= item.filed_by || 'Not filed' %></td>
-              <td><%= item.filing_date ? new Date(item.filing_date).toLocaleDateString('en-SG') : 'Not filed' %></td>
+              <td><%= item.filing_date ? new Date(item.filing_date).toLocaleDateString('en-SG', { timeZone: 'Asia/Singapore' }) : 'Not filed' %></td>
               <td><%= fmtDate(item.updated_at || item.created_at) %></td>
               <td><a class="secondary-btn" href="/transactions/<%= item.transaction_id %>">View Details</a></td>
             </tr>

@@ -5,6 +5,10 @@
 // Score is on the same 0-100 scale the rest of the app already uses (see
 // app.js getRiskLevelFromScore/parseFinalRiskScore).
 
+const merchantRiskProfileModel = require('../models/merchantRiskProfileModel');
+const transactionModel = require('../models/transactionModel');
+const complianceRuleModel = require('../models/complianceRuleModel');
+
 const OPERATING_HOURS = { openHour: 7, closeHour: 23 };
 const STORE_VELOCITY_WINDOW_MIN = 30;
 const CROSS_STORE_VELOCITY_WINDOW_MIN = 30;
@@ -32,14 +36,7 @@ function minutesBetween(a, b) {
 // never recomputed live here, so a transaction never double-counts itself into its own profile.
 async function loadMerchantProfileContribution(database, merchantMid) {
   if (!merchantMid) return 0;
-  const [rows] = await database.query(
-    `SELECT profile_risk_score, transaction_count
-     FROM merchant_risk_profiles
-     WHERE merchant_mid = ?
-     LIMIT 1`,
-    [merchantMid],
-  );
-  const profile = rows[0];
+  const profile = await merchantRiskProfileModel.findProfileContributionSnapshot(database, merchantMid);
   if (!profile || Number(profile.transaction_count) < 5) return 0;
   return Number(profile.profile_risk_score) || 0;
 }
@@ -48,12 +45,7 @@ async function loadMerchantProfileContribution(database, merchantMid) {
 // merchant-scoped 24h window in memory, so live ingestion and historical replay both stay fast.
 async function loadRecentMerchantHistory(database, merchantId, txnTime) {
   const windowStart = new Date(txnTime.getTime() - AGGREGATE_WINDOW_HOURS * 60 * 60 * 1000);
-  const [rows] = await database.query(
-    `SELECT store_id, amount, issuer_country, txn_time, card_ref
-     FROM transactions
-     WHERE merchant_id = ? AND txn_time >= ? AND txn_time < ?`,
-    [merchantId, windowStart, txnTime],
-  );
+  const rows = await transactionModel.findRecentHistoryForMerchant(database, merchantId, windowStart, txnTime);
   return rows.map((row) => ({
     storeId: row.store_id,
     amount: Number(row.amount),
@@ -244,14 +236,9 @@ function evaluateAgainstRules(txn, rules, signals, history) {
 async function evaluateTransaction({
   txn, database,
 }) {
-  const [history, [ruleRows], profileRiskContribution] = await Promise.all([
+  const [history, ruleRows, profileRiskContribution] = await Promise.all([
     loadRecentMerchantHistory(database, txn.merchantId, txn.txnTime),
-    database.query(
-      `SELECT rule_id, rule_name, risk_level, reason, weight, amount_threshold, count_threshold, rule_type
-       FROM compliance_rules
-       WHERE is_active = 1 AND (merchant_id = ? OR merchant_id IS NULL)`,
-      [txn.merchantId],
-    ),
+    complianceRuleModel.findActiveForMerchant(database, txn.merchantId),
     loadMerchantProfileContribution(database, txn.merchantMid),
   ]);
 

@@ -2,6 +2,7 @@
 // that merchant, so the *next* transaction's profileRiskContribution (see riskEngine.js) reads
 // an up-to-date history without ever including the transaction that just triggered the update.
 const { riskLevelFromScore } = require('../riskEngine');
+const merchantRiskProfileModel = require('../../models/merchantRiskProfileModel');
 
 const MIN_TRANSACTIONS_FOR_SCORING = 5;
 
@@ -81,19 +82,7 @@ function buildHistoricalProfileRiskUpdates(rows) {
 }
 
 async function rebuildHistoricalProfileRisk(database) {
-  const [rows] = await database.query(
-    `SELECT t.transaction_id, t.merchant_id, t.txn_time,
-            t.mcc_risk_contribution, t.transaction_detection_contribution,
-            COUNT(DISTINCT tmr.id) AS rule_trigger_count,
-            MAX(c.escalation_destination IS NOT NULL) AS escalated,
-            MAX(sr.str_status = 'Filed') AS str_filed
-     FROM transactions t
-     LEFT JOIN transaction_matched_rules tmr ON tmr.transaction_id = t.transaction_id
-     LEFT JOIN cases c ON c.transaction_id = t.transaction_id
-     LEFT JOIN str_reports sr ON sr.transaction_id = t.transaction_id
-     GROUP BY t.transaction_id
-     ORDER BY t.txn_time, t.transaction_id`,
-  );
+  const rows = await merchantRiskProfileModel.findHistoricalTransactionRows(database);
   const updates = buildHistoricalProfileRiskUpdates(rows);
 
   await database.withTransaction(async (transaction) => {
@@ -101,24 +90,11 @@ async function rebuildHistoricalProfileRisk(database) {
       // The database's transactions_auto_case_update trigger opens a case when this repair
       // changes a previously-cleared transaction to Flagged.
       // eslint-disable-next-line no-await-in-loop
-      await transaction.execute(
-        `UPDATE transactions
-         SET profile_risk_contribution = ?, risk_score = ?, risk_level = ?, status = ?
-         WHERE transaction_id = ?`,
-        [
-          update.profileRiskContribution,
-          update.riskScore,
-          update.riskLevel,
-          update.status,
-          update.transactionId,
-        ],
-      );
+      await merchantRiskProfileModel.updateTransactionRiskFields(transaction, update);
     }
   });
 
-  const [merchantRows] = await database.query(
-    'SELECT merchant_id FROM merchants WHERE merchant_mid IS NOT NULL',
-  );
+  const merchantRows = await merchantRiskProfileModel.findMerchantIdsWithMid(database);
   for (const merchant of merchantRows) {
     // eslint-disable-next-line no-await-in-loop
     await upsertMerchantRiskProfile(database, merchant.merchant_id);
@@ -131,49 +107,15 @@ async function rebuildHistoricalProfileRisk(database) {
 }
 
 async function upsertMerchantRiskProfile(database, merchantId) {
-  const [merchantRows] = await database.query(
-    'SELECT merchant_id, merchant_name, merchant_mid FROM merchants WHERE merchant_id = ? LIMIT 1',
-    [merchantId],
-  );
-  const merchant = merchantRows[0];
+  const merchant = await merchantRiskProfileModel.findMerchantForProfile(database, merchantId);
   // No merchant_mid on file (e.g. retired demo merchants) - no profile row; MCC + Detection
   // still compute normally, and the view shows "Merchant account identifier unavailable".
   if (!merchant || !merchant.merchant_mid) return;
 
-  const [[totals]] = await database.query(
-    `SELECT COUNT(*) AS transaction_count,
-            SUM(CASE WHEN status = 'Flagged' THEN 1 ELSE 0 END) AS flagged_transaction_count,
-            SUM(CASE WHEN payment_status = 'declined' THEN 1 ELSE 0 END) AS declined_transaction_count,
-            COALESCE(SUM(amount), 0) AS total_transaction_amount,
-            COALESCE(AVG(amount), 0) AS average_transaction_amount,
-            COALESCE(MAX(amount), 0) AS maximum_transaction_amount,
-            MIN(created_at) AS first_seen_at,
-            MAX(created_at) AS last_seen_at
-     FROM transactions
-     WHERE merchant_id = ?`,
-    [merchantId],
-  );
-  const [[ruleTotals]] = await database.query(
-    `SELECT COUNT(*) AS rule_trigger_count
-     FROM transaction_matched_rules tmr
-     JOIN transactions t ON t.transaction_id = tmr.transaction_id
-     WHERE t.merchant_id = ?`,
-    [merchantId],
-  );
-  const [[escalationTotals]] = await database.query(
-    `SELECT COUNT(*) AS escalation_count
-     FROM cases c
-     JOIN transactions t ON t.transaction_id = c.transaction_id
-     WHERE t.merchant_id = ? AND c.escalation_destination IS NOT NULL`,
-    [merchantId],
-  );
-  const [[strTotals]] = await database.query(
-    `SELECT COUNT(*) AS confirmed_suspicious_case_count
-     FROM str_reports sr
-     JOIN transactions t ON t.transaction_id = sr.transaction_id
-     WHERE t.merchant_id = ? AND sr.str_status = 'Filed'`,
-    [merchantId],
-  );
+  const totals = await merchantRiskProfileModel.findTransactionTotals(database, merchantId);
+  const ruleTotals = await merchantRiskProfileModel.findRuleTriggerTotal(database, merchantId);
+  const escalationTotals = await merchantRiskProfileModel.findEscalationTotal(database, merchantId);
+  const strTotals = await merchantRiskProfileModel.findStrTotal(database, merchantId);
 
   const transactionCount = Number(totals.transaction_count) || 0;
   const flaggedTransactionCount = Number(totals.flagged_transaction_count) || 0;
@@ -191,54 +133,26 @@ async function upsertMerchantRiskProfile(database, merchantId) {
     flaggedTransactionRate, escalationCount, confirmedSuspiciousCaseCount, ruleTriggerCount, transactionCount,
   }) : ['Fewer than 5 transactions on file'];
 
-  await database.execute(
-    `INSERT INTO merchant_risk_profiles (
-      merchant_mid, merchant_id, merchant_name, transaction_count, flagged_transaction_count,
-      flagged_transaction_rate, declined_transaction_count, total_transaction_amount,
-      average_transaction_amount, maximum_transaction_amount, rule_trigger_count, escalation_count,
-      confirmed_suspicious_case_count, profile_risk_score, profile_risk_level, profile_risk_reasons,
-      first_seen_at, last_seen_at, risk_last_calculated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
-    ON DUPLICATE KEY UPDATE
-      merchant_id = VALUES(merchant_id),
-      merchant_name = VALUES(merchant_name),
-      transaction_count = VALUES(transaction_count),
-      flagged_transaction_count = VALUES(flagged_transaction_count),
-      flagged_transaction_rate = VALUES(flagged_transaction_rate),
-      declined_transaction_count = VALUES(declined_transaction_count),
-      total_transaction_amount = VALUES(total_transaction_amount),
-      average_transaction_amount = VALUES(average_transaction_amount),
-      maximum_transaction_amount = VALUES(maximum_transaction_amount),
-      rule_trigger_count = VALUES(rule_trigger_count),
-      escalation_count = VALUES(escalation_count),
-      confirmed_suspicious_case_count = VALUES(confirmed_suspicious_case_count),
-      profile_risk_score = VALUES(profile_risk_score),
-      profile_risk_level = VALUES(profile_risk_level),
-      profile_risk_reasons = VALUES(profile_risk_reasons),
-      first_seen_at = VALUES(first_seen_at),
-      last_seen_at = VALUES(last_seen_at),
-      risk_last_calculated_at = NOW()`,
-    [
-      merchant.merchant_mid,
-      merchant.merchant_id,
-      merchant.merchant_name,
-      transactionCount,
-      flaggedTransactionCount,
-      round2(flaggedTransactionRate),
-      Number(totals.declined_transaction_count) || 0,
-      round2(totals.total_transaction_amount),
-      round2(totals.average_transaction_amount),
-      round2(totals.maximum_transaction_amount),
-      ruleTriggerCount,
-      escalationCount,
-      confirmedSuspiciousCaseCount,
-      profileRiskScore,
-      profileRiskLevel,
-      JSON.stringify(profileRiskReasons),
-      totals.first_seen_at,
-      totals.last_seen_at,
-    ],
-  );
+  await merchantRiskProfileModel.upsertProfile(database, {
+    merchantMid: merchant.merchant_mid,
+    merchantId: merchant.merchant_id,
+    merchantName: merchant.merchant_name,
+    transactionCount,
+    flaggedTransactionCount,
+    flaggedTransactionRate: round2(flaggedTransactionRate),
+    declinedTransactionCount: Number(totals.declined_transaction_count) || 0,
+    totalTransactionAmount: round2(totals.total_transaction_amount),
+    averageTransactionAmount: round2(totals.average_transaction_amount),
+    maximumTransactionAmount: round2(totals.maximum_transaction_amount),
+    ruleTriggerCount,
+    escalationCount,
+    confirmedSuspiciousCaseCount,
+    profileRiskScore,
+    profileRiskLevel,
+    profileRiskReasons: JSON.stringify(profileRiskReasons),
+    firstSeenAt: totals.first_seen_at,
+    lastSeenAt: totals.last_seen_at,
+  });
 }
 
 // TXN-<year>-<6-digit sequence>, content-free (no merchant/email data) and assigned exactly
@@ -247,15 +161,7 @@ async function upsertMerchantRiskProfile(database, merchantId) {
 async function generateUniqueTransactionReference(database, txnTime) {
   const year = (txnTime instanceof Date ? txnTime : new Date(txnTime)).getFullYear();
   const prefix = `TXN-${year}-`;
-  const [rows] = await database.query(
-    `SELECT unique_transaction_reference
-     FROM transactions
-     WHERE unique_transaction_reference LIKE ?
-     ORDER BY unique_transaction_reference DESC
-     LIMIT 1`,
-    [`${prefix}%`],
-  );
-  const last = rows[0]?.unique_transaction_reference;
+  const last = await merchantRiskProfileModel.findLatestReferenceForYear(database, `${prefix}%`);
   const lastSequence = last ? Number(last.slice(prefix.length)) || 0 : 0;
   const nextSequence = lastSequence + 1;
   return `${prefix}${String(nextSequence).padStart(6, '0')}`;

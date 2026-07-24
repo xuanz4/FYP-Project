@@ -6,7 +6,7 @@
 // merchantCdd.js's computeEddComplete for why senior_signoff_completed is kept structurally
 // distinct from the other three items. Which fieldKey a caller may use is enforced by the
 // caller (transactionsController.js), not here.
-const database = require('../database');
+const eddChecklistModel = require('../../models/eddChecklistModel');
 
 const FIELD_DEFS = {
   sourceOfFunds: {
@@ -29,17 +29,17 @@ async function setEddChecklistField(db, {
   const def = FIELD_DEFS[fieldKey];
   if (!def) throw new Error(`Unknown EDD checklist field: ${fieldKey}`);
   if (!transactionId) throw new Error('transactionId is required to set an EDD checklist field');
-  const client = db || database;
-  await client.execute(
-    `INSERT INTO merchant_edd_checklist (transaction_id, merchant_id, ${def.completed}, ${def.notes}, ${def.by}, ${def.at})
-     VALUES (?, ?, ?, ?, ?, NOW())
-     ON DUPLICATE KEY UPDATE
-       ${def.completed} = VALUES(${def.completed}),
-       ${def.notes} = VALUES(${def.notes}),
-       ${def.by} = VALUES(${def.by}),
-       ${def.at} = VALUES(${def.at})`,
-    [transactionId, merchantId, completed ? 1 : 0, notes || null, userId],
-  );
+  await eddChecklistModel.upsertField(db, {
+    transactionId,
+    merchantId,
+    completedColumn: def.completed,
+    notesColumn: def.notes,
+    byColumn: def.by,
+    atColumn: def.at,
+    completed,
+    notes,
+    userId,
+  });
 }
 
 module.exports = { setEddChecklistField, FIELD_DEFS };

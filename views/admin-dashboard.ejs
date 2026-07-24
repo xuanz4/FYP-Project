@@ -1,6 +1,6 @@
 <%- include('partials/head', { title, activePage }) %>
 <%
-  const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG') : 'Not assigned';
+  const fmtDate = (value) => value ? new Date(value).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }) : 'Not assigned';
   const initials = String(currentUser.name || 'Administrator').split(/\s+/).filter(Boolean).map((part) => part[0]).slice(0, 2).join('').toUpperCase();
   const totalUsers = userRoleDistribution.reduce((total, item) => total + Number(item.count || 0), 0);
   const roleColours = ['#347cf0', '#7c3aed', '#f97316', '#0f9f91'];

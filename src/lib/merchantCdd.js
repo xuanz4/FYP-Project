@@ -5,6 +5,8 @@
 // modules call, so riskEngine/transactionIngestion, the resolve workflow gate, and the case
 // workspace view all agree on one definition of "complete".
 const database = require('../database');
+const merchantModel = require('../../models/merchantModel');
+const merchantCddModel = require('../../models/merchantCddModel');
 
 function parseExpectedCountries(value) {
   if (!value) return [];
@@ -73,39 +75,13 @@ async function loadMerchantCddContext(db, merchantId, { transactionRiskLevel = n
     };
   }
 
-  const [[merchantRow], [profileRows], [cddChecklistRows], [eddChecklistRows]] = await Promise.all([
-    client.query('SELECT risk_tier FROM merchants WHERE merchant_id = ? LIMIT 1', [merchantId]),
-    client.query(
-      `SELECT kyc_status, verification_date, next_review_date, expected_avg_ticket,
-              expected_monthly_volume, expected_countries,
-              expected_operating_open_hour, expected_operating_close_hour
-       FROM merchant_cdd_profiles WHERE merchant_id = ? LIMIT 1`,
-      [merchantId],
-    ),
-    transactionId
-      ? client.query(
-        `SELECT business_registration_verified, business_registration_notes, business_registration_by, business_registration_at,
-                screening_verified, screening_notes, screening_by, screening_at
-         FROM merchant_cdd_checklist WHERE transaction_id = ? LIMIT 1`,
-        [transactionId],
-      )
-      : Promise.resolve([[]]),
-    transactionId
-      ? client.query(
-        `SELECT source_of_funds_verified, source_of_funds_notes, source_of_funds_by, source_of_funds_at,
-                site_visit_completed, site_visit_notes, site_visit_by, site_visit_at,
-                enhanced_verification_completed, enhanced_verification_notes, enhanced_verification_by, enhanced_verification_at,
-                senior_signoff_completed, senior_signoff_notes, senior_signoff_by, senior_signoff_at
-         FROM merchant_edd_checklist WHERE transaction_id = ? LIMIT 1`,
-        [transactionId],
-      )
-      : Promise.resolve([[]]),
+  const [merchant, profile, cddChecklist, eddChecklist] = await Promise.all([
+    merchantModel.findRiskTierById(merchantId, client),
+    merchantCddModel.findProfileByMerchantId(merchantId, client),
+    transactionId ? merchantCddModel.findCddChecklistByTransactionId(transactionId, client) : Promise.resolve(null),
+    transactionId ? merchantCddModel.findEddChecklistByTransactionId(transactionId, client) : Promise.resolve(null),
   ]);
 
-  const merchant = merchantRow[0];
-  const profile = profileRows[0] || null;
-  const cddChecklist = cddChecklistRows[0] || null;
-  const eddChecklist = eddChecklistRows[0] || null;
   const eddRequired = requiresEdd(merchant?.risk_tier, transactionRiskLevel);
   const openHour = profile?.expected_operating_open_hour;
   const closeHour = profile?.expected_operating_close_hour;
