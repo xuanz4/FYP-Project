@@ -64,6 +64,16 @@ async function deleteById(userId) {
   await database.execute('DELETE FROM users WHERE user_id = ?', [userId]);
 }
 
+// Fallback notification recipients for a case sitting unclaimed with a role (assigned_to is
+// NULL) - see rfiMailboxService.js's recipientsForReply.
+async function listActiveUserIdsByRole(role) {
+  const [rows] = await database.query(
+    'SELECT user_id FROM users WHERE user_role = ? AND is_active = 1',
+    [role],
+  );
+  return rows.map((row) => row.user_id);
+}
+
 async function listAnalystRoleUsersForDropdown() {
   const [rows] = await database.query(
     "SELECT user_id, user_name FROM users WHERE user_role IN ('Analyst', 'Senior Analyst', 'STRO') ORDER BY user_name ASC",
@@ -89,6 +99,7 @@ module.exports = {
   countFiltered,
   listFiltered,
   listAllForDropdown,
+  listActiveUserIdsByRole,
   upsert,
   updateFields,
   findActiveFlag,

@@ -8,6 +8,7 @@ const { createNotification } = require('./notificationService');
 const emailService = require('./emailService');
 const caseModel = require('../../models/caseModel');
 const rfiModel = require('../../models/rfiModel');
+const userModel = require('../../models/userModel');
 
 function normalizeMessageId(value) {
   return String(value || '').trim().replace(/^<|>$/g, '').toLowerCase();
@@ -44,8 +45,13 @@ function isMatchingRfiReply(rfi, mailboxResult) {
 async function recipientsForReply(rfi, db = database) {
   const recipients = new Set([rfi.sent_by].filter(Boolean));
   if (rfi.case_id) {
-    const assignedTo = await caseModel.findAssignedTo(db, rfi.case_id);
-    if (assignedTo) recipients.add(assignedTo);
+    const assignment = await caseModel.findAssignmentContext(db, rfi.case_id);
+    if (assignment?.assignedTo) {
+      recipients.add(assignment.assignedTo);
+    } else if (assignment?.assignedRole) {
+      const roleUserIds = await userModel.listActiveUserIdsByRole(assignment.assignedRole);
+      roleUserIds.forEach((userId) => recipients.add(userId));
+    }
   }
   return [...recipients];
 }

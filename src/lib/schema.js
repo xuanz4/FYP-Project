@@ -177,6 +177,23 @@ const ensureStrWorkflowSchema = memoizeAsync(async function ensureStrWorkflowSch
       INDEX idx_str_status (str_status)
     )`,
   );
+
+  // Preserves who worked a case before each escalation wipes cases.assigned_to - lets
+  // hasCaseAccess() (caseModel.js) keep the original Analyst able to see a case's RFI reply
+  // lookup after it's escalated, without needing a full case_id-scoped participants model.
+  await database.execute(
+    `CREATE TABLE IF NOT EXISTS case_escalation_history (
+      history_id VARCHAR(40) PRIMARY KEY,
+      case_id VARCHAR(40) NOT NULL,
+      from_user_id VARCHAR(20) NULL,
+      from_role VARCHAR(40) NULL,
+      to_role VARCHAR(40) NOT NULL,
+      escalated_by VARCHAR(20) NOT NULL,
+      escalated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_case_escalation_history_case (case_id),
+      FOREIGN KEY (case_id) REFERENCES cases(case_id) ON DELETE CASCADE
+    )`,
+  );
 });
 
 // Real additive risk formula (MCC + Profile + Detection) needs each component persisted per

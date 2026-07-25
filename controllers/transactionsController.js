@@ -728,6 +728,15 @@ async function latestRfiResponseEndpoint(req, res) {
   }
 
   const transactionId = String(req.params.id || '').trim();
+
+  if (req.session.user.role !== 'Admin') {
+    await ensureStrWorkflowSchema();
+    const caseId = await caseModel.findLatestIdByTransactionId(transactionId);
+    if (!caseId || !(await caseModel.hasCaseAccess(caseId, req.session.user.id))) {
+      return forbidJson(res);
+    }
+  }
+
   try {
     const { mailboxResult: result, detection } = await checkLatestTransactionReply(transactionId);
     if (result.found && result.message) {

@@ -1,4 +1,5 @@
 const database = require('../src/database');
+const { id } = require('../src/lib/ids');
 
 async function findLatestIdByTransactionId(transactionId) {
   const [rows] = await database.query(
@@ -129,10 +130,27 @@ async function setDueDateIfMissing(caseId, dueAt) {
   );
 }
 
+// Snapshots whoever currently holds the case before an escalation nulls out cases.assigned_to,
+// so hasCaseAccess() can still recognize them afterwards even though the cases row no longer
+// points to them.
+async function recordEscalationHistory({
+  caseId, fromUserId, fromRole, toRole, escalatedBy,
+}) {
+  await database.execute(
+    `INSERT INTO case_escalation_history (history_id, case_id, from_user_id, from_role, to_role, escalated_by)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [id('ESC'), caseId, fromUserId || null, fromRole || null, toRole, escalatedBy],
+  );
+}
+
 // Shared by referToStro (Senior Analyst hands off directly) and escalate's STRO branch
 // (Analyst refers directly) - identical routing, escalate additionally folds in escalation
 // notes. Passing notes = null leaves the existing notes column untouched (COALESCE no-op).
 async function routeToStro({ caseId, userId, notes = null, at }) {
+  const [current] = await database.query(
+    'SELECT assigned_to, assigned_role FROM cases WHERE case_id = ? LIMIT 1',
+    [caseId],
+  );
   await database.execute(
     `UPDATE cases
      SET status = 'Escalated',
@@ -148,9 +166,20 @@ async function routeToStro({ caseId, userId, notes = null, at }) {
      WHERE case_id = ?`,
     [at, userId, notes, userId, at, caseId],
   );
+  await recordEscalationHistory({
+    caseId,
+    fromUserId: current[0]?.assigned_to,
+    fromRole: current[0]?.assigned_role,
+    toRole: 'STRO',
+    escalatedBy: userId,
+  });
 }
 
 async function routeToSeniorAnalyst({ caseId, userId, notes }) {
+  const [current] = await database.query(
+    'SELECT assigned_to, assigned_role FROM cases WHERE case_id = ? LIMIT 1',
+    [caseId],
+  );
   await database.execute(
     `UPDATE cases
      SET status = 'Pending Senior Review',
@@ -164,6 +193,26 @@ async function routeToSeniorAnalyst({ caseId, userId, notes }) {
      WHERE case_id = ?`,
     [notes, userId, caseId],
   );
+  await recordEscalationHistory({
+    caseId,
+    fromUserId: current[0]?.assigned_to,
+    fromRole: current[0]?.assigned_role,
+    toRole: 'Senior Analyst',
+    escalatedBy: userId,
+  });
+}
+
+// True if userId currently holds the case, or appears in its escalation history (either side
+// of a handoff) - i.e. "current assignee OR anyone who has ever worked this case".
+async function hasCaseAccess(caseId, userId) {
+  const [rows] = await database.query(
+    `SELECT 1 FROM cases WHERE case_id = ? AND assigned_to = ?
+     UNION
+     SELECT 1 FROM case_escalation_history WHERE case_id = ? AND (from_user_id = ? OR escalated_by = ?)
+     LIMIT 1`,
+    [caseId, userId, caseId, userId, userId],
+  );
+  return rows.length > 0;
 }
 
 async function markStrFiled({ caseId, resolvedAt, resolvedBy }) {
@@ -463,8 +512,21 @@ async function findAssignedTo(db, caseId) {
   return rows[0]?.assigned_to || null;
 }
 
+// Like findAssignedTo, but also returns assigned_role so callers (rfiMailboxService.js's
+// recipientsForReply) can fall back to notifying the whole destination role when a case has been
+// escalated but not yet claimed by a specific person (assigned_to is NULL in that window).
+async function findAssignmentContext(db, caseId) {
+  const client = db || database;
+  const [rows] = await client.query(
+    'SELECT assigned_to, assigned_role FROM cases WHERE case_id = ? LIMIT 1',
+    [caseId],
+  );
+  return rows[0] ? { assignedTo: rows[0].assigned_to, assignedRole: rows[0].assigned_role } : null;
+}
+
 module.exports = {
   findAssignedTo,
+  findAssignmentContext,
   resolveCase,
   findLatestIdByTransactionId,
   findWithAssigneeById,
@@ -477,6 +539,7 @@ module.exports = {
   setDueDateIfMissing,
   routeToStro,
   routeToSeniorAnalyst,
+  hasCaseAccess,
   markStrFiled,
   markStrNotRequired,
   touchLastActioned,
