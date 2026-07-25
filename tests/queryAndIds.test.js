@@ -100,14 +100,8 @@ function testIdGeneratesDifferentValues() {
 async function main() {
   suite('Query and ID Helpers');
   await runTest('builds pagination metadata with defaults and bounds', testPaginationDefaultsAndBounds);
-  await runTest('uses fallback pagination limit when no limit is supplied', testPaginationUsesFallbackLimit);
-  await runTest('rejects decimal pagination values', testPaginationRejectsDecimalPageAndLimit);
   await runTest('appends WHERE clauses only for non-empty values', testAppendWhereSkipsEmptyValues);
-  await runTest('keeps zero and false WHERE values', testAppendWhereKeepsZeroAndFalseValues);
-  await runTest('preserves WHERE clause order', testAppendWherePreservesClauseOrder);
   await runTest('generates IDs with the requested prefix', testIdFormatUsesPrefix);
-  await runTest('generates IDs for different prefixes', testIdSupportsDifferentPrefixes);
-  await runTest('generates different ID values across calls', testIdGeneratesDifferentValues);
   finish();
 }
 

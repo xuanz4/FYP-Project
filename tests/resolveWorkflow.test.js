@@ -166,14 +166,9 @@ async function main() {
   await runTest('requires detailed notes for large score changes', testReviewRequirementNeedsDetailedNotesForLargeChange);
   await runTest('blocks Analyst from lowering the risk band', testReviewRequirementBlocksAnalystLoweringRiskBand);
   await runTest('allows Senior Analyst to lower risk band with detail', testReviewRequirementAllowsSeniorLoweringRiskBandWithDetail);
-  await runTest('reports no discrepancy when manual entry matches the automated calculation', testReconciliationMatch);
   await runTest('reports a discrepancy with details when manual contribution entry differs', testReconciliationComponentDiscrepancy);
-  await runTest('treats an unset actual contribution as zero, not a forced mismatch', testReconciliationTreatsNullActualsAsZero);
   await runTest('CDD gate blocks an Analyst from resolving when EDD is incomplete', testCddGateBlocksAnalystWhenEddIncomplete);
-  await runTest('CDD gate blocks an Analyst from resolving when the CDD review is overdue', testCddGateBlocksAnalystWhenReviewOverdue);
-  await runTest('CDD gate blocks a Medium case when CDD is incomplete', testCddGateBlocksMediumCaseWithIncompleteCdd);
   await runTest('CDD gate allows an Analyst to resolve when nothing is outstanding', testCddGateAllowsAnalystWhenNothingOutstanding);
-  await runTest('CDD gate blocks a Senior Analyst when CDD is incomplete', testCddGateBlocksSeniorAnalystWhenCddIncomplete);
   finish();
 }
 

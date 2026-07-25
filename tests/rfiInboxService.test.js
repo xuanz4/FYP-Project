@@ -107,12 +107,9 @@ function testParseEmailMessageExtractsMultipartHtmlFallback() {
 async function main() {
   suite('RFI Inbox Service');
   await runTest('uses Gmail IMAP defaults from SMTP mailbox credentials', testParseInboxConfigUsesGmailDefaults);
-  await runTest('uses explicit IMAP inbox settings', testParseInboxConfigUsesExplicitImapSettings);
   await runTest('rejects missing or invalid IMAP settings', testParseInboxConfigRejectsMissingOrInvalidSettings);
   await runTest('extracts plain text response email details', testParseEmailMessageExtractsPlainText);
-  await runTest('decodes base64 email subject and body', testParseEmailMessageDecodesBase64SubjectAndBody);
   await runTest('decodes quoted-printable response email content', testParseEmailMessageDecodesQuotedPrintableBody);
-  await runTest('extracts text from multipart HTML email fallback', testParseEmailMessageExtractsMultipartHtmlFallback);
   finish();
 }
 

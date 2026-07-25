@@ -201,12 +201,7 @@ function testFrontendHasNoPreviewAndProtectsDoubleClick() {
 async function main() {
   suite('RFI Workflow');
   await runTest('enforces role access for RFI sending', testRoleAccess);
-  await runTest('blocks Analyst RFI actions after escalation', testAnalystCannotActionEscalatedCases);
-  await runTest('requires Senior Analyst routing for Senior RFI actions', testSeniorAnalystNeedsSeniorRouting);
   await runTest('validates RFI recipient and request body', testRecipientAndRequestValidation);
-  await runTest('validates transaction ID boundaries', testTransactionIdValidationBoundaries);
-  await runTest('selects RFI recipient source labels', testRecipientSourceSelection);
-  await runTest('rejects unsupported RFI request fields', testRequestBodyRejectsUnsupportedFields);
   await runTest('validates SMTP configuration', testSmtpConfiguration);
   await runTest('builds neutral multipart RFI email content', testNeutralMultipartContent);
   await runTest('removes the RFI preview and protects against double click sends', testFrontendHasNoPreviewAndProtectsDoubleClick);

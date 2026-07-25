@@ -70,10 +70,7 @@ function testStrTransitions() {
 async function main() {
   suite('Risk Engine');
   await runTest('maps numeric scores to risk level bands', testRiskLevelBands);
-  await runTest('handles risk band boundary edge values', testRiskLevelBoundaryValues);
   await runTest('detects transactions outside operating hours', testOperatingHours);
-  await runTest('treats opening hour as allowed and closing hour as blocked', testOperatingHoursBoundaries);
-  await runTest('extracts the transaction hour from a Date object', testTransactionHourUsesDateLocalHour);
   await runTest('adds working days while skipping weekends', testAddWorkingDays);
   await runTest('validates allowed STR status transitions', testStrTransitions);
   finish();

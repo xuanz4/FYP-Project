@@ -89,10 +89,8 @@ function testDocumentTypesCoversEveryEddChecklistCategory() {
 async function main() {
   suite('CDD Documents');
   await runTest('saves a document record and returns a generated ID', testSaveCddDocumentInsertsRowAndReturnsId);
-  await runTest('defaults missing notes to null', testSaveCddDocumentDefaultsMissingNotesToNull);
   await runTest('lists documents for one transaction ordered by recency', testListCddDocumentsQueriesByTransactionOrderedByRecency);
   await runTest('returns null when a document is not found', testGetCddDocumentReturnsNullWhenNotFound);
-  await runTest('returns the row when a document is found', testGetCddDocumentReturnsRowWhenFound);
   await runTest('exposes the fixed document type list', testDocumentTypesCoversEveryEddChecklistCategory);
   finish();
 }

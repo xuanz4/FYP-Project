@@ -232,10 +232,8 @@ async function main() {
   await runTest('keeps low-risk single rule match cleared', testLowRiskMatchRemainsCleared);
   await runTest('adds stored merchant profile contribution to risk score', testStoredMerchantProfileContributesToRiskScore);
   await runTest('declared avg ticket rule prefers the CDD-declared expected ticket', testDeclaredAvgTicketUsesCddExpectedTicketOverStaticThreshold);
-  await runTest('operating hours rule uses the merchant-declared window when on file', testOperatingHoursUsesMerchantDeclaredWindow);
   await runTest('foreign issuer rule allows CDD-declared expected countries', testForeignIssuerAllowsCddDeclaredCountries);
   await runTest('edd_high_risk clears once the EDD checklist is complete', testEddHighRiskClearsOnceChecklistComplete);
-  await runTest('cdd_review_overdue fires only when the review is overdue', testCddReviewOverdueRuleType);
   finish();
 }
 

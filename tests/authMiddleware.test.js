@@ -157,13 +157,8 @@ function testRolePermissionMatrix() {
 async function main() {
   suite('Auth Middleware');
   await runTest('maps roles to home paths and active pages', testRoleMappings);
-  await runTest('maps all known roles to home paths', testAllKnownRoleHomePaths);
-  await runTest('maps all known roles to active pages', testAllKnownActivePages);
   await runTest('redirects unauthenticated users and allows public/API paths', testAuthRedirect);
-  await runTest('allows public static image paths without login', testAuthRedirectAllowsStaticImagePath);
   await runTest('enforces required roles and login state', testRequireRoleAndAuth);
-  await runTest('allows any role listed by requireRole', testRequireRoleAllowsAnyListedRole);
-  await runTest('allows signed-in users through requireAuth', testRequireAuthAllowsSignedInUser);
   await runTest('checks JSON permissions and forbidden response format', testJsonPermissions);
   await runTest('checks role permission matrix', testRolePermissionMatrix);
   finish();

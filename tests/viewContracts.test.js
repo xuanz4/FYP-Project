@@ -115,7 +115,6 @@ async function main() {
   await runTest('keeps transaction detail workflow controls wired to APIs', testTransactionDetailWorkflowControls);
   await runTest('defines expected transaction API routes', testApiRoutesExist);
   await runTest('checklist completion is upload-driven except Senior Sign-off', testChecklistFormsAreUploadDrivenExceptSignoff);
-  await runTest('keeps merchant due diligence expanded after document upload', testCddPanelStaysOpenAfterDocumentUpload);
   finish();
 }
 

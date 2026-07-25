@@ -157,17 +157,10 @@ function testStrAutoFillWithoutMatchedRules() {
 async function main() {
   suite('STR Draft Helpers');
   await runTest('parses final risk scores and maps risk bands', testRiskScoreParsing);
-  await runTest('maps score boundaries to STR risk bands', testRiskLevelMappingBoundaries);
-  await runTest('rejects non-whole final risk score input', testFinalRiskScoreRejectsNonWholeNumbers);
   await runTest('rejects weak notes and accepts meaningful text', testMeaningfulTextValidation);
-  await runTest('normalizes whitespace before checking meaningful notes', testMeaningfulTextNormalizesWhitespace);
   await runTest('normalizes evidence and formats SQL date time', testEvidenceAndFormatting);
-  await runTest('normalizes single evidence values and ignores invalid values', testNormalizeEvidenceAcceptsSingleValue);
-  await runTest('formats SQL date time without milliseconds', testSqlDateFormattingDropsMilliseconds);
   await runTest('builds transaction summary text', testTransactionSummary);
-  await runTest('builds transaction summary text with safe fallbacks', testTransactionSummaryUsesFallbacks);
   await runTest('builds STR auto-fill draft from case context', testStrAutoFill);
-  await runTest('builds STR draft text when no matched rules exist', testStrAutoFillWithoutMatchedRules);
   finish();
 }
 

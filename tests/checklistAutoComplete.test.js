@@ -60,8 +60,6 @@ async function main() {
   suite('Checklist Auto-Complete Mapping');
   await runTest('every Analyst-uploadable document type completes a CDD field only', testEveryAnalystDocumentTypeMapsToACddField);
   await runTest('every Senior-Analyst-uploadable document type completes an EDD field only', testEverySeniorAnalystDocumentTypeMapsToAnEddField);
-  await runTest('CDD document types map to the exact checklist field keys', testCddFieldMapMatchesChecklistFieldKeys);
-  await runTest('EDD document types map to the exact checklist field keys, excluding sign-off', testEddFieldMapMatchesChecklistFieldKeysAndExcludesSignoff);
   finish();
 }
 

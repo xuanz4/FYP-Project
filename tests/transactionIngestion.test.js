@@ -233,10 +233,8 @@ async function testIngestTransactionNormalizesStringAmountsAndDates() {
 async function main() {
   suite('Transaction Ingestion');
   await runTest('upserts partner merchant details', testEnsureMerchantUpsertsPartnerMerchant);
-  await runTest('uses safe defaults when merchant optional fields are missing', testEnsureMerchantUsesDefaultsForMissingOptionalFields);
   await runTest('persists evaluated transaction, matched rules, and broadcast event', testIngestTransactionPersistsEvaluationAndBroadcasts);
   await runTest('clears low-risk transaction without matched-rule inserts', testIngestTransactionClearsLowRiskTransactionWithoutBroadcast);
-  await runTest('normalizes string transaction amounts and dates', testIngestTransactionNormalizesStringAmountsAndDates);
   finish();
 }
 

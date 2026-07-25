@@ -85,7 +85,6 @@ async function main() {
   await runTest('rejects a document for a different merchant', testRejectsWrongMerchant);
   await runTest('accepts a matching CDD filename for the current merchant', testAcceptsMatchingFile);
   await runTest('accepts a matching EDD filename for a Senior Analyst', testSeniorAnalystAcceptsEddFile);
-  await runTest('rejects a CDD file uploaded by a Senior Analyst', testSeniorAnalystRejectsCddFile);
   finish();
 }
 

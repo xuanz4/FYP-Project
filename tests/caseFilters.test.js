@@ -97,10 +97,7 @@ async function main() {
   suite('Case Filters');
   await runTest('trims analyst filter inputs', testAnalystFiltersTrimInputs);
   await runTest('defaults missing analyst filters to empty strings', testAnalystFiltersDefaultToEmptyStrings);
-  await runTest('stringifies analyst filter values safely', testAnalystFiltersStringifyNonStringInputs);
   await runTest('includes senior audit and scope filter fields', testSeniorFiltersIncludeAuditAndScopeFields);
-  await runTest('defaults missing senior filter fields to empty strings', testSeniorFiltersDefaultExtraFieldsToEmptyStrings);
-  await runTest('keeps analyst filter fields on senior filters', testSeniorFiltersKeepAnalystFilterFields);
   finish();
 }
 

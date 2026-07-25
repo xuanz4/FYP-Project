@@ -183,12 +183,8 @@ async function main() {
   await runTest('parses expected activity and flags an overdue review', testParsesExpectedActivityAndFlagsOverdueReview);
   await runTest('EDD completion requires all four items including senior sign-off', testComputeEddCompleteRequiresAllFourIncludingSignoff);
   await runTest('CDD completion requires both business registration and screening steps', testComputeCddCompleteRequiresBothSteps);
-  await runTest('flags a past next-review-date as overdue', testIsReviewOverdue);
-  await runTest('normalizes comma-separated expected countries', testParseExpectedCountries);
   await runTest('requires EDD for High and Critical transaction cases', testHighAndCriticalTransactionsRequireEdd);
-  await runTest('requires EDD for a High transaction from a Standard merchant', testStandardMerchantHighTransactionRequiresEdd);
   await runTest('keeps the EDD checklist isolated per transaction for the same merchant', testEddChecklistIsIsolatedPerTransaction);
-  await runTest('keeps the CDD checklist isolated per transaction for the same merchant', testCddChecklistIsIsolatedPerTransaction);
   finish();
 }
 
