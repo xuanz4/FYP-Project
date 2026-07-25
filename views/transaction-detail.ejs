@@ -1040,6 +1040,15 @@
                             <span>Analyst Notes</span>
                             <textarea id="resolveAnalystNotes" name="analystNotes" required minlength="10" placeholder="Summarise the review evidence and final decision."></textarea>
                         </label>
+                        <% if (cdd.reviewOverdue) { %>
+                        <label class="wide">
+                            <span>CDD Override Reason</span>
+                            <textarea id="cddOverrideReasonInput" name="cddOverrideReason" <%= currentUser.role === 'Senior Analyst' ? 'required' : '' %> minlength="10" placeholder="This merchant's CDD review date has passed. Explain why this case can proceed anyway."></textarea>
+                            <% if (currentUser.role !== 'Senior Analyst') { %>
+                            <small>This merchant's CDD review is overdue. Only a Senior Analyst can override this and resolve the case.</small>
+                            <% } %>
+                        </label>
+                        <% } %>
                         <p class="rfi-warning wide">Manual reconciliation is required before this case can be resolved. The final score must equal MCC + Profile + Detection, capped at 100.</p>
                         <label>
                             <span>Manual MCC Contribution</span>
@@ -1180,6 +1189,7 @@
         const resolveDecision = document.querySelector('#resolveDecision');
         const resolveReason = document.querySelector('#resolveReason');
         const resolveNotes = document.querySelector('#resolveAnalystNotes');
+        const cddOverrideReasonInput = document.querySelector('#cddOverrideReasonInput');
         const manualMccContribution = document.querySelector('#manualMccContribution');
         const manualProfileContribution = document.querySelector('#manualProfileContribution');
         const manualDetectionContribution = document.querySelector('#manualDetectionContribution');
@@ -1308,6 +1318,7 @@
                         manualMccContribution: Number(manualMccContribution?.value),
                         manualProfileContribution: Number(manualProfileContribution?.value),
                         manualDetectionContribution: Number(manualDetectionContribution?.value),
+                        cddOverrideReason: cddOverrideReasonInput?.value || undefined,
                     }),
                 });
                 const contentType = response.headers.get('content-type') || '';

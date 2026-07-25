@@ -26,19 +26,42 @@ function calculateFinalScoreFromContributions(mccContribution, profileContributi
 // EDD completion requires senior_signoff_completed specifically (see merchantCdd.js's
 // computeEddComplete) - an Analyst can record the two Analyst-settable checklist items but
 // can never grant sign-off themselves, so this gate can't be satisfied by one role alone.
-function cddGateRequirement({ role, cddContext }) {
-  const reasons = [];
-  if (!cddContext.cddComplete) reasons.push('CDD is incomplete');
-  if (cddContext.reviewOverdue) reasons.push('the CDD review date has passed');
-  if (cddContext.eddRequired) {
-    if (!cddContext.eddComplete) reasons.push('this merchant\'s EDD checklist is incomplete (Senior Analyst sign-off outstanding)');
+//
+// reviewOverdue is kept separate from the hard reasons below: it reflects the MERCHANT's
+// (not this case's) due-diligence staleness, so unlike an incomplete checklist it can be
+// consciously overridden by a Senior Analyst with a logged reason, rather than permanently
+// blocking case resolution on an unrelated admin record. See handleDatabaseResolveRequest's
+// 'CDD Review Overdue Override' audit entry for the accountability trail this produces.
+function cddGateRequirement({ role, cddContext, cddOverrideReason }) {
+  const hardReasons = [];
+  if (!cddContext.cddComplete) hardReasons.push('CDD is incomplete');
+  if (cddContext.eddRequired && !cddContext.eddComplete) {
+    hardReasons.push('this merchant\'s EDD checklist is incomplete (Senior Analyst sign-off outstanding)');
   }
-  if (!reasons.length) return { allowed: true };
-  return {
-    allowed: false,
-    status: 403,
-    message: `Resolution is blocked: ${reasons.join('; ')}.`,
-  };
+  if (hardReasons.length) {
+    return { allowed: false, status: 403, message: `Resolution is blocked: ${hardReasons.join('; ')}.` };
+  }
+
+  if (cddContext.reviewOverdue) {
+    if (role !== 'Senior Analyst') {
+      return {
+        allowed: false,
+        status: 403,
+        message: 'Resolution is blocked: the CDD review date has passed. Escalate to a Senior Analyst, who can override this with a documented reason.',
+      };
+    }
+    const reason = String(cddOverrideReason || '').trim();
+    if (reason.length < 10) {
+      return {
+        allowed: false,
+        status: 403,
+        message: 'Resolution is blocked: the CDD review date has passed. Provide a CDD override reason of at least 10 characters to proceed anyway.',
+      };
+    }
+    return { allowed: true, cddOverridden: true, cddOverrideReason: reason };
+  }
+
+  return { allowed: true };
 }
 
 function reviewRequirementForScoreChange({ role, automatedScore, manualFinalScore, analystNotes }) {
@@ -151,7 +174,11 @@ async function handleDatabaseResolveRequest(req, res) {
     transactionRiskLevel: row.risk_level,
     transactionId: row.transaction_id,
   });
-  const cddGate = cddGateRequirement({ role: req.session.user.role, cddContext });
+  const cddGate = cddGateRequirement({
+    role: req.session.user.role,
+    cddContext,
+    cddOverrideReason: req.body.cddOverrideReason,
+  });
   if (!cddGate.allowed) {
     return res.status(cddGate.status).json({ success: false, message: cddGate.message });
   }
@@ -258,6 +285,15 @@ async function handleDatabaseResolveRequest(req, res) {
     userId: req.session.user.id,
     notes: `Assessment resolved with decision ${decision} and reason ${resolutionReason}.`,
   });
+  if (cddGate.cddOverridden) {
+    await auditLogModel.insert({
+      auditId: id('AUD'),
+      transactionId: row.transaction_id,
+      action: 'CDD Review Overdue Override',
+      userId: req.session.user.id,
+      notes: `Case resolved despite the merchant's CDD review date having passed. Reason: ${cddGate.cddOverrideReason}`,
+    });
+  }
   // Written every time, match or mismatch, so there is a permanent record that reconciliation
   // was performed on every resolved case - not just the ones that found a problem.
   await auditLogModel.insert({
