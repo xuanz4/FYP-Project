@@ -4,6 +4,11 @@
     const tx = transaction || {};
     const caseInfo = caseRecord || null;
     const logs = Array.isArray(activityLogs) ? activityLogs : [];
+    // An RFI's mailbox response stays relevant for the life of the case, not just while the case
+    // happens to sit in the narrow 'Pending RFI'/'Waiting for Information' window - once escalated,
+    // referred, or otherwise moved on, a role picking the case up afterwards still needs to be able
+    // to load and review the merchant's response.
+    const hasSentRfi = logs.some((entry) => entry.action === 'RFI_SENT');
     const contributions = Array.isArray(riskContributions) ? riskContributions : [];
     const role = currentRole || 'Analyst';
     const roleLabel = role === 'STRO' ? 'Suspicious Transaction Report Officer' : role;
@@ -612,7 +617,7 @@
                             </div>
                         </article>
                     <% } %>
-                    <% if (caseInfo && !isAdmin && ['Pending RFI', 'Waiting for Information'].includes(rawCaseStatus)) { %>
+                    <% if (caseInfo && !isAdmin && (['Pending RFI', 'Waiting for Information'].includes(rawCaseStatus) || hasSentRfi)) { %>
                         <article id="merchant-rfi-response" class="review-info-card rfi-response-panel overview-rfi-response-card">
                             <div class="rfi-response-card-header">
                                 <div>

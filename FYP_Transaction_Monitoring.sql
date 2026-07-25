@@ -218,14 +218,16 @@ CREATE TABLE str_reports (
 -- Table 9: Case Escalation History
 -- Preserves who worked a case before each escalation wipes cases.assigned_to - lets
 -- hasCaseAccess() (models/caseModel.js) keep the original Analyst able to see a case's RFI reply
--- lookup after it's escalated.
+-- lookup after it's escalated. escalated_by is nullable because the overdue-CDD auto-referral
+-- sweep (transactionsController.js's autoReferOverdueCddCases) routes cases with no human actor,
+-- same "System" convention audit_logs.user_id already uses.
 CREATE TABLE case_escalation_history (
     history_id VARCHAR(40) PRIMARY KEY,
     case_id VARCHAR(40) NOT NULL,
     from_user_id VARCHAR(20) NULL,
     from_role VARCHAR(40) NULL,
     to_role VARCHAR(40) NOT NULL,
-    escalated_by VARCHAR(20) NOT NULL,
+    escalated_by VARCHAR(20) NULL,
     escalated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_case_escalation_history_case (case_id),
     FOREIGN KEY (case_id) REFERENCES cases(case_id) ON DELETE CASCADE

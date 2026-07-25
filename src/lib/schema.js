@@ -188,12 +188,25 @@ const ensureStrWorkflowSchema = memoizeAsync(async function ensureStrWorkflowSch
       from_user_id VARCHAR(20) NULL,
       from_role VARCHAR(40) NULL,
       to_role VARCHAR(40) NOT NULL,
-      escalated_by VARCHAR(20) NOT NULL,
+      escalated_by VARCHAR(20) NULL,
       escalated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_case_escalation_history_case (case_id),
       FOREIGN KEY (case_id) REFERENCES cases(case_id) ON DELETE CASCADE
     )`,
   );
+
+  // escalated_by started out NOT NULL, back when every escalation had a human actor. The
+  // overdue-CDD auto-referral sweep (transactionsController.js's autoReferOverdueCddCases) routes
+  // cases to Senior Analyst with no human actor - same "System" convention audit_logs.user_id
+  // already uses - so an existing database created before that sweep existed needs this relaxed.
+  const [escalatedByColumn] = await database.query(
+    `SELECT IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'case_escalation_history' AND COLUMN_NAME = 'escalated_by'`,
+    [dbName],
+  );
+  if (escalatedByColumn[0]?.IS_NULLABLE === 'NO') {
+    await database.execute('ALTER TABLE case_escalation_history MODIFY COLUMN escalated_by VARCHAR(20) NULL');
+  }
 });
 
 // Real additive risk formula (MCC + Profile + Detection) needs each component persisted per

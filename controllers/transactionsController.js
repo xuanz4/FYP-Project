@@ -281,6 +281,36 @@ async function autoAssignStaleCases() {
   }
 }
 
+// Only a Senior Analyst can supply the override reason that clears the CDD-review-overdue gate
+// in resolveWorkflow.js's cddGateRequirement, so a case stuck on that gate needs to actually reach
+// a Senior Analyst rather than sit with an Analyst (or unassigned) until someone happens to try
+// resolving it and discovers the block. This sweep finds those cases proactively and routes them
+// the same way a manual "Escalate to Senior Analyst" would - already-Senior/STRO cases are left
+// alone by findCasesWithOverdueCdd's WHERE clause, so this can never pull a case backwards out of
+// the STR workflow or double-route one that's already been handed off.
+async function autoReferOverdueCddCases() {
+  if (!database.isEnabled()) return;
+
+  const overdueCases = await caseModel.findCasesWithOverdueCdd();
+  if (!overdueCases.length) return;
+
+  for (const overdueCase of overdueCases) {
+    await caseModel.routeToSeniorAnalyst({
+      caseId: overdueCase.case_id,
+      userId: null,
+      notes: 'Automatically referred to Senior Analyst: the merchant\'s CDD review date has passed and only a Senior Analyst can override this to resolve the case.',
+    });
+    await transactionModel.updateActionStatus(overdueCase.transaction_id, 'Pending Senior Review');
+    await auditCaseAction({
+      transactionId: overdueCase.transaction_id,
+      caseId: overdueCase.case_id,
+      action: 'Case Auto-Referred to Senior Analyst',
+      userId: null,
+      notes: 'Case automatically referred to Senior Analyst because the merchant\'s CDD review date has passed and only a Senior Analyst can provide the override needed to resolve it.',
+    });
+  }
+}
+
 // The case-open triggers (see FYP_Transaction_Monitoring.sql) never set due_at, so an unclaimed
 // case has no SLA clock until someone assigns it. That means a non-Critical/High case could sit
 // unassigned indefinitely with no overdue signal at all. This backfills a due date - anchored to
@@ -732,7 +762,7 @@ async function latestRfiResponseEndpoint(req, res) {
   if (req.session.user.role !== 'Admin') {
     await ensureStrWorkflowSchema();
     const caseId = await caseModel.findLatestIdByTransactionId(transactionId);
-    if (!caseId || !(await caseModel.hasCaseAccess(caseId, req.session.user.id))) {
+    if (!caseId || !(await caseModel.hasCaseAccess(caseId, req.session.user.id, req.session.user.role))) {
       return forbidJson(res);
     }
   }
@@ -1097,6 +1127,7 @@ module.exports = {
   transactionDetailPage,
   assignToMe,
   autoAssignStaleCases,
+  autoReferOverdueCddCases,
   backfillCaseDueDates,
   referToStro,
   escalate,

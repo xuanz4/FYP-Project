@@ -104,6 +104,25 @@ async function findStale(staleMinutes) {
   return rows;
 }
 
+// Cases whose merchant's CDD review date has passed and that aren't already with a Senior
+// Analyst or STRO - only a Senior Analyst can provide the override reason needed to resolve
+// these (see resolveWorkflow.js's cddGateRequirement), so leaving them sitting with an Analyst
+// or unassigned just means the block is discovered late, at resolve time, instead of routed
+// to someone who can actually clear it.
+async function findCasesWithOverdueCdd() {
+  const [rows] = await database.query(
+    `SELECT c.case_id, c.transaction_id, c.assigned_to, c.assigned_role
+     FROM cases c
+     JOIN transactions t ON t.transaction_id = c.transaction_id
+     JOIN merchant_cdd_profiles p ON p.merchant_id = t.merchant_id
+     WHERE c.status NOT IN ('Resolved', 'Dismissed as False Positive', 'STR Filed')
+       AND (c.assigned_role IS NULL OR c.assigned_role = 'Analyst')
+       AND p.next_review_date IS NOT NULL
+       AND p.next_review_date < NOW()`,
+  );
+  return rows;
+}
+
 async function autoAssign({ caseId, analystId, dueAtSql }) {
   const [result] = await database.execute(
     `UPDATE cases
@@ -202,15 +221,21 @@ async function routeToSeniorAnalyst({ caseId, userId, notes }) {
   });
 }
 
-// True if userId currently holds the case, or appears in its escalation history (either side
-// of a handoff) - i.e. "current assignee OR anyone who has ever worked this case".
-async function hasCaseAccess(caseId, userId) {
+// True if userId currently holds the case, appears in its escalation history (either side of a
+// handoff), or the case is routed to userRole and not yet individually claimed - i.e. "current
+// assignee OR anyone who has ever worked this case OR anyone eligible to claim it from the queue".
+// The role branch mirrors the visibility rule the Senior Analyst/STRO queue views already use
+// (see stroCaseWhereAndValues in stroController.js), so a case that's visible and actionable from
+// the queue is never blocked here just because nobody has clicked "Assign to Me" on it yet.
+async function hasCaseAccess(caseId, userId, userRole) {
   const [rows] = await database.query(
     `SELECT 1 FROM cases WHERE case_id = ? AND assigned_to = ?
      UNION
      SELECT 1 FROM case_escalation_history WHERE case_id = ? AND (from_user_id = ? OR escalated_by = ?)
+     UNION
+     SELECT 1 FROM cases WHERE case_id = ? AND assigned_role = ? AND assigned_to IS NULL
      LIMIT 1`,
-    [caseId, userId, caseId, userId, userId],
+    [caseId, userId, caseId, userId, userId, caseId, userRole || null],
   );
   return rows.length > 0;
 }
@@ -534,6 +559,7 @@ module.exports = {
   findRoleContextByTransactionId,
   claimForAnalyst,
   findStale,
+  findCasesWithOverdueCdd,
   autoAssign,
   findWithoutDueDate,
   setDueDateIfMissing,

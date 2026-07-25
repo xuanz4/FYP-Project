@@ -15,7 +15,9 @@ const {
   validateRfiAccess,
   validateRfiRequestBody,
 } = require('./src/lib/rfiWorkflow');
-const { validateStrTransition, autoAssignStaleCases, backfillCaseDueDates } = require('./controllers/transactionsController');
+const {
+  validateStrTransition, autoAssignStaleCases, autoReferOverdueCddCases, backfillCaseDueDates,
+} = require('./controllers/transactionsController');
 const { startRfiReplyChecker } = require('./src/jobs/rfiReplyChecker');
 
 const app = express();
@@ -87,6 +89,9 @@ async function startServer() {
   setInterval(() => {
     autoAssignStaleCases().catch((error) => {
       console.error(`Stale case auto-assign failed: ${error.message}`);
+    });
+    autoReferOverdueCddCases().catch((error) => {
+      console.error(`Overdue-CDD auto-referral failed: ${error.message}`);
     });
     backfillCaseDueDates().catch((error) => {
       console.error(`Case due-date backfill failed: ${error.message}`);
