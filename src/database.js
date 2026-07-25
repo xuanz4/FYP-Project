@@ -7,15 +7,27 @@ try {
   mysql = null;
 }
 
+// Managed MySQL hosts (e.g. Azure Database for MySQL) generally require SSL and reject plain
+// connections. Set DB_SSL=true to enable it. Set DB_SSL_REJECT_UNAUTHORIZED=false only if you
+// hit a self-signed/unrecognised-CA error and have no CA cert to point at instead - that skips
+// certificate verification, so prefer leaving it at the (unauthorized-checking) default when
+// possible. A personal local MySQL server doesn't need this at all - leave DB_SSL unset.
 const config = {
   host: process.env.DB_HOST || 'localhost',
   port: Number(process.env.DB_PORT || 3306),
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'fyp_transaction_monitoring_test',
+  // Must match the hardcoded database name FYP_Transaction_Monitoring.sql creates
+  // (DROP DATABASE IF EXISTS fyp_transaction_monitoring / CREATE DATABASE fyp_transaction_monitoring)
+  // when DB_AUTO_CREATE is unset/true. On a shared server (DB_AUTO_CREATE=false), this should
+  // instead be whatever database name was actually assigned to you there.
+  database: process.env.DB_NAME || 'fyp_transaction_monitoring',
   waitForConnections: true,
   connectionLimit: 10,
   namedPlaceholders: true,
+  ...(process.env.DB_SSL === 'true'
+    ? { ssl: { rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false' } }
+    : {}),
 };
 
 let pool = null;

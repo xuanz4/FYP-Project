@@ -600,11 +600,23 @@ const ensureMerchantCddSchema = memoizeAsync(async function ensureMerchantCddSch
       FOREIGN KEY (case_id) REFERENCES cases(case_id) ON DELETE CASCADE
     )`,
   );
-  await database.execute(
-    `ALTER TABLE merchant_cdd_documents
-     MODIFY COLUMN document_type
-       ENUM('Business Registration', 'Screening', 'Source of Funds', 'Site Visit', 'Enhanced Verification', 'Other') NOT NULL`,
+  const [documentTypeColumn] = await database.query(
+    `SELECT COLUMN_TYPE
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'merchant_cdd_documents' AND COLUMN_NAME = 'document_type'
+     LIMIT 1`,
+    [dbName],
   );
+  const documentTypeValues = ['Business Registration', 'Screening', 'Source of Funds', 'Site Visit', 'Enhanced Verification', 'Other'];
+  const hasAllDocumentTypes = documentTypeColumn[0]
+    && documentTypeValues.every((value) => documentTypeColumn[0].COLUMN_TYPE.includes(`'${value}'`));
+  if (!hasAllDocumentTypes) {
+    await database.execute(
+      `ALTER TABLE merchant_cdd_documents
+       MODIFY COLUMN document_type
+         ENUM('Business Registration', 'Screening', 'Source of Funds', 'Site Visit', 'Enhanced Verification', 'Other') NOT NULL`,
+    );
+  }
 
   // Records each mailbox reply once so repeated "Load Response" checks cannot create duplicate
   // receipt audit entries. The fingerprint uses Message-ID when available and a content hash
