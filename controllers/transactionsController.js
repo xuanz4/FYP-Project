@@ -11,7 +11,6 @@ const matchedRuleModel = require('../models/matchedRuleModel');
 const auditLogModel = require('../models/auditLogModel');
 const strReportModel = require('../models/strReportModel');
 const rfiModel = require('../models/rfiModel');
-const eddChecklistModel = require('../models/eddChecklistModel');
 const {
   addWorkingDays,
   hasMeaningfulText,
@@ -368,6 +367,18 @@ async function referToStro(req, res) {
   }
   if (context.str_status || context.assigned_role === 'STRO' || context.escalation_destination === 'STRO') {
     return res.status(409).json({ success: false, message: 'This case has already been referred to STRO.' });
+  }
+
+  const merchantId = await transactionModel.findMerchantIdById(context.transaction_id);
+  if (merchantId) {
+    await ensureRiskAndContactSchema();
+    const cddContext = await loadMerchantCddContext(database, merchantId, {
+      transactionRiskLevel: context.risk_level,
+      transactionId: context.transaction_id,
+    });
+    if (cddContext.eddRequired && !cddContext.eddChecklist?.senior_signoff_completed) {
+      return res.status(409).json({ success: false, message: 'Complete EDD Senior Sign-off before referring this case to STRO.' });
+    }
   }
 
   const referralReason = String(req.body.referralReason || '').trim();
@@ -837,6 +848,9 @@ async function updateCaseEddChecklist(req, res) {
   if (isTerminalCaseContext(caseContext)) {
     return res.status(409).json({ success: false, message: 'CDD/EDD checks cannot be changed after the case is closed.' });
   }
+  if (isRoutedToRole(caseContext, 'STRO') || caseContext.case_status === 'Escalated') {
+    return res.status(409).json({ success: false, message: 'This case has been escalated to STRO. EDD sign-off must be completed before escalation and can no longer be changed.' });
+  }
   const merchantId = await transactionModel.findMerchantIdById(transactionId);
   if (!merchantId) return res.status(404).json({ success: false, message: 'Transaction not found' });
   const cddContext = await loadMerchantCddContext(database, merchantId, {
@@ -847,7 +861,7 @@ async function updateCaseEddChecklist(req, res) {
     return res.status(409).json({ success: false, message: 'EDD sign-off is not required for this case.' });
   }
 
-  const checklist = await eddChecklistModel.findByTransactionId(transactionId);
+  const checklist = cddContext.eddChecklist;
   if (checklist?.senior_signoff_completed) {
     return res.status(409).json({
       success: false,

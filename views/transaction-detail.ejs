@@ -115,7 +115,7 @@
     const analystInitialStage = isAnalyst && !!caseInfo && escalationDestination === 'Not assigned';
     const seniorReviewStage = isSenior && !!caseInfo && routedToSenior && !routedToStro;
     const stroReviewStage = isStro && !!caseInfo && routedToStro && strStatus === 'Recommended';
-    const canReferToStro = !isTerminalCase && seniorReviewStage && strStatus === 'Not Started';
+    let canReferToStro = !isTerminalCase && seniorReviewStage && strStatus === 'Not Started';
     const canStroWorkStr = !isTerminalCase && stroReviewStage;
     const canStroRequestInfo = canStroWorkStr;
     const canMarkStrNotRequired = canStroWorkStr;
@@ -168,18 +168,25 @@
     };
     const cddChecklist = cdd.cddChecklist || {};
     const eddChecklist = cdd.eddChecklist || {};
+    // EDD Senior Sign-off is a prerequisite for escalation, not something that can trail behind
+    // it, so a case can't be referred to STRO while sign-off is still outstanding.
+    if (cdd.eddRequired && !eddChecklist.senior_signoff_completed) {
+        canReferToStro = false;
+    }
     const screenings = Array.isArray(screeningRecords) ? screeningRecords : [];
     const evidenceLog = Array.isArray(rfiEvidence) ? rfiEvidence : [];
     // CDD and EDD checklist items are completed automatically when a matching document is
     // uploaded (see transactionsController.js's uploadCaseDocument) - there is no manual
     // checklist form for either role. canPerformSeniorEddReview now only gates the Sign-off
     // form, the one EDD item that stays a manual attestation.
-    // EDD completion is a due-diligence exception to workflow routing: a Senior Analyst may
-    // provide the required sign-off after escalation, but gains no other case action rights.
+    // EDD Senior Sign-off must be completed before the case is referred to STRO - once
+    // escalated (routedToStro), sign-off can no longer be given here (see canReferToStro above,
+    // which blocks the referral itself until sign-off is done).
     const canPerformSeniorEddReview = isSenior
         && cdd.eddRequired
         && !eddChecklist.senior_signoff_completed
-        && !isTerminalCase;
+        && !isTerminalCase
+        && !routedToStro;
     const eddPrerequisitesComplete = Boolean(
         eddChecklist.source_of_funds_verified
         && eddChecklist.site_visit_completed
