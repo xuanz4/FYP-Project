@@ -25,6 +25,7 @@ const config = {
   waitForConnections: true,
   connectionLimit: 10,
   namedPlaceholders: true,
+  timezone: '+08:00',
   ...(process.env.DB_SSL === 'true'
     ? { ssl: { rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false' } }
     : {}),
@@ -32,6 +33,14 @@ const config = {
 
 let pool = null;
 let enabled = false;
+
+function createConfiguredPool() {
+  const nextPool = mysql.createPool(config);
+  nextPool.on('connection', (connection) => {
+    connection.query("SET time_zone = '+08:00'");
+  });
+  return nextPool;
+}
 
 async function query(sql, params = []) {
   if (!enabled) {
@@ -79,7 +88,7 @@ async function initDatabase() {
   }
 
   try {
-    pool = mysql.createPool(config);
+    pool = createConfiguredPool();
     await pool.query('SELECT 1');
     enabled = true;
     console.log(`Connected to MySQL database "${config.database}".`);
@@ -90,7 +99,7 @@ async function initDatabase() {
       try {
         const { createSchema } = require('./lib/dbProvision');
         await createSchema();
-        pool = mysql.createPool(config);
+        pool = createConfiguredPool();
         await pool.query('SELECT 1');
         enabled = true;
         console.log(`Connected to MySQL database "${config.database}".`);
