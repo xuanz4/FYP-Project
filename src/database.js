@@ -18,10 +18,10 @@ const config = {
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
   // Must match the hardcoded database name FYP_Transaction_Monitoring.sql creates
-  // (DROP DATABASE IF EXISTS fyp_transaction_monitoring / CREATE DATABASE fyp_transaction_monitoring)
+  // (DROP DATABASE IF EXISTS `soi-2026-2610-0031-xuanzheng` / CREATE DATABASE `soi-2026-2610-0031-xuanzheng`)
   // when DB_AUTO_CREATE is unset/true. On a shared server (DB_AUTO_CREATE=false), this should
   // instead be whatever database name was actually assigned to you there.
-  database: process.env.DB_NAME || 'fyp_transaction_monitoring',
+  database: process.env.DB_NAME || 'soi-2026-2610-0031-xuanzheng',
   waitForConnections: true,
   connectionLimit: 10,
   namedPlaceholders: true,

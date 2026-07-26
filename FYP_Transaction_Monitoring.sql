@@ -15,9 +15,9 @@
 -- existing local DB) working without a manual migration step.
 -- =====================================================
 
-DROP DATABASE IF EXISTS fyp_transaction_monitoring;
-CREATE DATABASE fyp_transaction_monitoring;
-USE fyp_transaction_monitoring;
+DROP DATABASE IF EXISTS `soi-2026-2610-0031-xuanzheng`;
+CREATE DATABASE `soi-2026-2610-0031-xuanzheng`;
+USE `soi-2026-2610-0031-xuanzheng`;
 
 -- =====================================================
 -- CORE TABLES
