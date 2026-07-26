@@ -1,10 +1,8 @@
-<% if (includeClientScript !==false) { %>
+<% if (currentUser) { %>
   <script src="/socket.io/socket.io.js?v=4"></script>
   <script src="/app.js?v=2"></script>
-  <% } %>
-    <% if (currentUser) { %>
-      <script src="/notifications.js"></script>
-    <% } %>
-    </body>
+  <script src="/notifications.js"></script>
+<% } %>
+</body>
 
-    </html>
+</html>
