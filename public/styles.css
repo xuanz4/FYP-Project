@@ -676,6 +676,14 @@ body.modal-open {
   flex-direction: column;
 }
 
+.resolve-dialog > .detail-close {
+  align-self: flex-end;
+  width: auto;
+  min-height: 28px;
+  padding: 5px 10px;
+  font-size: 0.72rem;
+}
+
 .resolve-dialog .panel-header {
   flex: 0 0 auto;
 }
