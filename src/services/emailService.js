@@ -109,7 +109,6 @@ function parseSmtpConfig(env = process.env) {
     pass: String(env.SMTP_PASS),
     from: fromMailbox.address,
     fromName: String(env.SMTP_FROM_NAME || fromMailbox.name || 'UNIWEB Transaction Monitoring Team').trim(),
-    servername: String(env.SMTP_SERVERNAME || env.SMTP_HOST).trim(),
   };
 }
 
@@ -172,7 +171,7 @@ function buildRfiEmail({
 }
 
 function smtpConfigKey(config) {
-  return JSON.stringify([config.host, config.port, config.secure, config.user, config.from, config.servername]);
+  return JSON.stringify([config.host, config.port, config.secure, config.user, config.from]);
 }
 
 function getSmtpTransporter(config, createTransport = nodemailer.createTransport) {
@@ -183,7 +182,6 @@ function getSmtpTransporter(config, createTransport = nodemailer.createTransport
       port: config.port,
       secure: config.secure,
       auth: { user: config.user, pass: config.pass },
-      tls: { servername: config.servername },
       connectionTimeout: 10_000,
       greetingTimeout: 10_000,
       socketTimeout: 20_000,

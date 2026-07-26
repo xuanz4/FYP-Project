@@ -678,7 +678,21 @@ function liveRefreshScript(req, res) {
   res.send(`(function () {
   var dot = document.querySelector('#connectionDot');
   var text = document.querySelector('#connectionText');
-  var socket = io();
+  if (typeof window.io !== 'function') {
+    if (text) text.textContent = 'Live stream unavailable';
+    return;
+  }
+
+  var socket = window.io(window.location.origin, {
+    path: '/socket.io',
+    transports: ['polling', 'websocket'],
+    upgrade: true,
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    timeout: 20000
+  });
   var refreshTimer = null;
 
   socket.on('connect', function () {
